@@ -61,26 +61,51 @@ class AccountImportRow(BaseModel):
     @classmethod
     def validate_name(cls, v):
         return v.strip().title()
-    
     @field_validator('account_type')
     @classmethod
     def validate_account_type(cls, v):
-        v_upper = v.upper().strip()
-        valid_types = [t.value for t in AccountType]
-        if v_upper not in valid_types:
-            raise ValueError(f"Tipo de cuenta inválido. Debe ser uno de: {', '.join(valid_types)}")
-        return v_upper
+        # Normalizar el valor de entrada
+        v_normalized = v.strip().lower()
+        
+        # Crear mapeo case-insensitive de valores válidos
+        valid_types_map = {t.value.lower(): t.value for t in AccountType}
+        valid_types_map.update({t.value.upper(): t.value for t in AccountType})  # Agregar versiones en mayúsculas
+        
+        # Buscar el valor normalizado
+        if v_normalized in valid_types_map:
+            return valid_types_map[v_normalized]
+        
+        # Si no se encuentra, mostrar error con valores aceptados en ambos formatos
+        valid_examples = [f"'{t.value}' o '{t.value.upper()}'" for t in AccountType]
+        raise ValueError(f"Tipo de cuenta inválido. Debe ser uno de: {', '.join(valid_examples)}")
     
     @field_validator('category')
     @classmethod
     def validate_category(cls, v):
         if v is None:
             return v
-        v_upper = v.upper().strip()
-        valid_categories = [c.value for c in AccountCategory]
-        if v_upper not in valid_categories:
-            raise ValueError(f"Categoría inválida. Debe ser una de: {', '.join(valid_categories)}")
-        return v_upper
+            
+        # Normalizar el valor de entrada
+        v_normalized = v.strip().lower()
+        
+        # Crear mapeo case-insensitive de valores válidos
+        valid_categories_map = {c.value.lower(): c.value for c in AccountCategory}
+        valid_categories_map.update({c.value.upper(): c.value for c in AccountCategory})  # Agregar versiones en mayúsculas
+        
+        # Buscar el valor normalizado
+        if v_normalized in valid_categories_map:
+            return valid_categories_map[v_normalized]
+        
+        # Si no se encuentra, mostrar error con valores aceptados en ambos formatos
+        valid_examples = [f"'{c.value}' o '{c.value.upper()}'" for c in AccountCategory]
+        raise ValueError(f"Categoría inválida. Debe ser una de: {', '.join(valid_examples)}")
+    
+    @field_validator('parent_code')
+    @classmethod
+    def validate_parent_code(cls, v):
+        if v is None:
+            return v
+        return v.strip().upper()
 
 
 # Schemas para importación de asientos
@@ -120,11 +145,20 @@ class JournalEntryImportRow(BaseModel):
     @field_validator('entry_type')
     @classmethod
     def validate_entry_type(cls, v):
-        v_upper = v.upper().strip()
-        valid_types = [t.value for t in JournalEntryType]
-        if v_upper not in valid_types:
-            raise ValueError(f"Tipo de asiento inválido. Debe ser uno de: {', '.join(valid_types)}")
-        return v_upper
+        # Normalizar el valor de entrada
+        v_normalized = v.strip().lower()
+        
+        # Crear mapeo case-insensitive de valores válidos
+        valid_types_map = {t.value.lower(): t.value for t in JournalEntryType}
+        valid_types_map.update({t.value.upper(): t.value for t in JournalEntryType})  # Agregar versiones en mayúsculas
+        
+        # Buscar el valor normalizado
+        if v_normalized in valid_types_map:
+            return valid_types_map[v_normalized]
+        
+        # Si no se encuentra, mostrar error con valores aceptados en ambos formatos
+        valid_examples = [f"'{t.value}' o '{t.value.upper()}'" for t in JournalEntryType]
+        raise ValueError(f"Tipo de asiento inválido. Debe ser uno de: {', '.join(valid_examples)}")
     
     @field_validator('entry_date', mode='before')
     @classmethod
@@ -193,6 +227,7 @@ class ImportRowResult(BaseModel):
     status: str  # 'success', 'error', 'warning', 'skipped'
     entity_id: Optional[uuid.UUID] = None
     entity_code: Optional[str] = None
+    entity_type: Optional[str] = None  # 'account', 'journal_entry'
     errors: List[ImportError] = []
     warnings: List[ImportError] = []
 
@@ -214,6 +249,91 @@ class ImportSummary(BaseModel):
     
     # Errores más comunes
     most_common_errors: Dict[str, int] = {}
+    
+    # Propiedades calculadas para feedback mejorado
+    @property
+    def success_rate(self) -> float:
+        """Tasa de éxito como porcentaje"""
+        if self.total_rows == 0:
+            return 0.0
+        return (self.successful_rows / self.total_rows) * 100
+    
+    @property
+    def error_rate(self) -> float:
+        """Tasa de error como porcentaje"""
+        if self.total_rows == 0:
+            return 0.0
+        return (self.error_rows / self.total_rows) * 100
+    
+    @property
+    def status_message(self) -> str:
+        """Mensaje de estado resumido"""
+        if self.error_rows == 0 and self.successful_rows > 0:
+            return f"✅ Importación exitosa: {self.successful_rows} filas procesadas correctamente"
+        elif self.successful_rows == 0 and self.error_rows > 0:
+            return f"❌ Importación fallida: {self.error_rows} filas con errores de {self.total_rows} total"
+        elif self.successful_rows > 0 and self.error_rows > 0:
+            return f"⚠️ Importación parcial: {self.successful_rows} exitosas, {self.error_rows} con errores"
+        elif self.skipped_rows > 0:
+            return f"📋 Importación completada: {self.successful_rows} procesadas, {self.skipped_rows} omitidas"
+        else:
+            return f"📊 Procesamiento completado: {self.processed_rows} filas analizadas"
+    
+    @property
+    def detailed_feedback(self) -> List[str]:
+        """Feedback detallado para mostrar al usuario"""
+        feedback = []
+        
+        if self.successful_rows > 0:
+            feedback.append(f"✅ {self.successful_rows} filas procesadas exitosamente")
+            if self.accounts_created > 0:
+                feedback.append(f"   📝 {self.accounts_created} cuentas creadas")
+            if self.accounts_updated > 0:
+                feedback.append(f"   🔄 {self.accounts_updated} cuentas actualizadas")
+            if self.journal_entries_created > 0:
+                feedback.append(f"   📋 {self.journal_entries_created} asientos contables creados")
+        
+        if self.error_rows > 0:
+            feedback.append(f"❌ {self.error_rows} filas con errores")
+            
+            # Mostrar los errores más comunes
+            if self.most_common_errors:
+                top_errors = sorted(self.most_common_errors.items(), key=lambda x: x[1], reverse=True)[:3]
+                feedback.append("   Errores más frecuentes:")
+                for error_code, count in top_errors:
+                    error_description = self._get_error_description(error_code)
+                    feedback.append(f"   • {error_description}: {count} ocurrencias")
+        
+        if self.warning_rows > 0:
+            feedback.append(f"⚠️ {self.warning_rows} filas con advertencias")
+        
+        if self.skipped_rows > 0:
+            feedback.append(f"⏭️ {self.skipped_rows} filas omitidas (duplicados)")
+        
+        # Estadísticas de rendimiento
+        feedback.append(f"⏱️ Tiempo de procesamiento: {self.processing_time_seconds:.2f} segundos")
+        
+        if self.total_rows > 0:
+            feedback.append(f"📊 Tasa de éxito: {self.success_rate:.1f}%")
+        
+        return feedback
+    
+    def _get_error_description(self, error_code: str) -> str:
+        """Obtener descripción amigable del código de error"""
+        error_descriptions = {
+            'ACCOUNT_CREATION_ERROR': 'Error de validación en datos de cuenta',
+            'ACCOUNT_DUPLICATE': 'Cuenta duplicada',
+            'ACCOUNT_NOT_FOUND': 'Cuenta no encontrada',
+            'JOURNAL_ENTRY_CREATION_ERROR': 'Error de validación en asiento contable',
+            'BALANCE_ERROR': 'Error de balance en asiento contable',
+            'VALIDATION_ERROR': 'Error de validación de datos',
+            'PARENT_ACCOUNT_NOT_FOUND': 'Cuenta padre no encontrada',
+            'INVALID_ACCOUNT_TYPE': 'Tipo de cuenta inválido',
+            'INVALID_CATEGORY': 'Categoría de cuenta inválida',
+            'INVALID_DATE_FORMAT': 'Formato de fecha inválido',
+            'INVALID_AMOUNT': 'Monto inválido',
+        }
+        return error_descriptions.get(error_code, error_code)
 
 
 class ImportResult(BaseModel):

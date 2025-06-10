@@ -574,8 +574,7 @@ class ImportDataService:
                 parent_id=parent_id,
                 is_active=account_data.is_active,
                 allows_movements=account_data.allows_movements,
-                requires_third_party=account_data.requires_third_party,
-                requires_cost_center=account_data.requires_cost_center,
+                requires_third_party=account_data.requires_third_party,                requires_cost_center=account_data.requires_cost_center,
                 notes=account_data.notes
             )
             
@@ -586,13 +585,15 @@ class ImportDataService:
                     row_number=account_data.row_number or 0,
                     status="success",
                     entity_id=new_account.id,
-                    entity_code=new_account.code
+                    entity_code=new_account.code,
+                    entity_type="account"
                 )
             else:
                 return ImportRowResult(
                     row_number=account_data.row_number or 0,
                     status="success",
-                    entity_code=account_data.code
+                    entity_code=account_data.code,
+                    entity_type="account"
                 )
                 
         except Exception as e:
@@ -658,18 +659,19 @@ class ImportDataService:
             
             if config.validation_level != ImportValidationLevel.PREVIEW:
                 new_entry = await self.journal_service.create_journal_entry(journal_create, user_id)
-                
                 return ImportRowResult(
                     row_number=entry_data.row_number or 0,
                     status="success",
                     entity_id=new_entry.id,
-                    entity_code=new_entry.number
+                    entity_code=new_entry.number,
+                    entity_type="journal_entry"
                 )
             else:
                 return ImportRowResult(
                     row_number=entry_data.row_number or 0,
                     status="success",
-                    entity_code=entry_data.reference or "PREVIEW"
+                    entity_code=entry_data.reference or "PREVIEW",
+                    entity_type="journal_entry"
                 )
                 
         except Exception as e:
@@ -848,7 +850,6 @@ class ImportDataService:
         
         if len(validation_errors) > 0:
             recommendations.append("Corrija los errores de validación antes de proceder")
-        
         if len(column_mapping) < 3:
             recommendations.append("Verifique que las columnas del archivo coincidan con los campos esperados")
         
@@ -856,7 +857,6 @@ class ImportDataService:
             recommendations.append("Considere procesar el archivo en lotes más pequeños para mejor rendimiento")
         
         return recommendations
-    
     def _update_summary_from_batch(
         self, 
         summary: ImportSummary, 
@@ -869,6 +869,12 @@ class ImportDataService:
             
             if result.status == "success":
                 summary.successful_rows += 1
+                # Contar creaciones por tipo de entidad basado en el entity_type
+                if result.entity_id and result.entity_type:
+                    if result.entity_type == "account":
+                        summary.accounts_created += 1
+                    elif result.entity_type == "journal_entry":
+                        summary.journal_entries_created += 1
             elif result.status == "error":
                 summary.error_rows += 1
             elif result.status == "warning":

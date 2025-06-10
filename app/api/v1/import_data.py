@@ -706,7 +706,7 @@ async def export_accounts_template(
             # Hoja con documentación
             doc_data = {
                 'Field': column_order,
-                'Required': ['Yes', 'Yes', 'Yes', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'No'],
+                'Required': ['Yes', 'Yes', 'Yes', 'No', 'No', 'No', 'No', 'No', 'No', 'No'],
                 'Description': [
                     'Código único de la cuenta (máximo 20 caracteres)',
                     'Nombre de la cuenta (máximo 200 caracteres)', 
@@ -729,4 +729,46 @@ async def export_accounts_template(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": "attachment; filename=accounts_template.xlsx"}
+        )
+
+
+@router.get(
+    "/import/{import_id}/summary",
+    response_model=Dict[str, Any],
+    summary="Get detailed import summary",
+    description="Get detailed and user-friendly summary of import results"
+)
+async def get_import_summary(
+    import_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Dict[str, Any]:
+    """
+    Obtener resumen detallado y amigable de los resultados de importación.
+    Incluye estadísticas, mensajes de feedback y recomendaciones.
+    """
+    try:
+        # Por ahora, vamos a simular la obtención de datos de importación
+        # En una implementación completa, esto vendría de una base de datos de importaciones
+        
+        # Este es un placeholder - en producción necesitarías almacenar los resultados de importación
+        return {
+            "import_id": import_id,
+            "status": "completed",
+            "feedback": {
+                "status_message": "Resumen de importación no disponible para este ID",
+                "detailed_feedback": [
+                    "ℹ️ Para obtener estadísticas detalladas, consulte la respuesta del endpoint de importación directamente"
+                ]
+            },
+            "recommendations": [
+                "Use el endpoint POST /import para obtener estadísticas completas en tiempo real",
+                "Verifique que el import_id sea válido y corresponda a una importación reciente"
+            ]
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error obteniendo resumen de importación: {str(e)}"
         )
