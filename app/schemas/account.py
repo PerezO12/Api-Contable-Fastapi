@@ -123,6 +123,7 @@ class AccountSummary(BaseModel):
     account_type: AccountType
     balance: Decimal
     is_active: bool
+    allows_movements: bool
 
 
 class AccountListResponse(BaseModel):

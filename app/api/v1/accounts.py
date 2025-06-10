@@ -92,7 +92,8 @@ async def get_account_tree(
     Obtener la estructura jerárquica de cuentas como árbol.
     """
     account_service = AccountService(db)
-    return await account_service.get_account_tree(account_type=account_type, active_only=active_only)
+    # Usar el método corregido temporalmente
+    return await account_service.get_account_tree_fixed(account_type=account_type, active_only=active_only)
 
 
 @router.get("/chart", response_model=ChartOfAccounts)

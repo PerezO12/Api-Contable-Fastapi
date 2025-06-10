@@ -162,15 +162,14 @@ class AccountService:
         if movements_count and movements_count > 0:
             raise AccountValidationError("No se puede eliminar una cuenta con movimientos")
         
-        # Verificar que no tenga cuentas hijas
-        if account.children:
+        # Verificar que no tenga cuentas hijas        if account.children:
             raise AccountValidationError("No se puede eliminar una cuenta que tiene cuentas hijas")
         
         await self.db.delete(account)
         await self.db.commit()
         
         return True
-
+    
     async def get_account_tree(
         self, 
         account_type: Optional[AccountType] = None, 
@@ -178,7 +177,8 @@ class AccountService:
     ) -> List[AccountTree]:
         """Obtener estructura jerárquica de cuentas"""
         
-        query = select(Account).options(selectinload(Account.children))
+        # Obtener todas las cuentas de una vez para evitar lazy loading
+        query = select(Account)
         
         if account_type:
             query = query.where(Account.account_type == account_type)
@@ -186,15 +186,29 @@ class AccountService:
         if active_only:
             query = query.where(Account.is_active == True)
         
-        # Solo cuentas padre (sin parent_id)
-        query = query.where(Account.parent_id.is_(None)).order_by(Account.code)
+        query = query.order_by(Account.code)
         
         result = await self.db.execute(query)
-        root_accounts = list(result.scalars().all())
+        all_accounts = list(result.scalars().all())
+        
+        # Crear un diccionario para acceso rápido por ID
+        accounts_dict = {account.id: account for account in all_accounts}
+        
+        # Construir la estructura de hijos para cada cuenta
+        children_dict = {}
+        for account in all_accounts:
+            children_dict[account.id] = []
+        
+        for account in all_accounts:
+            if account.parent_id and account.parent_id in children_dict:
+                children_dict[account.parent_id].append(account)
         
         def build_tree(account: Account) -> AccountTree:
+            # Obtener hijos desde nuestro diccionario en lugar de la relación lazy
+            children_accounts = sorted(children_dict.get(account.id, []), key=lambda x: x.code)
             children = []
-            for child in sorted(account.children, key=lambda x: x.code):
+            
+            for child in children_accounts:
                 if not active_only or child.is_active:
                     children.append(build_tree(child))
             
@@ -210,7 +224,9 @@ class AccountService:
                 children=children
             )
         
-        return [build_tree(account) for account in root_accounts]
+        # Solo procesar cuentas raíz (sin parent_id)
+        root_accounts = [account for account in all_accounts if account.parent_id is None]
+        return [build_tree(account) for account in sorted(root_accounts, key=lambda x: x.code)]
 
     async def get_chart_of_accounts(self) -> ChartOfAccounts:
         """Obtener plan de cuentas organizado por tipo"""
@@ -226,12 +242,13 @@ class AccountService:
         
         # Contar cuentas hoja (sin hijos)
         leaf_result = await self.db.execute(
-            select(func.count(Account.id)).where(~Account.children.any())
+            select(func.count(Account.id)).where(~Account.children.any())        
         )
         leaf_accounts = leaf_result.scalar() or 0
         
         # Obtener cuentas por tipo
         by_type = []
+        
         for account_type in AccountType:
             accounts = await self.get_accounts(account_type=account_type, is_active=True)
             account_summaries = [
@@ -242,7 +259,7 @@ class AccountService:
                     account_type=acc.account_type,
                     balance=acc.balance,
                     is_active=acc.is_active,
-                    can_receive_movements=acc.can_receive_movements
+                    allows_movements=acc.allows_movements
                 ) for acc in accounts
             ]
             total_balance = sum((acc.balance for acc in accounts), Decimal('0'))
@@ -295,7 +312,6 @@ class AccountService:
             net_balance = total_debits - total_credits
         else:
             net_balance = total_credits - total_debits
-        
         return AccountBalance(
             account_id=account.id,
             account_code=account.code,
@@ -303,7 +319,8 @@ class AccountService:
             debit_balance=total_debits,
             credit_balance=total_credits,
             net_balance=net_balance,
-            normal_balance_side=account.normal_balance_side
+            normal_balance_side=account.normal_balance_side,
+            as_of_date=as_of_date or date.today()
         )
 
     async def get_account_movements(
@@ -330,12 +347,12 @@ class AccountService:
         
         if end_date:
             query = query.where(JournalEntry.entry_date <= end_date)
-        
-        query = query.order_by(desc(JournalEntry.entry_date), JournalEntryLine.line_number)
+            query = query.order_by(desc(JournalEntry.entry_date), JournalEntryLine.line_number)
         
         result = await self.db.execute(query)
         movements = list(result.scalars().all())
-          # Calcular saldos de apertura y cierre
+        
+        # Calcular saldos de apertura y cierre
         opening_balance = Decimal('0')  # TODO: Calcular balance de apertura
         closing_balance = Decimal('0')   # TODO: Calcular balance de cierre
         total_debits = sum((mov.debit_amount for mov in movements), Decimal('0'))
@@ -349,7 +366,7 @@ class AccountService:
                 account_type=account.account_type,
                 balance=account.balance,
                 is_active=account.is_active,
-                can_receive_movements=account.can_receive_movements
+                allows_movements=account.allows_movements
             ),
             movements=[],  # TODO: Mapear a AccountMovement schema
             period_start=start_date or date.today(),
@@ -464,15 +481,14 @@ class AccountService:
         
         return AccountsByType(
             account_type=account_type,
-            accounts=[
-                AccountSummary(
+            accounts=[                AccountSummary(
                     id=acc.id,
                     code=acc.code,
                     name=acc.name,
                     account_type=acc.account_type,
                     balance=acc.balance,
                     is_active=acc.is_active,
-                    can_receive_movements=acc.can_receive_movements
+                    allows_movements=acc.allows_movements
                 ) for acc in accounts
             ],
             total_balance=sum((acc.balance for acc in accounts), Decimal('0'))
@@ -481,13 +497,70 @@ class AccountService:
     async def import_accounts_from_csv(self, file_content: str, user_id: uuid.UUID) -> dict:
         """Importar cuentas desde CSV"""
         # Implementación básica - en producción sería más robusta
-        return {
-            "imported": 0,
+        return {            "imported": 0,
             "errors": [],
             "message": "Funcionalidad de importación pendiente de implementación completa"
         }
-
+    
     async def export_accounts_to_csv(self, account_type: Optional[AccountType] = None, active_only: bool = True) -> str:
         """Exportar cuentas a CSV"""
         # Implementación básica - en producción retornaría CSV real
         return "CSV export functionality pending"
+    
+    async def get_account_tree_fixed(
+        self, 
+        account_type: Optional[AccountType] = None, 
+        active_only: bool = True
+    ) -> List[AccountTree]:
+        """Obtener estructura jerárquica de cuentas - versión corregida para evitar MissingGreenlet"""
+        
+        # Obtener todas las cuentas de una vez para evitar lazy loading
+        query = select(Account)
+        
+        if account_type:
+            query = query.where(Account.account_type == account_type)
+        
+        if active_only:
+            query = query.where(Account.is_active == True)
+        
+        query = query.order_by(Account.code)
+        
+        result = await self.db.execute(query)
+        all_accounts = list(result.scalars().all())
+        
+        # Crear un diccionario para acceso rápido por ID
+        accounts_dict = {account.id: account for account in all_accounts}
+        
+        # Construir la estructura de hijos para cada cuenta
+        children_dict = {}
+        for account in all_accounts:
+            children_dict[account.id] = []
+        
+        for account in all_accounts:
+            if account.parent_id and account.parent_id in children_dict:
+                children_dict[account.parent_id].append(account)
+        
+        def build_tree(account: Account) -> AccountTree:
+            # Obtener hijos desde nuestro diccionario en lugar de la relación lazy
+            children_accounts = sorted(children_dict.get(account.id, []), key=lambda x: x.code)
+            children = []
+            
+            for child in children_accounts:
+                if not active_only or child.is_active:
+                    children.append(build_tree(child))
+            
+            return AccountTree(
+                id=account.id,
+                code=account.code,
+                name=account.name,
+                account_type=account.account_type,
+                level=account.level,
+                balance=account.balance,
+                is_active=account.is_active,
+                allows_movements=account.allows_movements,
+                children=children
+            )
+        
+        # Solo procesar cuentas raíz (sin parent_id)
+        root_accounts = [account for account in all_accounts if account.parent_id is None]
+        return [build_tree(account) for account in sorted(root_accounts, key=lambda x: x.code)]
