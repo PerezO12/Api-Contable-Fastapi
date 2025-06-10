@@ -20,6 +20,13 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.3.0
 python-multipart==0.0.20
 
+# File handling and data processing
+pandas==2.2.3
+openpyxl==3.1.5
+xlrd==2.0.1
+chardet==5.2.0
+# python-magic==0.4.27  # Commented out - can cause issues on Windows without libmagic
+
 # Utilities
 python-dotenv==1.1.0
 python-dateutil==2.9.0.post0
@@ -29,10 +36,18 @@ pytest==8.4.0
 pytest-cov==6.1.1
 pytest-asyncio==1.0.0
 httpx==0.28.1
+pytest-mock==3.14.0  # For mocking in import tests
+faker==26.0.0  # For generating test data
 
 # Report generation (for future PDF/Excel exports)
-openpyxl==3.1.2
 reportlab==4.2.5
 
 # API documentation and validation
 pydantic-core==2.30.4
+
+# Import system dependencies
+# pandas already included above for data processing
+# openpyxl already included above for Excel files
+# Base64 encoding (built-in)
+# JSON processing (built-in)
+# CSV processing (built-in)

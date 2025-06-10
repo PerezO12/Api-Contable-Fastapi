@@ -40,6 +40,14 @@ from app.schemas.audit import (
     AuditConfiguration, AuditStats
 )
 
+from app.schemas.import_data import (
+    ImportFormat, ImportDataType, ImportValidationLevel, AccountImportRow,
+    JournalEntryLineImportRow, JournalEntryImportRow, ImportConfiguration,
+    ImportError, ImportRowResult, ImportSummary, ImportResult,
+    ImportRequest, ImportPreviewRequest, ImportPreviewResponse,
+    ImportStatusResponse, ImportTemplate, ImportTemplateResponse
+)
+
 # Exportar para facilitar importaciones
 __all__ = [
     # User schemas
@@ -70,6 +78,12 @@ __all__ = [
     "FinancialAnalysis", "ReportColumn", "CustomReportFilter",
     "CustomReportDefinition", "CustomReportResult",
     "ReportExportRequest", "ReportExportResponse",
+      # Import schemas
+    "ImportFormat", "ImportDataType", "ImportValidationLevel", "AccountImportRow",
+    "JournalEntryLineImportRow", "JournalEntryImportRow", "ImportConfiguration",
+    "ImportError", "ImportRowResult", "ImportSummary", "ImportResult",
+    "ImportRequest", "ImportPreviewRequest", "ImportPreviewResponse",
+    "ImportStatusResponse", "ImportTemplate", "ImportTemplateResponse",
     
     # Audit schemas
     "AuditAction", "AuditLogLevel", "AuditLogBase", "AuditLogCreate",

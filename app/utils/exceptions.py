@@ -311,3 +311,72 @@ def raise_configuration_error(detail: str) -> NoReturn:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail=f"Configuration error: {detail}"
     )
+
+
+# ====================
+# Import-specific exceptions
+# ====================
+
+class ImportError(AccountingSystemException):
+    """Exception for data import errors"""
+    def __init__(
+        self, 
+        message: str, 
+        import_id: Optional[str] = None, 
+        row_number: Optional[int] = None,
+        field_name: Optional[str] = None,
+        import_type: Optional[str] = None
+    ):
+        details = {
+            "import_id": import_id,
+            "row_number": row_number,
+            "field_name": field_name,
+            "import_type": import_type
+        }
+        super().__init__(message, "IMPORT_ERROR", details)
+
+
+class ImportValidationError(ImportError):
+    """Exception for import validation errors"""
+    def __init__(
+        self, 
+        message: str, 
+        field_name: str,
+        row_number: Optional[int] = None,
+        expected_format: Optional[str] = None
+    ):
+        super().__init__(
+            message=message,
+            import_id=None,
+            row_number=row_number,
+            field_name=field_name,
+            import_type="validation"
+        )
+
+
+# Import exception raising functions
+def raise_import_error(detail: str, import_id: Optional[str] = None) -> NoReturn:
+    """Raise a general import error"""
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error": "Import error",
+            "detail": detail,
+            "import_id": import_id,
+            "error_code": "IMPORT_ERROR"
+        }
+    )
+
+
+def raise_import_validation_error(detail: str, field: Optional[str] = None, row: Optional[int] = None) -> NoReturn:
+    """Raise an import validation error"""
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "error": "Import validation error",
+            "detail": detail,
+            "field": field,
+            "row": row,
+            "error_code": "IMPORT_VALIDATION_ERROR"
+        }
+    )
