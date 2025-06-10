@@ -72,6 +72,14 @@ class JournalEntryBase(BaseModel):
     description: str = Field(..., min_length=1, max_length=1000, description="Descripción del asiento")
     entry_type: JournalEntryType = Field(JournalEntryType.MANUAL, description="Tipo de asiento")
     notes: Optional[str] = Field(None, max_length=1000, description="Notas adicionales")
+    
+    @field_validator('entry_date', mode='before')
+    @classmethod
+    def convert_datetime_to_date(cls, v):
+        """Convertir datetime a date si es necesario para compatibilidad con SQLAlchemy"""
+        if isinstance(v, datetime):
+            return v.date()
+        return v
 
 
 class JournalEntryCreate(JournalEntryBase):
@@ -158,6 +166,14 @@ class JournalEntrySummary(BaseModel):
     total_debit: Decimal
     created_by_name: Optional[str] = None
     created_at: datetime
+    
+    @field_validator('entry_date', mode='before')
+    @classmethod
+    def convert_datetime_to_date(cls, v):
+        """Convertir datetime a date si es necesario para compatibilidad con SQLAlchemy"""
+        if isinstance(v, datetime):
+            return v.date()
+        return v
     
     model_config = ConfigDict(from_attributes=True)
 

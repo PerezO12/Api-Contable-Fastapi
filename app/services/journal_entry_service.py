@@ -11,7 +11,7 @@ from app.models.journal_entry import JournalEntry, JournalEntryLine, JournalEntr
 from app.models.account import Account
 from app.schemas.journal_entry import (
     JournalEntryCreate, JournalEntryUpdate, JournalEntryRead, JournalEntryLineCreate,
-    JournalEntryFilter, JournalEntryStats, JournalEntrySummary, JournalEntryPost,
+    JournalEntryFilter, JournalEntryStatistics, JournalEntrySummary, JournalEntryPost,
     JournalEntryCancel
 )
 from app.utils.exceptions import JournalEntryError, AccountNotFoundError, BalanceError
@@ -21,50 +21,53 @@ class JournalEntryService:
     """Servicio para operaciones de asientos contables"""
     
     def __init__(self, db: AsyncSession):
-        self.db = db
-
+        self.db = db    
     async def create_journal_entry(
         self, 
         entry_data: JournalEntryCreate, 
         created_by_id: uuid.UUID
     ) -> JournalEntry:
-        """Crear un nuevo asiento contable"""
+        """Crear un nuevo asiento contable con optimización async/await"""
+        
+        # Validación inicial de cuentas en batch para optimizar rendimiento
+        account_ids = [line.account_id for line in entry_data.lines]
+        accounts_result = await self.db.execute(
+            select(Account).where(Account.id.in_(account_ids))
+        )
+        accounts_dict = {account.id: account for account in accounts_result.scalars().all()}
+        
+        # Validar que todas las cuentas existen
+        missing_accounts = set(account_ids) - set(accounts_dict.keys())
+        if missing_accounts:
+            raise AccountNotFoundError(account_id=str(list(missing_accounts)[0]))
+        
+        # Validar que todas las cuentas permiten movimientos
+        invalid_accounts = [
+            f"{account.code} - {account.name}" 
+            for account in accounts_dict.values() 
+            if not account.allows_movements
+        ]
+        if invalid_accounts:
+            raise JournalEntryError(f"Las siguientes cuentas no permiten movimientos: {', '.join(invalid_accounts)}")
         
         # Generar número de asiento
         entry_number = await self.generate_entry_number(entry_data.entry_type)
         
-        # Crear el asiento principal
-        journal_entry = JournalEntry(
-            number=entry_number,
-            reference=entry_data.reference,
-            description=entry_data.description,
-            entry_type=entry_data.entry_type,
-            entry_date=entry_data.entry_date,
-            status=JournalEntryStatus.DRAFT,
-            created_by_id=created_by_id,
-            notes=entry_data.notes
-        )
+        # Crear las líneas en memoria primero (evitar lazy loading)
+        journal_lines = []
+        total_debit = Decimal('0')
+        total_credit = Decimal('0')
         
-        self.db.add(journal_entry)
-        await self.db.flush()  # Para obtener el ID
-        
-        # Crear las líneas del asiento
         for line_number, line_data in enumerate(entry_data.lines, 1):
-            # Validar que la cuenta existe
-            account_result = await self.db.execute(
-                select(Account).where(Account.id == line_data.account_id)
-            )
-            account = account_result.scalar_one_or_none()
+            # Validaciones de línea
+            if line_data.debit_amount < 0 or line_data.credit_amount < 0:
+                raise JournalEntryError(f"Los montos no pueden ser negativos en línea {line_number}")
             
-            if not account:
-                raise AccountNotFoundError(f"Cuenta con ID {line_data.account_id} no encontrada")
-            
-            # Validar que la cuenta puede recibir movimientos
-            if not account.allows_movements:
-                raise JournalEntryError(f"La cuenta {account.code} - {account.name} no permite movimientos")
+            if (line_data.debit_amount > 0 and line_data.credit_amount > 0) or \
+               (line_data.debit_amount == 0 and line_data.credit_amount == 0):
+                raise JournalEntryError(f"Línea {line_number}: debe tener monto en débito O crédito, no ambos o ninguno")
             
             journal_line = JournalEntryLine(
-                journal_entry_id=journal_entry.id,
                 account_id=line_data.account_id,
                 debit_amount=line_data.debit_amount,
                 credit_amount=line_data.credit_amount,
@@ -75,19 +78,54 @@ class JournalEntryService:
                 line_number=line_number
             )
             
-            journal_entry.lines.append(journal_line)
+            journal_lines.append(journal_line)
+            total_debit += line_data.debit_amount
+            total_credit += line_data.credit_amount
         
-        # Calcular totales
-        journal_entry.calculate_totals()
+        # Validar balance antes de crear el asiento
+        if total_debit != total_credit:
+            raise BalanceError(
+                expected_balance=str(total_debit),
+                actual_balance=str(total_credit),
+                account_info=f"Asiento {entry_number}"
+            )
         
-        # Validar el asiento
-        errors = journal_entry.validate_entry()
-        if errors:
-            raise JournalEntryError(f"Errores en el asiento: {'; '.join(errors)}")
+        # Crear el asiento principal con totales calculados
+        journal_entry = JournalEntry(
+            number=entry_number,
+            reference=entry_data.reference,
+            description=entry_data.description,
+            entry_type=entry_data.entry_type,
+            entry_date=entry_data.entry_date,
+            status=JournalEntryStatus.DRAFT,
+            created_by_id=created_by_id,
+            notes=entry_data.notes,
+            total_debit=total_debit,
+            total_credit=total_credit
+        )
         
-        await self.db.commit()
-        await self.db.refresh(journal_entry)
+        self.db.add(journal_entry)
+        await self.db.flush()  # Para obtener el ID
         
+        # Asignar el journal_entry_id a las líneas y agregarlas a la sesión
+        for journal_line in journal_lines:
+            journal_line.journal_entry_id = journal_entry.id
+            self.db.add(journal_line)
+        
+        # Commit transaccional
+        try:
+            await self.db.commit()
+        except Exception as e:
+            await self.db.rollback()
+            raise JournalEntryError(f"Error al crear el asiento: {str(e)}")
+        
+        # Recargar el asiento con todas sus relaciones usando selectinload para optimizar
+        result = await self.db.execute(
+            select(JournalEntry)
+            .options(selectinload(JournalEntry.lines))
+            .where(JournalEntry.id == journal_entry.id)
+        )
+        journal_entry = result.scalar_one()
         return journal_entry
 
     async def get_journal_entries(
@@ -313,8 +351,8 @@ class JournalEntryService:
         await self.db.commit()
         await self.db.refresh(journal_entry)
         
-        return journal_entry
-
+        return journal_entry    
+    
     async def _create_reversal_entry(
         self, 
         original_entry: JournalEntry, 
@@ -336,9 +374,13 @@ class JournalEntryService:
         )
         
         self.db.add(reversal_entry)
-        await self.db.flush()
+        await self.db.flush()  # Para obtener el ID
         
-        # Crear líneas inversas
+        # Crear líneas inversas en memoria para evitar lazy loading
+        reversal_lines = []
+        total_debit = Decimal('0')
+        total_credit = Decimal('0')
+        
         for original_line in original_entry.lines:
             reversal_line = JournalEntryLine(
                 journal_entry_id=reversal_entry.id,
@@ -352,10 +394,14 @@ class JournalEntryService:
                 cost_center_id=original_line.cost_center_id,
                 line_number=original_line.line_number
             )
-            reversal_entry.lines.append(reversal_line)
+            reversal_lines.append(reversal_line)
+            self.db.add(reversal_line)
+            total_debit += reversal_line.debit_amount
+            total_credit += reversal_line.credit_amount
         
-        # Calcular totales
-        reversal_entry.calculate_totals()
+        # Actualizar totales directamente
+        reversal_entry.total_debit = total_debit
+        reversal_entry.total_credit = total_credit
         
         # Aprobar y contabilizar automáticamente
         reversal_entry.approve(created_by_id)
@@ -367,7 +413,7 @@ class JournalEntryService:
         self,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None
-    ) -> JournalEntryStats:
+    ) -> JournalEntryStatistics:
         """Obtener estadísticas de asientos contables"""
         
         conditions = []
@@ -375,12 +421,12 @@ class JournalEntryService:
             conditions.append(JournalEntry.entry_date >= start_date)
         if end_date:
             conditions.append(JournalEntry.entry_date <= end_date)
-        
-        # Estadísticas por estado
+          # Estadísticas por estado
         stats_query = select(
             JournalEntry.status,
             func.count(JournalEntry.id).label('count'),
-            func.sum(JournalEntry.total_debit).label('total_amount')        ).group_by(JournalEntry.status)
+            func.sum(JournalEntry.total_debit).label('total_amount')
+        ).group_by(JournalEntry.status)
         
         if conditions:
             stats_query = stats_query.where(and_(*conditions))
@@ -404,26 +450,51 @@ class JournalEntryService:
             type_query = type_query.where(and_(*conditions))
         type_result = await self.db.execute(type_query)
         stats_by_type = {str(row[0]): int(row[1]) for row in type_result}
-        
-        # Estadísticas por mes
+          # Estadísticas por mes - Usar alias para evitar problemas de GROUP BY
+        month_truncated = func.date_trunc('month', JournalEntry.entry_date).label('month_truncated')
         month_query = select(
-            func.date_trunc('month', JournalEntry.entry_date).label('month'),
+            month_truncated,
             func.count(JournalEntry.id).label('count')
-        ).group_by(func.date_trunc('month', JournalEntry.entry_date))
+        ).group_by(month_truncated)  # Usar el mismo alias en GROUP BY
         
         if conditions:
             month_query = month_query.where(and_(*conditions))
+        
+        month_query = month_query.order_by(month_truncated)  # Ordenar por mes para resultados consistentes
         month_result = await self.db.execute(month_query)
         stats_by_month = {str(row[0]): int(row[1]) for row in month_result}
+          # Calcular estadísticas adicionales para el mes y año actual
+        current_date = date.today()
+        current_month_start = current_date.replace(day=1)
+        current_year_start = current_date.replace(month=1, day=1)
         
-        return JournalEntryStats(
+        # Entradas de este mes
+        month_query = select(func.count(JournalEntry.id)).where(
+            JournalEntry.entry_date >= current_month_start
+        )
+        month_count_result = await self.db.execute(month_query)
+        entries_this_month = month_count_result.scalar() or 0
+        
+        # Entradas de este año
+        year_query = select(func.count(JournalEntry.id)).where(
+            JournalEntry.entry_date >= current_year_start
+        )
+        year_count_result = await self.db.execute(year_query)
+        entries_this_year = year_count_result.scalar() or 0
+          # Calcular totales de débito y crédito
+        total_debit_amount = Decimal(str(sum(stat['amount'] for stat in stats_by_status.values())))
+        total_credit_amount = total_debit_amount  # En contabilidad siempre deben ser iguales
+        
+        return JournalEntryStatistics(
             total_entries=sum(stat['count'] for stat in stats_by_status.values()),
-            posted_entries=stats_by_status.get(JournalEntryStatus.POSTED, {'count': 0})['count'],
             draft_entries=stats_by_status.get(JournalEntryStatus.DRAFT, {'count': 0})['count'],
+            approved_entries=stats_by_status.get(JournalEntryStatus.APPROVED, {'count': 0})['count'],
+            posted_entries=stats_by_status.get(JournalEntryStatus.POSTED, {'count': 0})['count'],
             cancelled_entries=stats_by_status.get(JournalEntryStatus.CANCELLED, {'count': 0})['count'],
-            entries_by_type=stats_by_type,
-            total_amount_posted=total_amount_posted,
-            entries_by_month=stats_by_month
+            total_debit_amount=total_debit_amount,
+            total_credit_amount=total_credit_amount,
+            entries_this_month=entries_this_month,
+            entries_this_year=entries_this_year
         )
 
     async def search_journal_entries(self, filters: JournalEntryFilter) -> List[JournalEntry]:
