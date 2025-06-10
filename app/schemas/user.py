@@ -105,10 +105,16 @@ class UserRegister(UserCreate):
 
 
 class Token(BaseModel):
-    """Schema para token de acceso"""
+    """Schema para token de acceso y actualización"""
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    refresh_token: str
+
+
+class RefreshTokenRequest(BaseModel):
+    """Schema para solicitud de refresh token"""
+    refresh_token: str
 
 
 class TokenData(BaseModel):

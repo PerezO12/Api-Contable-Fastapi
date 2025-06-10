@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     environment: str = "development"  # development, staging, production
     
     # CORS origins para el frontend
-    backend_cors_origins: str = '["http://localhost", "http://localhost:4200", "http://localhost:3000"]'
+    backend_cors_origins: str = '["http://localhost", "http://localhost:4200", "http://localhost:3000", "http://localhost:5173"]'
     
     # URLs para notificaciones
     api_url: str = "http://localhost:8000"  # URL base de la API

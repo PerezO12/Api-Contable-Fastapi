@@ -1,0 +1,98 @@
+{
+  "template_info": {
+    "data_type": "accounts",
+    "format": "json",
+    "description": "Plantilla de ejemplo para importación de cuentas contables",
+    "required_fields": ["code", "name", "account_type"],
+    "optional_fields": ["category", "parent_code", "description", "is_active", "allows_movements", "requires_third_party", "requires_cost_center", "notes"]
+  },
+  "field_descriptions": {
+    "code": "Código único de la cuenta (máximo 20 caracteres)",
+    "name": "Nombre de la cuenta (máximo 200 caracteres)",
+    "account_type": "Tipo de cuenta: ACTIVO, PASIVO, PATRIMONIO, INGRESO, GASTO, COSTOS",
+    "category": "Categoría específica según el tipo de cuenta",
+    "parent_code": "Código de la cuenta padre para estructura jerárquica",
+    "description": "Descripción detallada de la cuenta",
+    "is_active": "true/false - Si la cuenta está activa",
+    "allows_movements": "true/false - Si permite registrar movimientos",
+    "requires_third_party": "true/false - Si requiere especificar tercero en los movimientos",
+    "requires_cost_center": "true/false - Si requiere centro de costo",
+    "notes": "Notas adicionales sobre la cuenta"
+  },
+  "valid_account_types": ["ACTIVO", "PASIVO", "PATRIMONIO", "INGRESO", "GASTO", "COSTOS"],
+  "valid_categories": {
+    "ACTIVO": ["ACTIVO_CORRIENTE", "ACTIVO_NO_CORRIENTE"],
+    "PASIVO": ["PASIVO_CORRIENTE", "PASIVO_NO_CORRIENTE"],
+    "PATRIMONIO": ["CAPITAL", "RESERVAS", "RESULTADOS"],
+    "INGRESO": ["INGRESOS_OPERACIONALES", "INGRESOS_NO_OPERACIONALES"],
+    "GASTO": ["GASTOS_OPERACIONALES", "GASTOS_NO_OPERACIONALES"],
+    "COSTOS": ["COSTO_VENTAS", "COSTOS_PRODUCCION"]
+  },
+  "example_data": [
+    {
+      "code": "1105",
+      "name": "Caja General",
+      "account_type": "ACTIVO",
+      "category": "ACTIVO_CORRIENTE",
+      "parent_code": "1100",
+      "description": "Dinero en efectivo en caja principal",
+      "is_active": true,
+      "allows_movements": true,
+      "requires_third_party": false,
+      "requires_cost_center": false,
+      "notes": "Cuenta para manejo de efectivo"
+    },
+    {
+      "code": "1110",
+      "name": "Bancos Moneda Nacional",
+      "account_type": "ACTIVO",
+      "category": "ACTIVO_CORRIENTE", 
+      "parent_code": "1100",
+      "description": "Depósitos en bancos en moneda nacional",
+      "is_active": true,
+      "allows_movements": true,
+      "requires_third_party": true,
+      "requires_cost_center": false,
+      "notes": "Requiere especificar el banco como tercero"
+    },
+    {
+      "code": "2105",
+      "name": "Proveedores Nacionales",
+      "account_type": "PASIVO",
+      "category": "PASIVO_CORRIENTE",
+      "parent_code": "2100",
+      "description": "Cuentas por pagar a proveedores nacionales",
+      "is_active": true,
+      "allows_movements": true,
+      "requires_third_party": true,
+      "requires_cost_center": false,
+      "notes": "Requiere especificar el proveedor"
+    },
+    {
+      "code": "4105",
+      "name": "Ingresos por Ventas",
+      "account_type": "INGRESO",
+      "category": "INGRESOS_OPERACIONALES",
+      "parent_code": "4100",
+      "description": "Ingresos por venta de productos o servicios",
+      "is_active": true,
+      "allows_movements": true,
+      "requires_third_party": false,
+      "requires_cost_center": true,
+      "notes": "Requiere centro de costo para análisis"
+    },
+    {
+      "code": "5105",
+      "name": "Gastos de Oficina",
+      "account_type": "GASTO",
+      "category": "GASTOS_OPERACIONALES",
+      "parent_code": "5100",
+      "description": "Gastos administrativos de oficina",
+      "is_active": true,
+      "allows_movements": true,
+      "requires_third_party": false,
+      "requires_cost_center": true,
+      "notes": "Para gastos de papelería, suministros, etc."
+    }
+  ]
+}

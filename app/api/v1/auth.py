@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, get_current_active_user
-from app.schemas.user import UserRead, Token, UserLogin
+from app.schemas.user import UserRead, Token, UserLogin, RefreshTokenRequest
 from app.services.auth_service import AuthService
 from app.utils.exceptions import (
     AuthenticationError,
@@ -63,7 +63,7 @@ async def login_form(
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(
-    refresh_token: str,
+    refresh_data: RefreshTokenRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -71,7 +71,7 @@ async def refresh_token(
     """
     try:
         auth_service = AuthService(db)
-        return await auth_service.refresh_access_token(refresh_token)
+        return await auth_service.refresh_access_token(refresh_data.refresh_token)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

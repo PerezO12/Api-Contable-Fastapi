@@ -1,0 +1,87 @@
+{
+  "template_info": {
+    "data_type": "journal_entries",
+    "format": "json",
+    "description": "Plantilla de ejemplo para importación de asientos contables",
+    "required_fields": ["entry_number", "entry_date", "description", "account_code", "line_description"],
+    "optional_fields": ["reference", "entry_type", "third_party", "cost_center", "line_reference"],
+    "conditional_fields": ["debit_amount", "credit_amount"],
+    "important_notes": [
+      "Cada línea del asiento debe tener entry_number idéntico para agruparse",
+      "Solo uno de debit_amount o credit_amount debe tener valor por línea",
+      "La suma de débitos debe igual la suma de créditos por asiento",
+      "Se requieren mínimo 2 líneas por asiento (doble partida)"
+    ]
+  },
+  "field_descriptions": {
+    "entry_number": "Número único del asiento contable",
+    "entry_date": "Fecha del asiento (formato: YYYY-MM-DD)",
+    "description": "Descripción general del asiento",
+    "reference": "Referencia externa (factura, documento, etc.)",
+    "entry_type": "Tipo de asiento: MANUAL, AUTOMATIC, ADJUSTMENT, OPENING, CLOSING",
+    "account_code": "Código de la cuenta contable",
+    "line_description": "Descripción específica de esta línea del asiento",
+    "debit_amount": "Monto débito (dejar vacío si es crédito)",
+    "credit_amount": "Monto crédito (dejar vacío si es débito)",
+    "third_party": "Tercero relacionado con el movimiento",
+    "cost_center": "Centro de costo para análisis de costos",
+    "line_reference": "Referencia específica de la línea"
+  },
+  "valid_entry_types": ["MANUAL", "AUTOMATIC", "ADJUSTMENT", "OPENING", "CLOSING", "REVERSAL"],
+  "example_data": [
+    {      
+      "entry_number": "AST-2024-001",
+      "entry_date": "2024-01-15",
+      "description": "Compra de material de oficina",
+      "reference": "FAC-001234",
+      "entry_type": "MANUAL",
+      "account_code": "5105",
+      "line_description": "Material de oficina - papelería",
+      "debit_amount": 150000,
+      "credit_amount": "",
+      "third_party": "PAPELERIA ABC LTDA",
+      "cost_center": "ADMIN",
+      "line_reference": "FAC-001234"
+    },
+    {
+      "entry_number": "AST-2024-001",
+      "entry_date": "2024-01-15",
+      "description": "Compra de material de oficina",
+      "reference": "FAC-001234",
+      "entry_type": "MANUAL",
+      "account_code": "1110",      
+      "line_description": "Pago con cheque Banco XYZ",
+      "debit_amount": "",
+      "credit_amount": 150000,
+      "third_party": "BANCO XYZ",
+      "cost_center": "",
+      "line_reference": "CHQ-5678"
+    },
+    {
+      "entry_number": "AST-2024-002",
+      "entry_date": "2024-01-16",
+      "description": "Venta de productos",
+      "reference": "FAC-VTA-100",
+      "entry_type": "MANUAL", 
+      "account_code": "1105",      "line_description": "Cobro en efectivo venta productos",
+      "debit_amount": 230000,
+      "credit_amount": "",
+      "third_party": "CLIENTE VARIOS",
+      "cost_center": "VENTAS",
+      "line_reference": "FAC-VTA-100"
+    },
+    {
+      "entry_number": "AST-2024-002",
+      "entry_date": "2024-01-16",
+      "description": "Venta de productos", 
+      "reference": "FAC-VTA-100",
+      "entry_type": "MANUAL",
+      "account_code": "4105",      "line_description": "Ingresos por venta de productos",
+      "debit_amount": "",
+      "credit_amount": 230000,
+      "third_party": "CLIENTE VARIOS",
+      "cost_center": "VENTAS",
+      "line_reference": "FAC-VTA-100"
+    }
+  ]
+}
