@@ -90,8 +90,7 @@ class ReportService:
                 AccountType.PATRIMONIO, 
                 account_balances
             )
-            
-            # Verificar ecuación contable
+              # Verificar ecuación contable
             is_balanced = (assets_section.total == 
                           liabilities_section.total + equity_section.total)
             
@@ -107,7 +106,10 @@ class ReportService:
             )
             
         except Exception as e:
-            raise ReportGenerationError(f"Error generando Balance General: {str(e)}")
+            raise ReportGenerationError(
+                report_type="balance_general",
+                reason=f"Error generando Balance General: {str(e)}"
+            )
 
     async def generate_income_statement(
         self,
@@ -147,7 +149,6 @@ class ReportService:
             gross_profit = revenues_section.total
             operating_profit = gross_profit - expenses_section.total
             net_profit = operating_profit  # Simplificado por ahora
-            
             return IncomeStatement(
                 start_date=start_date,
                 end_date=end_date,
@@ -160,7 +161,10 @@ class ReportService:
             )
             
         except Exception as e:
-            raise ReportGenerationError(f"Error generando Estado de Resultados: {str(e)}")
+            raise ReportGenerationError(
+                report_type="income_statement",
+                reason=f"Error generando Estado de Resultados: {str(e)}"
+            )
 
     async def generate_trial_balance(
         self,
@@ -206,7 +210,6 @@ class ReportService:
                             normal_balance_side=account_balance.account.normal_balance_side
                         )
                     )
-                    
                     total_debits += debit_movements
                     total_credits += credit_movements
             
@@ -220,7 +223,10 @@ class ReportService:
             )
             
         except Exception as e:
-            raise ReportGenerationError(f"Error generando Balance de Comprobación: {str(e)}")
+            raise ReportGenerationError(
+                report_type="trial_balance",
+                reason=f"Error generando Balance de Comprobación: {str(e)}"
+            )
 
     async def generate_general_ledger(
         self,
@@ -319,7 +325,6 @@ class ReportService:
                 )
                 
                 ledger_accounts.append(ledger_account)
-            
             return GeneralLedger(
                 start_date=start_date,
                 end_date=end_date,
@@ -328,7 +333,10 @@ class ReportService:
             )
             
         except Exception as e:
-            raise ReportGenerationError(f"Error generando Libro Mayor: {str(e)}")
+            raise ReportGenerationError(
+                report_type="general_ledger",
+                reason=f"Error generando Libro Mayor: {str(e)}"
+            )
 
     async def generate_financial_analysis(
         self,
@@ -357,7 +365,6 @@ class ReportService:
             efficiency_ratios = self._calculate_efficiency_ratios(
                 balance_sheet, income_statement
             )
-            
             return FinancialAnalysis(
                 report_date=as_of_date,
                 liquidity_ratios=liquidity_ratios,
@@ -367,7 +374,10 @@ class ReportService:
             )
             
         except Exception as e:
-            raise ReportGenerationError(f"Error generando análisis financiero: {str(e)}")
+            raise ReportGenerationError(
+                report_type="financial_analysis",
+                reason=f"Error generando análisis financiero: {str(e)}"
+            )
 
     # Métodos auxiliares privados
     

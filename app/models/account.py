@@ -107,8 +107,7 @@ class Account(Base):
     
     # Relación con el usuario que creó la cuenta
     created_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_id])
-    
-    # Relación con movimientos contables (forward reference)
+      # Relación con movimientos contables (forward reference)
     # journal_entry_lines: Mapped[List["JournalEntryLine"]] = relationship(
     #     "JournalEntryLine", 
     #     back_populates="account"
@@ -134,17 +133,40 @@ class Account(Base):
     @property
     def is_parent_account(self) -> bool:
         """Verifica si es una cuenta padre (tiene hijos)"""
-        return len(self.children) > 0
+        # Verificar si children está cargado para evitar lazy loading en contexto async
+        if 'children' in self.__dict__:
+            return len(self.children) > 0
+        else:
+            # Si no está cargado, usar allows_movements como indicador
+            # Las cuentas padre normalmente no permiten movimientos
+            return not self.allows_movements
 
     @property
     def is_leaf_account(self) -> bool:
         """Verifica si es una cuenta hoja (no tiene hijos)"""
-        return len(self.children) == 0
+        # Verificar si children está cargado para evitar lazy loading en contexto async
+        if 'children' in self.__dict__:
+            return len(self.children) == 0
+        else:
+            # Si no está cargado, usar allows_movements como indicador
+            # Las cuentas hoja normalmente permiten movimientos
+            return self.allows_movements
 
     @property
     def can_receive_movements(self) -> bool:
         """Verifica si la cuenta puede recibir movimientos contables"""
-        return self.is_active and self.allows_movements and self.is_leaf_account
+        # Verificaciones básicas que no requieren lazy loading
+        if not (self.is_active and self.allows_movements):
+            return False
+        
+        # Para la verificación de cuenta hoja, usar una lógica segura
+        # Si children está cargado, usar esa información
+        if 'children' in self.__dict__:
+            return len(self.children) == 0
+        else:
+            # Si no está cargado, confiar en allows_movements
+            # Una cuenta que allows_movements=True debería ser hoja
+            return True
 
     @property
     def normal_balance_side(self) -> str:

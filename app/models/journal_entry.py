@@ -136,8 +136,8 @@ class JournalEntry(Base):
 
     def approve(self, approved_by_user_id: uuid.UUID) -> bool:
         """Aprueba el asiento contable"""
-        if self.status != JournalEntryStatus.PENDING:
-            raise ValueError("Solo se pueden aprobar asientos en estado pendiente")
+        if self.status not in [JournalEntryStatus.DRAFT, JournalEntryStatus.PENDING]:
+            raise ValueError("Solo se pueden aprobar asientos en estado borrador o pendiente")
         
         errors = self.validate_entry()
         if errors:

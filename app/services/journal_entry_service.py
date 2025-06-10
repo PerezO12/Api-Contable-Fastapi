@@ -186,8 +186,7 @@ class JournalEntryService:
             count_query = count_query.where(and_(*conditions))
         total_result = await self.db.execute(count_query)
         total = total_result.scalar() or 0
-        
-        # Aplicar paginación y ordenamiento
+          # Aplicar paginación y ordenamiento
         query = query.order_by(desc(JournalEntry.entry_date), JournalEntry.number)
         query = query.offset(skip).limit(limit)
         
@@ -195,13 +194,13 @@ class JournalEntryService:
         entries = result.scalars().all()
         
         return list(entries), total
-
+    
     async def get_journal_entry_by_id(self, entry_id: uuid.UUID) -> Optional[JournalEntry]:
         """Obtener un asiento por ID"""
         result = await self.db.execute(
             select(JournalEntry)
             .options(
-                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account).selectinload(Account.children),
                 selectinload(JournalEntry.created_by),
                 selectinload(JournalEntry.posted_by),
                 selectinload(JournalEntry.approved_by)
@@ -215,7 +214,7 @@ class JournalEntryService:
         result = await self.db.execute(
             select(JournalEntry)
             .options(
-                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account).selectinload(Account.children),
                 selectinload(JournalEntry.created_by),
                 selectinload(JournalEntry.posted_by)
             )
