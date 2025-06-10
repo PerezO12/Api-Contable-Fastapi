@@ -9,16 +9,18 @@ from app.models.base import Base
 # Crear URL asíncrona para PostgreSQL
 def get_async_database_url() -> str:
     """Convierte la URL de PostgreSQL a formato asyncpg"""
-    url = settings.DATABASE_URL
+    url = settings.SQLALCHEMY_DATABASE_URI
     if url and url.startswith("postgresql://"):
         return url.replace("postgresql://", "postgresql+asyncpg://")
     elif url and url.startswith("postgresql+psycopg"):
-        return url.replace("postgresql+psycopg", "postgresql+asyncpg")
-    return url or "postgresql+asyncpg://postgres:@localhost:5432/accounting_system"
+        return url.replace("postgresql+psycopg", "postgresql+asyncpg://")
+    return url
+
 
 # Sync engine para migraciones y operaciones síncronas
+sync_database_url = settings.SQLALCHEMY_DATABASE_URI.replace("postgresql+asyncpg", "postgresql+psycopg2")
 engine = create_engine(
-    settings.DATABASE_URL or "postgresql://postgres:@localhost:5432/accounting_system",
+    sync_database_url,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
@@ -26,8 +28,9 @@ engine = create_engine(
 )
 
 # Async engine para operaciones asíncronas
+async_database_url = settings.SQLALCHEMY_DATABASE_URI.replace("postgresql+psycopg2", "postgresql+asyncpg")
 async_engine = create_async_engine(
-    get_async_database_url(),
+    async_database_url,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,

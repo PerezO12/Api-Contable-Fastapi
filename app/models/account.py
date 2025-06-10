@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from app.models.base import Base
+from app.models.user import User
 
 
 class AccountType(str, Enum):
@@ -83,21 +84,29 @@ class Account(Base):
     balance: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
     debit_balance: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
     credit_balance: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
-    
-    # Metadatos
+      # Metadatos
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Auditoría
+    created_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("users.id"), 
+        nullable=True
+    )
     
     # Relationships    
     parent: Mapped[Optional["Account"]] = relationship(
         "Account", 
         remote_side="Account.id",
         back_populates="children"
-    )
+    )    
     children: Mapped[List["Account"]] = relationship(
         "Account",
         back_populates="parent",
         cascade="all, delete-orphan"
     )
+    
+    # Relación con el usuario que creó la cuenta
+    created_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_id])
     
     # Relación con movimientos contables (forward reference)
     # journal_entry_lines: Mapped[List["JournalEntryLine"]] = relationship(

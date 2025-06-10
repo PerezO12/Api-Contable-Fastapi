@@ -10,23 +10,29 @@ from app.services.auth_service import AuthService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Crear las tablas de la base de datos
-    await create_async_db_and_tables()
-    
-    # Crear usuario administrador por defecto si no existe
-    async with AsyncSessionLocal() as db:
-        try:
-            admin_user = await AuthService.ensure_default_admin_exists(db)
-            if admin_user:
-                print(f"✅ Usuario administrador por defecto creado: {admin_user.email}")
-            else:
-                print("ℹ️  Usuario administrador ya existe, no se creó uno nuevo")
-        except Exception as e:
-            print(f"⚠️  Error al crear usuario administrador por defecto: {e}")
+    # Startup: Intentar crear las tablas de la base de datos
+    try:
+        await create_async_db_and_tables()
+        print("✅ Conexión a base de datos establecida")
+        
+        # Crear usuario administrador por defecto si no existe
+        async with AsyncSessionLocal() as db:
+            try:
+                admin_user = await AuthService.ensure_default_admin_exists(db)
+                if admin_user:
+                    print(f"✅ Usuario administrador por defecto creado: {admin_user.email}")
+                else:
+                    print("ℹ️ Usuario administrador ya existe")
+            except Exception as admin_error:
+                print(f"⚠️ Error al crear usuario administrador: {admin_error}")
+    except Exception as db_error:
+        print(f"⚠️ Error de conexión a base de datos: {db_error}")
+        print("ℹ️ La aplicación iniciará sin conexión a BD")
     
     yield
+    
     # Shutdown: Cleanup si es necesario
-    pass
+    print("🛑 Cerrando aplicación...")
 
 
 app = FastAPI(
@@ -56,9 +62,14 @@ async def root():
     return {
         "message": "API Contable - Sistema de Contabilidad",
         "version": settings.VERSION,
-        "docs_url": "/docs"
+        "docs": f"{settings.API_V1_STR}/docs"
     }
+
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "accounting-api"}
+    return {
+        "status": "healthy",
+        "version": settings.VERSION,
+        "environment": settings.ENVIRONMENT
+    }

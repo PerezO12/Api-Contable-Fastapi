@@ -33,7 +33,7 @@ async def create_account(
     db: AsyncSession = Depends(get_db),
     account_in: AccountCreate,
     current_user: User = Depends(get_current_active_user),
-) -> Account:
+) -> AccountRead:
     """
     Crear una nueva cuenta contable.
     Requiere permisos de ADMIN o CONTADOR.
@@ -43,7 +43,11 @@ async def create_account(
     
     account_service = AccountService(db)
     try:
-        return await account_service.create_account(account_in, current_user.id)
+        new_account = await account_service.create_account(account_in, current_user.id)
+        
+        # Convertir explícitamente a schema para evitar problemas de serialización
+        return AccountRead.model_validate(new_account)
+        
     except AccountValidationError as e:
         raise_validation_error(str(e))
 
@@ -59,12 +63,12 @@ async def list_accounts(
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> List[Account]:
+) -> List[AccountRead]:
     """
     Obtener lista de cuentas con filtros opcionales.
     """
     account_service = AccountService(db)
-    return await account_service.get_accounts(
+    accounts = await account_service.get_accounts(
         skip=skip,
         limit=limit,
         account_type=account_type,
@@ -73,6 +77,8 @@ async def list_accounts(
         parent_id=parent_id,
         search=search
     )
+      # Convertir explícitamente a schemas para evitar problemas de serialización
+    return [AccountRead.model_validate(account) for account in accounts]
 
 
 @router.get("/tree", response_model=List[AccountTree])

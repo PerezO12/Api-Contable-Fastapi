@@ -16,7 +16,6 @@ class AccountBase(BaseModel):
     description: Optional[str] = Field(None, max_length=1000, description="Descripción detallada")
     account_type: AccountType = Field(..., description="Tipo de cuenta contable")
     category: Optional[AccountCategory] = Field(None, description="Categoría de la cuenta")
-    parent_id: Optional[uuid.UUID] = Field(None, description="ID de la cuenta padre")
     is_active: bool = Field(True, description="Si la cuenta está activa")
     allows_movements: bool = Field(True, description="Si permite movimientos contables")
     requires_third_party: bool = Field(False, description="Si requiere especificar terceros")
@@ -41,7 +40,7 @@ class AccountBase(BaseModel):
 
 class AccountCreate(AccountBase):
     """Schema para crear cuentas contables"""
-    pass
+    parent_id: Optional[uuid.UUID] = Field(None, description="ID de la cuenta padre")
 
 
 class AccountUpdate(BaseModel):
@@ -63,29 +62,46 @@ class AccountUpdate(BaseModel):
         return v
 
 
-class AccountRead(AccountBase):
-    """Schema para leer cuentas contables"""
+class AccountRead(BaseModel):
+    """Schema para leer cuentas contables - coincide exactamente con el modelo de BD"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    # Campos exactos del modelo Account
     id: uuid.UUID
+    code: str
+    name: str
+    description: Optional[str]
+    account_type: AccountType
+    category: Optional[AccountCategory]
+    parent_id: Optional[uuid.UUID]
     level: int
+    is_active: bool
+    allows_movements: bool
+    requires_third_party: bool
+    requires_cost_center: bool
     balance: Decimal
     debit_balance: Decimal
     credit_balance: Decimal
+    notes: Optional[str]
+    created_by_id: Optional[uuid.UUID]
     created_at: datetime
     updated_at: datetime
-    
-    # Campos calculados
+
+
+class AccountReadWithCalculated(AccountRead):
+    """Schema extendido con campos calculados - usar solo cuando sea necesario"""
     full_code: Optional[str] = None
     full_name: Optional[str] = None
-    is_parent_account: bool = False
-    is_leaf_account: bool = True
-    can_receive_movements: bool = True
-    normal_balance_side: str = "debit"
-    
-    model_config = ConfigDict(from_attributes=True)
+    is_parent_account: Optional[bool] = None
+    is_leaf_account: Optional[bool] = None
+    can_receive_movements: Optional[bool] = None
+    normal_balance_side: Optional[str] = None
 
 
 class AccountTree(BaseModel):
     """Schema para representar la jerarquía de cuentas"""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: uuid.UUID
     code: str
     name: str
@@ -94,22 +110,28 @@ class AccountTree(BaseModel):
     balance: Decimal
     is_active: bool
     allows_movements: bool
-    children: List['AccountTree'] = []
-    
-    model_config = ConfigDict(from_attributes=True)
+    children: List['AccountTree'] = Field(default_factory=list)
 
 
 class AccountSummary(BaseModel):
     """Schema resumido para listados"""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: uuid.UUID
     code: str
     name: str
     account_type: AccountType
     balance: Decimal
     is_active: bool
-    can_receive_movements: bool
-    
-    model_config = ConfigDict(from_attributes=True)
+
+
+class AccountListResponse(BaseModel):
+    """Schema para respuesta de lista de cuentas"""
+    accounts: List[AccountRead]
+    total: int
+    page: int
+    size: int
+    total_pages: int
 
 
 class AccountBalance(BaseModel):
@@ -121,6 +143,7 @@ class AccountBalance(BaseModel):
     credit_balance: Decimal
     net_balance: Decimal
     normal_balance_side: str
+    as_of_date: date
 
 
 class AccountMovement(BaseModel):
@@ -211,3 +234,7 @@ class AccountStats(BaseModel):
     by_category: dict[str, int]
     accounts_with_movements: int
     accounts_without_movements: int
+
+
+# Reconstruir modelos que tienen referencias forward
+AccountTree.model_rebuild()

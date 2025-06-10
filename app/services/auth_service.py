@@ -33,7 +33,7 @@ class AuthService:
     def _verify_password(self, plain_password: str, hashed_password: str) -> bool:
         """Verifica una contraseña contra su hash"""
         return self.pwd_context.verify(plain_password, hashed_password)
-        
+    
     def _hash_password(self, password: str) -> str:
         """Genera el hash de una contraseña"""
         return self.pwd_context.hash(password)
@@ -42,8 +42,7 @@ class AuthService:
         """Genera una contraseña temporal segura"""
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
         password = ''.join(secrets.choice(alphabet) for _ in range(length))
-        
-        # Asegurar que tenga al menos una mayúscula, minúscula, número y símbolo
+          # Asegurar que tenga al menos una mayúscula, minúscula, número y símbolo
         if not any(c.isupper() for c in password):
             password = password[:-1] + secrets.choice(string.ascii_uppercase)
         if not any(c.islower() for c in password):
@@ -54,7 +53,7 @@ class AuthService:
             password = password[:-1] + secrets.choice("!@#$%^&*")
             
         return password
-
+            
     async def get_user_by_email(self, email: str) -> Optional[User]:
         """Obtiene un usuario por email"""
         result = await self.db.execute(
@@ -85,10 +84,11 @@ class AuthService:
         
         # Verificar contraseña
         if not self._verify_password(password, user.hashed_password):
-            # Incrementar intentos fallidos
-            user.increment_login_attempts()
+            # Incrementar intentos fallidos            user.increment_login_attempts()
             await self.db.commit()
-            return None        # Login exitoso
+            return None
+        
+        # Login exitoso
         await self._update_successful_login(user)
         return user
 
@@ -102,11 +102,16 @@ class AuthService:
         if not user:
             raise AuthenticationError("Credenciales inválidas")
         
+        # Extract user data while session is active to avoid MissingGreenlet errors
+        user_id = user.id
+        user_email = user.email
+        user_role = user.role.value
+        
         # Crear tokens
         token_data = create_token_pair(
-            user_id=user.id,
-            email=user.email,
-            role=user.role.value
+            user_id=user_id,
+            email=user_email,
+            role=user_role
         )
         
         # Crear respuesta con el formato correcto para Token schema
@@ -116,8 +121,6 @@ class AuthService:
             "expires_in": settings.access_token_expire_minutes * 60,
             "refresh_token": token_data["refresh_token"]
         }
-        
-        return token_data
     
     async def refresh_access_token(self, refresh_token: str) -> dict:
         """Renueva un token de acceso usando un refresh token"""
