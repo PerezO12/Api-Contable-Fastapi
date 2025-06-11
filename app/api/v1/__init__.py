@@ -3,7 +3,7 @@ API v1 router configuration.
 """
 from fastapi import APIRouter
 
-from app.api.v1 import accounts, auth, users, journal_entries, reports, report_api, import_data, export_templates
+from app.api.v1 import accounts, auth, users, journal_entries, reports, report_api, import_data, export_templates, export
 
 api_router = APIRouter()
 
@@ -24,6 +24,9 @@ api_router.include_router(import_data.router, prefix="/import", tags=["import"])
 
 # Export templates routes
 api_router.include_router(export_templates.router, prefix="/templates", tags=["export-templates"])
+
+# Data export routes - Generic export system for any table
+api_router.include_router(export.router, prefix="/export", tags=["export"])
 
 # Report routes - Now enabled and fully functional
 api_router.include_router(reports.router, prefix="/reports/legacy", tags=["reports-legacy"])

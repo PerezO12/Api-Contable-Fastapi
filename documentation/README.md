@@ -35,6 +35,13 @@ Este directorio contiene toda la documentación técnica del sistema contable, o
 - [Exportación de Plantillas](./data-import/export-templates.md) - Funcionalidades de exportación de ejemplos y plantillas
 - [API de Importación](./data-import/import-api-endpoints.md) - Endpoints para importación
 
+### Sistema de Exportación de Datos
+- [Índice de Exportación](./export/README.md) - Visión general del sistema de exportación
+- [Servicio de Exportación](./export/export-service.md) - Documentación técnica del servicio principal
+- [API de Exportación](./export/export-endpoints.md) - Endpoints y especificaciones de la API
+- [Esquemas de Datos](./export/export-schemas.md) - Modelos y validaciones de datos
+- [Seguridad y Filtros](./export/export-security.md) - Manejo de datos sensibles y protección
+
 ### Otros Módulos (Para futuras expansiones)
 - [Reportes](./reports/) - Sistema de reportes financieros
 - [Auditoría](./audit/) - Sistema de auditoría y logs

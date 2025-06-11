@@ -102,6 +102,7 @@ class ImportDataService:
         except Exception as e:
             logger.error(f"Error en preview de importación: {str(e)}")
             raise ImportException(f"Error en preview: {str(e)}")
+
     async def import_data(
         self, 
         file_content: str, 
@@ -146,6 +147,10 @@ class ImportDataService:
             if config.validation_level != ImportValidationLevel.PREVIEW:
                 # Inicializar caché para optimización
                 await self._initialize_cache()
+                
+                # Para cuentas, ordenar los datos para procesar padres antes que hijos
+                if config.data_type == ImportDataType.ACCOUNTS:
+                    parsed_data = await self._sort_accounts_by_hierarchy(parsed_data)
                 
                 # Procesar en lotes
                 batch_size = config.batch_size
@@ -491,7 +496,6 @@ class ImportDataService:
                     break
         
         return batch_results
-    
     async def _process_account_row(
         self, 
         row_data: Dict[str, Any], 
@@ -549,7 +553,8 @@ class ImportDataService:
             # Resolver cuenta padre si se especifica
             parent_id = None
             if account_data.parent_code:
-                parent_account = await self.account_service.get_account_by_code(account_data.parent_code)
+                # Buscar cuenta padre: primero en caché de importación, luego en BD
+                parent_account = await self._get_parent_account_for_import(account_data.parent_code)
                 if not parent_account:
                     return ImportRowResult(
                         row_number=account_data.row_number or 0,
@@ -557,7 +562,7 @@ class ImportDataService:
                         entity_code=account_data.code,
                         errors=[ImportError(
                             error_code="PARENT_NOT_FOUND",
-                            error_message=f"Cuenta padre {account_data.parent_code} no encontrada",
+                            error_message=f"Cuenta padre {account_data.parent_code} no encontrada ni en BD ni en la importación actual",
                             error_type="business",
                             severity="error"
                         )]
@@ -574,12 +579,21 @@ class ImportDataService:
                 parent_id=parent_id,
                 is_active=account_data.is_active,
                 allows_movements=account_data.allows_movements,
-                requires_third_party=account_data.requires_third_party,                requires_cost_center=account_data.requires_cost_center,
+                requires_third_party=account_data.requires_third_party,
+                requires_cost_center=account_data.requires_cost_center,
                 notes=account_data.notes
             )
             
             if config.validation_level != ImportValidationLevel.PREVIEW:
                 new_account = await self.account_service.create_account(account_create, user_id)
+                
+                # Agregar la cuenta recién creada al caché de importación para futuras referencias
+                if not hasattr(self, '_import_account_cache'):
+                    self._import_account_cache: Dict[str, Account] = {}
+                self._import_account_cache[new_account.code.upper()] = new_account
+                
+                # También actualizar el caché general
+                self._account_cache[new_account.code.upper()] = new_account
                 
                 return ImportRowResult(
                     row_number=account_data.row_number or 0,
@@ -693,7 +707,6 @@ class ImportDataService:
         self._account_cache = {account.code: account for account in accounts}
         
         logger.info(f"Caché inicializado con {len(self._account_cache)} cuentas")
-    
     async def _get_account_by_code_cached(self, code: str) -> Optional[Account]:
         """Obtener cuenta por código usando caché"""
         if code in self._account_cache:
@@ -705,6 +718,71 @@ class ImportDataService:
             self._account_cache[code] = account
         
         return account
+    
+    async def _sort_accounts_by_hierarchy(self, accounts_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Ordenar cuentas para procesar padres antes que hijos
+        """
+        # Crear lista para cuentas ordenadas
+        ordered_accounts = []
+        # Mantener un conjunto de códigos ya procesados
+        processed_codes = set()
+        # Inicializar caché local para cuentas creadas durante esta importación
+        self._import_account_cache: Dict[str, Account] = {}
+        
+        # Función recursiva para agregar cuenta y sus dependencias
+        def add_account_with_dependencies(account_data: Dict[str, Any], all_accounts: List[Dict[str, Any]]):
+            account_code = account_data.get('code', '').strip().upper()
+            
+            # Si ya fue procesada, salir
+            if account_code in processed_codes:
+                return
+                
+            parent_code = account_data.get('parent_code', '').strip().upper() if account_data.get('parent_code') else None
+            
+            # Si tiene padre, asegurar que el padre se procese primero
+            if parent_code:
+                # Buscar el padre en los datos a importar
+                parent_data = None
+                for acc in all_accounts:
+                    if acc.get('code', '').strip().upper() == parent_code:
+                        parent_data = acc
+                        break
+                
+                # Si el padre está en los datos a importar, procesarlo primero
+                if parent_data:
+                    add_account_with_dependencies(parent_data, all_accounts)
+            
+            # Agregar la cuenta actual
+            ordered_accounts.append(account_data)
+            processed_codes.add(account_code)
+        
+        # Procesar todas las cuentas
+        for account_data in accounts_data:
+            add_account_with_dependencies(account_data, accounts_data)
+        logger.info(f"Ordenadas {len(ordered_accounts)} cuentas por jerarquía")
+        return ordered_accounts
+    
+    async def _get_parent_account_for_import(self, parent_code: str) -> Optional[Account]:
+        """
+        Buscar cuenta padre tanto en caché de importación como en BD
+        """
+        parent_code_upper = parent_code.strip().upper()
+        
+        # Primero buscar en el caché de importación (cuentas recién creadas)
+        if hasattr(self, '_import_account_cache') and parent_code_upper in self._import_account_cache:
+            return self._import_account_cache[parent_code_upper]
+        
+        # Luego buscar en el caché general de BD
+        if parent_code_upper in self._account_cache:
+            return self._account_cache[parent_code_upper]
+        
+        # Finalmente buscar en BD si no está en caché
+        parent_account = await self.account_service.get_account_by_code(parent_code)
+        if parent_account:
+            self._account_cache[parent_code_upper] = parent_account
+        
+        return parent_account
     
     def _detect_format(self, filename: str, declared_format: ImportFormat) -> ImportFormat:
         """Detectar formato de archivo"""
