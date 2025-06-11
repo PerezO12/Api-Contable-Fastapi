@@ -1,6 +1,20 @@
 """
 API endpoints para reportes financieros
-Implementa endpoints individuales por tipo de reporte usando query parameters
+Implementa endpoints individuales por tipo de reporte usando        )
+        
+        table_data = self._convert_cash_flow_to_table(cash_ledger, detail_level)
+        narrative_data = self._generate_cash_flow_narrative(cash_ledger, from_date, to_date, original_to_date)
+        
+        date_range = DateRange(**{"from": from_date, "to": to_date})
+        return ReportResponse(
+            success=True,
+            report_type=ReportType.FLUJO_EFECTIVO,
+            generated_at=date.today(),
+            period=date_range,
+            project_context=resolved_context,
+            table=table_data,
+            narrative=narrative_data
+        )rs
 """
 from datetime import date
 from decimal import Decimal
@@ -35,6 +49,7 @@ class ReportAPIService:
         if project_context:
             return project_context
         return await self.company_service.get_company_name()
+    
     async def generate_balance_general(
         self,
         project_context: Optional[str],
@@ -45,18 +60,34 @@ class ReportAPIService:
     ) -> ReportResponse:
         """Generar Balance General"""
         
+        # Validar y corregir fechas futuras automáticamente
+        today = date.today()
+        original_to_date = to_date
+        
+        # Si to_date es superior a la fecha actual, corregir automáticamente
+        if to_date > today:
+            to_date = today
+            
+        # Si from_date también es superior a la fecha actual, corregir automáticamente
+        if from_date > today:
+            from_date = today
+            
+        # Si después de las correcciones from_date > to_date, ajustar from_date
+        if from_date > to_date:
+            from_date = to_date
+        
         # Obtener contexto del proyecto con valor por defecto
         resolved_context = await self._get_project_context(project_context)
-        
-        # Usar el servicio existente
+          # Usar el servicio existente
         balance_sheet = await self.report_service.generate_balance_sheet(
             as_of_date=to_date,
             include_zero_balances=(detail_level == DetailLevel.ALTO),
             company_name=resolved_context
         )
-          # Convertir a formato de la API
+        
+        # Convertir a formato de la API
         table_data = self._convert_balance_sheet_to_table(balance_sheet, detail_level)
-        narrative_data = self._generate_balance_narrative(balance_sheet, from_date, to_date)
+        narrative_data = self._generate_balance_narrative(balance_sheet, from_date, to_date, original_to_date)
         
         date_range = DateRange(**{"from": from_date, "to": to_date})
         
@@ -80,7 +111,22 @@ class ReportAPIService:
     ) -> ReportResponse:
         """Generar Estado de Flujo de Efectivo"""
         
-        # Obtener contexto del proyecto con valor por defecto
+        # Validar y corregir fechas futuras automáticamente
+        today = date.today()
+        original_to_date = to_date
+        
+        # Si to_date es superior a la fecha actual, corregir automáticamente
+        if to_date > today:
+            to_date = today
+            
+        # Si from_date también es superior a la fecha actual, corregir automáticamente
+        if from_date > today:
+            from_date = today
+            
+        # Si después de las correcciones from_date > to_date, ajustar from_date
+        if from_date > to_date:
+            from_date = to_date
+          # Obtener contexto del proyecto con valor por defecto
         resolved_context = await self._get_project_context(project_context)
         
         # Obtener movimientos de cuentas de efectivo y equivalentes
@@ -92,7 +138,7 @@ class ReportAPIService:
         )
         
         table_data = self._convert_cash_flow_to_table(cash_ledger, detail_level)
-        narrative_data = self._generate_cash_flow_narrative(cash_ledger, from_date, to_date)
+        narrative_data = self._generate_cash_flow_narrative(cash_ledger, from_date, to_date, original_to_date)
         
         date_range = DateRange(**{"from": from_date, "to": to_date})
         return ReportResponse(
@@ -104,6 +150,7 @@ class ReportAPIService:
             table=table_data,
             narrative=narrative_data
         )
+
     async def generate_perdidas_ganancias(
         self,
         project_context: Optional[str],
@@ -113,6 +160,22 @@ class ReportAPIService:
         include_subaccounts: bool = False
     ) -> ReportResponse:
         """Generar Estado de Pérdidas y Ganancias"""
+        
+        # Validar y corregir fechas si son superiores a la fecha actual
+        today = date.today()
+        original_to_date = to_date
+        
+        # Corregir fecha final si es futura
+        if to_date > today:
+            to_date = today
+            
+        # Corregir fecha inicial si es futura
+        if from_date > today:
+            from_date = today
+            
+        # Asegurar que from_date no sea mayor que to_date después de las correcciones
+        if from_date > to_date:
+            from_date = to_date
         
         # Obtener contexto del proyecto con valor por defecto
         resolved_context = await self._get_project_context(project_context)
@@ -125,7 +188,7 @@ class ReportAPIService:
         )
         
         table_data = self._convert_income_statement_to_table(income_statement, detail_level)
-        narrative_data = self._generate_income_narrative(income_statement, from_date, to_date)
+        narrative_data = self._generate_income_narrative(income_statement, from_date, to_date, original_to_date)
         
         date_range = DateRange(**{"from": from_date, "to": to_date})
         return ReportResponse(
@@ -313,10 +376,10 @@ class ReportAPIService:
             summary={
                 "start_date": income_statement.start_date,
                 "end_date": income_statement.end_date,
-                "company_name": income_statement.company_name
-            }
+                "company_name": income_statement.company_name            }
         )
-    def _generate_balance_narrative(self, balance_sheet, from_date: date, to_date: date) -> ReportNarrative:
+    
+    def _generate_balance_narrative(self, balance_sheet, from_date: date, to_date: date, original_to_date: Optional[date] = None) -> ReportNarrative:
         """Generar narrativa para Balance General"""
         
         # Calcular ratios básicos
@@ -332,7 +395,6 @@ class ReportAPIService:
         La estructura financiera presenta un {debt_ratio:.1f}% de financiamiento con pasivos y un {equity_ratio:.1f}% con patrimonio.
         La ecuación contable se encuentra {'balanceada' if balance_sheet.is_balanced else 'desbalanceada'}.
         """
-        
         key_variations = [
             f"Activos totales: ${total_assets:,.2f}",
             f"Pasivos totales: ${total_liabilities:,.2f}",
@@ -348,6 +410,11 @@ class ReportAPIService:
         if balance_sheet.is_balanced:
             recommendations.append("Mantener el equilibrio contable verificando periódicamente")
         
+        # Agregar nota si las fechas fueron corregidas automáticamente
+        if original_to_date and original_to_date > to_date:
+            key_variations.insert(0, f"⚠️ Fecha corregida automáticamente: La fecha solicitada ({original_to_date}) era superior a la actual, se ajustó a {to_date}")
+            recommendations.insert(0, "Verificar que las fechas del reporte sean válidas para evitar correcciones automáticas")
+        
         financial_highlights = [
             f"Estructura de capital: {equity_ratio:.1f}% patrimonio, {debt_ratio:.1f}% deuda",
             f"Estado del balance: {'Balanceado' if balance_sheet.is_balanced else 'Requiere ajustes'}",
@@ -361,7 +428,7 @@ class ReportAPIService:
             financial_highlights=financial_highlights
         )
     
-    def _generate_cash_flow_narrative(self, cash_ledger, from_date: date, to_date: date) -> ReportNarrative:
+    def _generate_cash_flow_narrative(self, cash_ledger, from_date: date, to_date: date, original_to_date: Optional[date] = None) -> ReportNarrative:
         """Generar narrativa para Flujo de Efectivo"""
         
         total_movements = sum(
@@ -374,14 +441,21 @@ class ReportAPIService:
         muestra movimientos netos por ${total_movements:,.2f} en cuentas de efectivo y equivalentes.
         """
         
+        # Agregar nota si las fechas fueron corregidas automáticamente
+        key_variations = [f"Movimientos totales de efectivo: ${total_movements:,.2f}"]
+        recommendations = ["Monitorear el flujo de efectivo regularmente"]
+        
+        if original_to_date and original_to_date > to_date:
+            key_variations.insert(0, f"⚠️ Fecha corregida automáticamente: La fecha final solicitada ({original_to_date}) era superior a la actual, se ajustó a {to_date}")
+            recommendations.insert(0, "Verificar que las fechas del reporte sean válidas para evitar correcciones automáticas")
+        
         return ReportNarrative(
             executive_summary=executive_summary.strip(),
-            key_variations=[f"Movimientos totales de efectivo: ${total_movements:,.2f}"],
-            recommendations=["Monitorear el flujo de efectivo regularmente"],
-            financial_highlights=["Análisis de liquidez basado en movimientos de efectivo"]
+            key_variations=key_variations,
+            recommendations=recommendations,            financial_highlights=["Análisis de liquidez basado en movimientos de efectivo"]
         )
-    
-    def _generate_income_narrative(self, income_statement, from_date: date, to_date: date) -> ReportNarrative:
+
+    def _generate_income_narrative(self, income_statement, from_date: date, to_date: date, original_to_date: Optional[date] = None) -> ReportNarrative:
         """Generar narrativa para Estado de Resultados"""
         
         total_revenues = income_statement.revenues.total
@@ -411,6 +485,11 @@ class ReportAPIService:
         
         if net_profit < 0:
             recommendations.append("Analizar causas de pérdidas y implementar medidas correctivas")
+        
+        # Agregar nota si las fechas fueron corregidas automáticamente
+        if original_to_date and original_to_date > to_date:
+            key_variations.insert(0, f"⚠️ Fecha corregida automáticamente: La fecha final solicitada ({original_to_date}) era superior a la actual, se ajustó a {to_date}")
+            recommendations.insert(0, "Verificar que las fechas del reporte sean válidas para evitar correcciones automáticas")
         
         financial_highlights = [
             f"Rentabilidad: {'Positiva' if net_profit > 0 else 'Negativa'}",
