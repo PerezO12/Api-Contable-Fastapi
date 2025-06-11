@@ -1179,9 +1179,344 @@ async def export_to_excel(report_data: Dict, filename: str):
         ws_balance[f"B{row}"].font = Font(bold=True)
         ws_balance[f"E{row}"].font = Font(bold=True)
         row += 2
-    
-    wb.save(filename)
+      wb.save(filename)
 ```
+
+---
+
+### 💰 **Tesorero / Analista de Flujo de Efectivo**
+
+#### Análisis Avanzado de Liquidez y Flujo de Efectivo
+
+**Escenario:** Monitoreo diario de liquidez, proyección de flujos y optimización de efectivo.
+
+**Implementación:**
+
+```python
+from decimal import Decimal
+from typing import Dict, List, Tuple, Optional
+from datetime import date, timedelta, datetime
+from dataclasses import dataclass
+from enum import Enum
+
+class CashFlowMethod(Enum):
+    DIRECT = "direct"
+    INDIRECT = "indirect"
+
+@dataclass
+class CashFlowInsight:
+    category: str  # 'liquidity', 'efficiency', 'risk', 'opportunity'
+    severity: str  # 'low', 'medium', 'high', 'critical'
+    description: str
+    recommendation: str
+    projected_impact: Optional[Decimal] = None
+
+class CashFlowAnalyzer:
+    def __init__(self, api_client):
+        self.api = api_client
+    
+    async def daily_liquidity_report(self, as_of_date: date) -> Dict[str, any]:
+        """Generar reporte diario de liquidez con alertas automáticas"""
+        
+        # Obtener flujo de efectivo con método indirecto para análisis detallado
+        cash_flow_data = await self.api.get("/reports/flujo-efectivo", params={
+            "from_date": (as_of_date - timedelta(days=30)).isoformat(),
+            "to_date": as_of_date.isoformat(),
+            "detail_level": "medio",  # Método indirecto
+            "project_context": "Análisis de Liquidez Diario"
+        })
+        
+        # Análisis de posición actual
+        current_position = self.analyze_current_position(cash_flow_data)
+        
+        # Identificar alertas de liquidez
+        liquidity_alerts = self.identify_liquidity_alerts(cash_flow_data, current_position)
+        
+        # Proyecciones a corto plazo
+        projections = await self.project_short_term_flows(as_of_date)
+        
+        # Recomendaciones específicas de tesorería
+        treasury_recommendations = self.generate_treasury_recommendations(
+            current_position, liquidity_alerts, projections
+        )
+        
+        return {
+            "report_date": as_of_date,
+            "cash_position": current_position,
+            "liquidity_alerts": liquidity_alerts,
+            "short_term_projections": projections,
+            "treasury_recommendations": treasury_recommendations,
+            "cash_flow_analysis": self.extract_cash_flow_insights(cash_flow_data)
+        }
+    
+    def analyze_current_position(self, cash_flow_data: Dict) -> Dict[str, any]:
+        """Analizar posición actual de efectivo"""
+        totals = cash_flow_data["table"]["totals"]
+        narrative = cash_flow_data["narrative"]
+        
+        operating_flow = Decimal(totals["flujo_operativo"])
+        investing_flow = Decimal(totals["flujo_inversion"])
+        financing_flow = Decimal(totals["flujo_financiamiento"])
+        net_flow = Decimal(totals["flujo_neto"])
+        
+        # Extraer efectivo final del summary
+        ending_cash = None
+        for section in cash_flow_data["table"]["sections"]:
+            if section["section_name"] == "Resumen de Efectivo":
+                for item in section["items"]:
+                    if "final del período" in item["account_name"]:
+                        ending_cash = Decimal(item["closing_balance"])
+                        break
+        
+        # Calcular ratios de liquidez
+        daily_burn_rate = abs(operating_flow) / 30 if operating_flow < 0 else Decimal('0')
+        cash_runway_days = ending_cash / daily_burn_rate if daily_burn_rate > 0 and ending_cash else None
+        
+        # Evaluar salud de liquidez
+        liquidity_health = self.assess_liquidity_health(
+            ending_cash, operating_flow, daily_burn_rate, cash_runway_days
+        )
+        
+        return {
+            "ending_cash_balance": float(ending_cash) if ending_cash else 0,
+            "operating_cash_flow": float(operating_flow),
+            "investing_cash_flow": float(investing_flow),
+            "financing_cash_flow": float(financing_flow),
+            "net_cash_flow": float(net_flow),
+            "daily_burn_rate": float(daily_burn_rate),
+            "cash_runway_days": float(cash_runway_days) if cash_runway_days else None,
+            "liquidity_health": liquidity_health,
+            "flow_composition": {
+                "operating_percentage": float(operating_flow / net_flow * 100) if net_flow != 0 else 0,
+                "investing_percentage": float(investing_flow / net_flow * 100) if net_flow != 0 else 0,
+                "financing_percentage": float(financing_flow / net_flow * 100) if net_flow != 0 else 0
+            }
+        }
+    
+    def identify_liquidity_alerts(self, cash_flow_data: Dict, position: Dict) -> List[CashFlowInsight]:
+        """Identificar alertas críticas de liquidez"""
+        alerts = []
+        
+        # Alert: Bajo nivel de efectivo
+        if position["ending_cash_balance"] < 10000:
+            alerts.append(CashFlowInsight(
+                category="liquidity",
+                severity="critical" if position["ending_cash_balance"] < 5000 else "high",
+                description=f"Nivel de efectivo bajo: ${position['ending_cash_balance']:,.2f}",
+                recommendation="Activar líneas de crédito o acelerar cobranzas",
+                projected_impact=Decimal('10000') - Decimal(str(position["ending_cash_balance"]))
+            ))
+        
+        # Alert: Flujo operativo negativo
+        if position["operating_cash_flow"] < 0:
+            alerts.append(CashFlowInsight(
+                category="efficiency",
+                severity="high",
+                description=f"Flujo operativo negativo: ${position['operating_cash_flow']:,.2f}",
+                recommendation="Revisar ciclo de cobranzas y optimizar pagos",
+                projected_impact=abs(Decimal(str(position["operating_cash_flow"])))
+            ))
+        
+        # Alert: Cash runway corto
+        if position["cash_runway_days"] and position["cash_runway_days"] < 60:
+            alerts.append(CashFlowInsight(
+                category="risk",
+                severity="critical" if position["cash_runway_days"] < 30 else "high",
+                description=f"Efectivo suficiente para solo {position['cash_runway_days']:.0f} días",
+                recommendation="Implementar plan de conservación de efectivo inmediatamente",
+                projected_impact=None
+            ))
+        
+        # Alert: Dependencia excesiva de financiamiento
+        if abs(position["flow_composition"]["financing_percentage"]) > 70:
+            alerts.append(CashFlowInsight(
+                category="risk",
+                severity="medium",
+                description="Alta dependencia de flujos de financiamiento",
+                recommendation="Diversificar fuentes de efectivo y mejorar flujos operativos",
+                projected_impact=None
+            ))
+        
+        return alerts
+    
+    async def project_short_term_flows(self, base_date: date) -> Dict[str, any]:
+        """Proyectar flujos a corto plazo (próximos 30 días)"""
+        
+        # Obtener patrones históricos de los últimos 3 meses
+        historical_data = []
+        for i in range(3):
+            start_date = base_date - timedelta(days=(i+1)*30)
+            end_date = base_date - timedelta(days=i*30)
+            
+            monthly_flow = await self.api.get("/reports/flujo-efectivo", params={
+                "from_date": start_date.isoformat(),
+                "to_date": end_date.isoformat(),
+                "detail_level": "alto",  # Método directo para proyecciones
+                "project_context": "Análisis Histórico"
+            })
+            
+            historical_data.append(monthly_flow)
+        
+        # Calcular promedios y tendencias
+        avg_operating = sum(
+            Decimal(data["table"]["totals"]["flujo_operativo"]) 
+            for data in historical_data
+        ) / 3
+        
+        # Proyección simple basada en promedio histórico
+        projected_flows = {
+            "next_30_days": {
+                "projected_operating": float(avg_operating),
+                "projected_investing": 0,  # Generalmente planificado
+                "projected_financing": 0,  # Generalmente planificado
+                "confidence_level": "medium"
+            },
+            "scenarios": {
+                "optimistic": float(avg_operating * Decimal('1.2')),
+                "realistic": float(avg_operating),
+                "pessimistic": float(avg_operating * Decimal('0.8'))
+            }
+        }
+        
+        return projected_flows
+    
+    def generate_treasury_recommendations(self, position: Dict, alerts: List[CashFlowInsight], 
+                                        projections: Dict) -> List[str]:
+        """Generar recomendaciones específicas de tesorería"""
+        recommendations = []
+        
+        # Basado en alertas críticas
+        critical_alerts = [a for a in alerts if a.severity == "critical"]
+        if critical_alerts:
+            recommendations.append(
+                "🚨 ACCIÓN INMEDIATA: Activar protocolo de crisis de liquidez"
+            )
+            recommendations.append(
+                "📞 Contactar inmediatamente con entidades financieras para líneas de emergencia"
+            )
+        
+        # Basado en posición de efectivo
+        if position["ending_cash_balance"] > 100000:
+            recommendations.append(
+                "💰 Evaluar inversiones a corto plazo para optimizar rendimiento del exceso de efectivo"
+            )
+            recommendations.append(
+                "📈 Considerar anticipar inversiones estratégicas planificadas"
+            )
+        
+        # Basado en flujo operativo
+        if position["operating_cash_flow"] > 0:
+            recommendations.append(
+                "✅ Mantener el momentum de generación operativa de efectivo"
+            )
+        else:
+            recommendations.append(
+                "⚠️ Implementar plan de mejora de flujo operativo (acelerar cobranzas, negociar plazos)"
+            )
+        
+        # Basado en proyecciones
+        if projections["next_30_days"]["projected_operating"] < 0:
+            recommendations.append(
+                "🔍 Preparar plan de contingencia para flujo operativo negativo proyectado"
+            )
+        
+        return recommendations[:5]  # Limitar a 5 recomendaciones más importantes
+    
+    def extract_cash_flow_insights(self, cash_flow_data: Dict) -> Dict[str, any]:
+        """Extraer insights específicos del análisis de flujo de efectivo"""
+        narrative = cash_flow_data["narrative"]
+        totals = cash_flow_data["table"]["totals"]
+        
+        # Extraer método utilizado
+        method_used = cash_flow_data["table"]["summary"].get("method", "indirect")
+        
+        return {
+            "method_used": method_used,
+            "executive_summary": narrative["executive_summary"],
+            "key_insights": narrative["key_insights"],
+            "ai_recommendations": narrative["recommendations"],
+            "financial_highlights": narrative["financial_highlights"],
+            "flow_efficiency": {
+                "operating_dominance": abs(Decimal(totals["flujo_operativo"])) / 
+                                     (abs(Decimal(totals["flujo_operativo"])) + 
+                                      abs(Decimal(totals.get("flujo_inversion", "0"))) + 
+                                      abs(Decimal(totals.get("flujo_financiamiento", "0")))) * 100,
+                "investment_activity": abs(Decimal(totals.get("flujo_inversion", "0"))),
+                "financing_dependency": abs(Decimal(totals.get("flujo_financiamiento", "0")))
+            }
+        }
+    
+    def assess_liquidity_health(self, cash_balance: Decimal, operating_flow: Decimal, 
+                              burn_rate: Decimal, runway_days: Optional[Decimal]) -> str:
+        """Evaluar salud general de liquidez"""
+        score = 0
+        
+        # Puntuación por efectivo disponible
+        if cash_balance > 50000:
+            score += 3
+        elif cash_balance > 20000:
+            score += 2
+        elif cash_balance > 5000:
+            score += 1
+        
+        # Puntuación por flujo operativo
+        if operating_flow > 0:
+            score += 3
+        elif operating_flow > -5000:
+            score += 1
+        
+        # Puntuación por runway
+        if runway_days is None or runway_days > 90:
+            score += 2
+        elif runway_days > 60:
+            score += 1
+        
+        # Clasificación final
+        if score >= 7:
+            return "Excelente"
+        elif score >= 5:
+            return "Buena"
+        elif score >= 3:
+            return "Aceptable"
+        else:
+            return "Crítica"
+
+# Ejemplo de uso
+async def daily_treasury_workflow():
+    """Flujo de trabajo diario de tesorería"""
+    treasury_api = TreasuryAPIClient(base_url, auth_token)
+    analyzer = CashFlowAnalyzer(treasury_api)
+    
+    # Reporte matutino de liquidez
+    liquidity_report = await analyzer.daily_liquidity_report(date.today())
+    
+    print("=== REPORTE DIARIO DE LIQUIDEZ ===")
+    print(f"Efectivo disponible: ${liquidity_report['cash_position']['ending_cash_balance']:,.2f}")
+    print(f"Salud de liquidez: {liquidity_report['cash_position']['liquidity_health']}")
+    
+    # Alertas críticas
+    critical_alerts = [
+        alert for alert in liquidity_report['liquidity_alerts'] 
+        if alert.severity == 'critical'
+    ]
+    
+    if critical_alerts:
+        print("\n🚨 ALERTAS CRÍTICAS:")
+        for alert in critical_alerts:
+            print(f"• {alert.description}")
+            print(f"  Recomendación: {alert.recommendation}")
+    
+    # Proyección
+    projection = liquidity_report['short_term_projections']['next_30_days']
+    print(f"\nProyección próximos 30 días: ${projection['projected_operating']:,.2f}")
+    
+    # Recomendaciones principales
+    print("\n📋 RECOMENDACIONES:")
+    for rec in liquidity_report['treasury_recommendations']:
+        print(f"• {rec}")
+```
+
+---
 
 ### Power BI/Tableau
 

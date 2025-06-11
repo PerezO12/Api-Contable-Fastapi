@@ -28,10 +28,12 @@ from app.models.user import User
 from app.models.account import AccountType
 from app.services.report_service import ReportService
 from app.services.company_service import CompanyService
+from app.services.cash_flow_service import CashFlowService, CashFlowMethod
 from app.schemas.report_api import (
     ReportResponse, ReportError, ReportType, DetailLevel,
     ReportTable, ReportNarrative, AccountReportItem, DateRange
 )
+from app.schemas.reports import CashFlowStatement, CashFlowItem
 from app.utils.exceptions import ReportGenerationError
 
 router = APIRouter()
@@ -125,20 +127,28 @@ class ReportAPIService:
             
         # Si después de las correcciones from_date > to_date, ajustar from_date
         if from_date > to_date:
-            from_date = to_date
-          # Obtener contexto del proyecto con valor por defecto
+            from_date = to_date        # Obtener contexto del proyecto con valor por defecto
         resolved_context = await self._get_project_context(project_context)
         
-        # Obtener movimientos de cuentas de efectivo y equivalentes
-        cash_ledger = await self.report_service.generate_general_ledger(
+        # Usar el nuevo CashFlowService para generar el estado
+        cash_flow_service = CashFlowService(self.db, resolved_context)
+        
+        # Determinar método basado en el nivel de detalle
+        method = CashFlowMethod.DIRECT if detail_level == DetailLevel.ALTO else CashFlowMethod.INDIRECT
+        
+        # Generar el estado de flujo de efectivo
+        cash_flow_statement = await cash_flow_service.generate_cash_flow_statement(
             start_date=from_date,
             end_date=to_date,
-            account_type=AccountType.ACTIVO,  # Filtrar por activos líquidos
+            method=method,
             company_name=resolved_context
         )
         
-        table_data = self._convert_cash_flow_to_table(cash_ledger, detail_level)
-        narrative_data = self._generate_cash_flow_narrative(cash_ledger, from_date, to_date, original_to_date)
+        # Convertir a formato de la API
+        table_data = self._convert_cash_flow_statement_to_table(cash_flow_statement, detail_level)
+        narrative_data = self._generate_cash_flow_statement_narrative(
+            cash_flow_statement, from_date, to_date, original_to_date
+        )
         
         date_range = DateRange(**{"from": from_date, "to": to_date})
         return ReportResponse(
@@ -485,8 +495,7 @@ class ReportAPIService:
         
         if net_profit < 0:
             recommendations.append("Analizar causas de pérdidas y implementar medidas correctivas")
-        
-        # Agregar nota si las fechas fueron corregidas automáticamente
+          # Agregar nota si las fechas fueron corregidas automáticamente
         if original_to_date and original_to_date > to_date:
             key_variations.insert(0, f"⚠️ Fecha corregida automáticamente: La fecha final solicitada ({original_to_date}) era superior a la actual, se ajustó a {to_date}")
             recommendations.insert(0, "Verificar que las fechas del reporte sean válidas para evitar correcciones automáticas")
@@ -495,6 +504,181 @@ class ReportAPIService:
             f"Rentabilidad: {'Positiva' if net_profit > 0 else 'Negativa'}",
             f"Eficiencia operativa: {margin:.1f}% de margen",
             f"Relación ingresos/gastos: {(total_revenues/total_expenses):.2f}" if total_expenses > 0 else "N/A"
+        ]
+        
+        return ReportNarrative(
+            executive_summary=executive_summary.strip(),
+            key_variations=key_variations,
+            recommendations=recommendations,
+            financial_highlights=financial_highlights
+        )
+
+    def _convert_cash_flow_statement_to_table(self, cash_flow_statement: CashFlowStatement, detail_level: DetailLevel) -> ReportTable:
+        """Convertir CashFlowStatement al formato de tabla de la API"""
+        
+        sections = []
+        
+        # Sección de Actividades de Operación
+        operating_items = []
+        
+        # Agregar utilidad neta si es método indirecto
+        if cash_flow_statement.method == "indirect" and cash_flow_statement.operating_activities.net_income != 0:
+            operating_items.append({
+                "account_group": "ACTIVIDADES DE OPERACIÓN",
+                "account_code": "",
+                "account_name": "Utilidad (Pérdida) Neta",
+                "opening_balance": Decimal('0'),
+                "movements": cash_flow_statement.operating_activities.net_income,
+                "closing_balance": cash_flow_statement.operating_activities.net_income,
+                "level": 1
+            })
+        
+        # Agregar ajustes
+        for adjustment in cash_flow_statement.operating_activities.adjustments:
+            operating_items.append({
+                "account_group": "ACTIVIDADES DE OPERACIÓN",
+                "account_code": adjustment.account_code,
+                "account_name": f"Ajuste: {adjustment.description}",
+                "opening_balance": Decimal('0'),
+                "movements": adjustment.amount,
+                "closing_balance": adjustment.amount,
+                "level": 2
+            })
+        
+        # Agregar cambios en capital de trabajo
+        for wc_change in cash_flow_statement.operating_activities.working_capital_changes:
+            operating_items.append({
+                "account_group": "ACTIVIDADES DE OPERACIÓN",
+                "account_code": wc_change.account_code,
+                "account_name": f"Capital de trabajo: {wc_change.description}",
+                "opening_balance": Decimal('0'),
+                "movements": wc_change.amount,
+                "closing_balance": wc_change.amount,
+                "level": 2
+            })
+        
+        # Agregar otros items operativos (método directo)
+        for item in cash_flow_statement.operating_activities.items:
+            operating_items.append({
+                "account_group": "ACTIVIDADES DE OPERACIÓN",
+                "account_code": item.account_code,
+                "account_name": item.description,
+                "opening_balance": Decimal('0'),
+                "movements": item.amount,
+                "closing_balance": item.amount,
+                "level": 1
+            })
+        
+        sections.append({
+            "section_name": "ACTIVIDADES DE OPERACIÓN",
+            "items": operating_items,
+            "total": cash_flow_statement.net_cash_from_operating
+        })
+        
+        # Sección de Actividades de Inversión
+        investing_items = []
+        for item in cash_flow_statement.investing_activities:
+            investing_items.append({
+                "account_group": "ACTIVIDADES DE INVERSIÓN",
+                "account_code": item.account_code,
+                "account_name": item.description,
+                "opening_balance": Decimal('0'),
+                "movements": item.amount,
+                "closing_balance": item.amount,
+                "level": 1
+            })
+        
+        sections.append({
+            "section_name": "ACTIVIDADES DE INVERSIÓN",
+            "items": investing_items,
+            "total": cash_flow_statement.net_cash_from_investing
+        })
+        
+        # Sección de Actividades de Financiamiento
+        financing_items = []
+        for item in cash_flow_statement.financing_activities:
+            financing_items.append({
+                "account_group": "ACTIVIDADES DE FINANCIAMIENTO",
+                "account_code": item.account_code,
+                "account_name": item.description,
+                "opening_balance": Decimal('0'),
+                "movements": item.amount,
+                "closing_balance": item.amount,
+                "level": 1
+            })
+        
+        sections.append({
+            "section_name": "ACTIVIDADES DE FINANCIAMIENTO",
+            "items": financing_items,
+            "total": cash_flow_statement.net_cash_from_financing
+        })
+        
+        return ReportTable(
+            sections=sections,
+            totals={
+                "flujo_operativo": cash_flow_statement.net_cash_from_operating,
+                "flujo_inversion": cash_flow_statement.net_cash_from_investing,
+                "flujo_financiamiento": cash_flow_statement.net_cash_from_financing,
+                "flujo_neto": cash_flow_statement.net_change_in_cash,
+                "efectivo_inicial": cash_flow_statement.cash_beginning_period,
+                "efectivo_final": cash_flow_statement.cash_ending_period
+            },
+            summary={
+                "method": cash_flow_statement.method,
+                "start_date": cash_flow_statement.start_date,
+                "end_date": cash_flow_statement.end_date,
+                "company_name": cash_flow_statement.company_name,
+                "is_balanced": cash_flow_statement.is_balanced
+            }
+        )
+
+    def _generate_cash_flow_statement_narrative(self, cash_flow_statement: CashFlowStatement, from_date: date, to_date: date, original_to_date: Optional[date] = None) -> ReportNarrative:
+        """Generar narrativa para CashFlowStatement"""
+        
+        operating_flow = cash_flow_statement.net_cash_from_operating
+        investing_flow = cash_flow_statement.net_cash_from_investing
+        financing_flow = cash_flow_statement.net_cash_from_financing
+        net_change = cash_flow_statement.net_change_in_cash
+        
+        executive_summary = f"""
+        El Estado de Flujo de Efectivo del período {from_date} al {to_date} (método {cash_flow_statement.method})
+        muestra flujo operativo de ${operating_flow:,.2f}, flujo de inversión de ${investing_flow:,.2f},
+        y flujo de financiamiento de ${financing_flow:,.2f}, resultando en un cambio neto de ${net_change:,.2f}.
+        El efectivo pasó de ${cash_flow_statement.cash_beginning_period:,.2f} a ${cash_flow_statement.cash_ending_period:,.2f}.
+        """
+        
+        key_variations = [
+            f"Flujo de actividades operativas: ${operating_flow:,.2f}",
+            f"Flujo de actividades de inversión: ${investing_flow:,.2f}",
+            f"Flujo de actividades de financiamiento: ${financing_flow:,.2f}",
+            f"Cambio neto en efectivo: ${net_change:,.2f}",
+            f"Método utilizado: {cash_flow_statement.method.title()}"
+        ]
+        
+        recommendations = []
+        if operating_flow < 0:
+            recommendations.append("Revisar flujos operativos negativos - posible problema de liquidez")
+        elif operating_flow > 0:
+            recommendations.append("Excelente generación de efectivo operativo - continuar tendencia")
+        
+        if abs(investing_flow) > abs(operating_flow):
+            recommendations.append("Alto nivel de actividad de inversión - evaluar retornos esperados")
+        
+        if net_change < 0:
+            recommendations.append("Disminución neta de efectivo requiere monitoreo de liquidez")
+        
+        if not cash_flow_statement.is_balanced:
+            recommendations.append("⚠️ Revisar cálculos - el flujo no cuadra correctamente")
+          # Agregar nota si las fechas fueron corregidas automáticamente
+        if original_to_date and original_to_date > to_date:
+            key_variations.insert(0, f"⚠️ Fecha corregida automáticamente: La fecha final solicitada ({original_to_date}) era superior a la actual, se ajustó a {to_date}")
+            recommendations.insert(0, "Verificar que las fechas del reporte sean válidas para evitar correcciones automáticas")
+        
+        financial_highlights = [
+            f"Generación operativa: {'Positiva' if operating_flow > 0 else 'Negativa'}",
+            f"Posición de liquidez: {'Fortaleciéndose' if net_change > 0 else 'Debilitándose'}",
+            f"Estado del flujo: {'Balanceado' if cash_flow_statement.is_balanced else 'Requiere revisión'}",
+            f"Efectivo inicial vs final: {((cash_flow_statement.cash_ending_period / cash_flow_statement.cash_beginning_period - 1) * 100):.1f}% cambio" if cash_flow_statement.cash_beginning_period > 0 else "N/A"
         ]
         
         return ReportNarrative(

@@ -29,7 +29,8 @@ from app.schemas.reports import (
     LedgerAccount, GeneralLedger, FinancialRatio,
     FinancialAnalysis, ReportColumn, CustomReportFilter,
     CustomReportDefinition, CustomReportResult,
-    ReportExportRequest, ReportExportResponse
+    ReportExportRequest, ReportExportResponse,
+    CashFlowItem, OperatingCashFlow, CashFlowStatement
 )
 
 from app.schemas.audit import (

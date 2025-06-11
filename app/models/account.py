@@ -49,6 +49,14 @@ class AccountCategory(str, Enum):
     COSTOS_PRODUCCION = "costos_produccion"
 
 
+class CashFlowCategory(str, Enum):
+    """Categorías para clasificar cuentas según actividades del flujo de efectivo"""
+    OPERATING = "operating"        # Actividades de Operación
+    INVESTING = "investing"        # Actividades de Inversión  
+    FINANCING = "financing"        # Actividades de Financiamiento
+    CASH_EQUIVALENTS = "cash"      # Efectivo y Equivalentes de Efectivo
+
+
 class Account(Base):
     """
     Modelo de cuentas contables con estructura jerárquica
@@ -63,6 +71,7 @@ class Account(Base):
     # Clasificación contable
     account_type: Mapped[AccountType] = mapped_column(nullable=False)
     category: Mapped[Optional[AccountCategory]] = mapped_column(nullable=True)
+    cash_flow_category: Mapped[Optional[CashFlowCategory]] = mapped_column(nullable=True)
     
     # Jerarquía de cuentas
     parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(

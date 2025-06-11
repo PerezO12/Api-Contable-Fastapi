@@ -18,6 +18,7 @@ El sistema de reportes financieros del API Contable proporciona una solución co
 ### 📈 **Reportes Fundamentales**
 - **Balance General**: Estado de situación financiera
 - **Estado de Resultados**: Análisis de pérdidas y ganancias
+- **Estado de Flujo de Efectivo**: Análisis de entradas y salidas de efectivo por actividades
 - **Balance de Comprobación**: Verificación de integridad contable
 - **Libro Mayor**: Detalle de movimientos por cuenta
 - **Análisis Financiero**: Ratios y indicadores clave
@@ -28,6 +29,13 @@ El sistema de reportes financieros del API Contable proporciona una solución co
 - **Exportación**: Soporte para múltiples formatos (PDF, Excel, CSV)
 - **Validación de Integridad**: Verificación automática de ecuaciones contables
 - **Narrativa Automática**: Generación de análisis y recomendaciones
+
+### 💰 **Funcionalidades del Flujo de Efectivo (Nuevo)**
+- **Métodos Duales**: Soporte para métodos directo e indirecto
+- **Categorización Automática**: Clasificación inteligente de actividades (operativas, inversión, financiamiento)
+- **Reconciliación Automática**: Validación de flujos con cambios en efectivo
+- **Análisis de Liquidez**: Insights automáticos sobre posición de efectivo
+- **Proyecciones**: Capacidades de análisis predictivo de flujo
 
 ## Principios Contables Implementados
 
@@ -44,6 +52,11 @@ Activos = Pasivos + Patrimonio
 ### Estado de Resultados
 ```
 Utilidad Neta = Ingresos - Gastos
+```
+
+### Estado de Flujo de Efectivo
+```
+Flujo Neto de Efectivo = Actividades Operativas + Actividades de Inversión + Actividades de Financiamiento
 ```
 
 ## Arquitectura del Sistema
@@ -115,3 +128,5 @@ Utilidad Neta = Ingresos - Gastos
 - 📈 **Dashboards Interactivos**: Visualizaciones en tiempo real
 - 🔄 **Sincronización**: Integración con sistemas externos
 - 🤖 **IA Financiera**: Análisis predictivo y recomendaciones automáticas
+- 💰 **Flujo de Efectivo Avanzado**: Proyecciones automatizadas y alertas de liquidez
+- 🎯 **Análisis de Tendencias**: Detección automática de patrones en flujos de efectivo

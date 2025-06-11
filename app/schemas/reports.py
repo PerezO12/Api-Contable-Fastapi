@@ -181,6 +181,58 @@ class CustomReportResult(BaseModel):
     generated_at: date
 
 
+# Esquemas para Estado de Flujo de Efectivo
+class CashFlowItem(BaseModel):
+    """Schema para items del flujo de efectivo"""
+    description: str = Field(..., description="Descripción del movimiento")
+    amount: Decimal = Field(..., description="Monto del movimiento (positivo=entrada, negativo=salida)")
+    account_code: str = Field(..., description="Código de cuenta relacionada")
+    account_name: str = Field(..., description="Nombre de cuenta relacionada")
+
+
+class OperatingCashFlow(BaseModel):
+    """Schema para flujos de actividades de operación"""
+    method: str = Field(..., description="Método utilizado: 'direct' o 'indirect'")
+    net_income: Decimal = Field(Decimal('0'), description="Utilidad neta (solo método indirecto)")
+    adjustments: List[CashFlowItem] = Field(default_factory=list, description="Ajustes por partidas no efectivo")
+    working_capital_changes: List[CashFlowItem] = Field(default_factory=list, description="Cambios en capital de trabajo")
+    items: List[CashFlowItem] = Field(..., description="Items del flujo operativo")
+    net_operating_cash_flow: Decimal = Field(..., description="Flujo neto de actividades de operación")
+
+
+class CashFlowStatement(BaseModel):
+    """Schema para estado de flujo de efectivo completo"""
+    report_date: date = Field(..., description="Fecha del reporte")
+    start_date: date = Field(..., description="Fecha de inicio del período")
+    end_date: date = Field(..., description="Fecha de fin del período")
+    company_name: str = Field(..., description="Nombre de la empresa")
+    method: str = Field(..., description="Método utilizado: 'direct' o 'indirect'")
+    
+    # Efectivo inicial
+    cash_beginning_period: Decimal = Field(..., description="Efectivo y equivalentes al inicio")
+    
+    # Actividades de Operación
+    operating_activities: OperatingCashFlow = Field(..., description="Flujos de actividades de operación")
+    net_cash_from_operating: Decimal = Field(..., description="Flujo neto de actividades de operación")
+    
+    # Actividades de Inversión
+    investing_activities: List[CashFlowItem] = Field(..., description="Flujos de actividades de inversión")
+    net_cash_from_investing: Decimal = Field(..., description="Flujo neto de actividades de inversión")
+    
+    # Actividades de Financiamiento
+    financing_activities: List[CashFlowItem] = Field(..., description="Flujos de actividades de financiamiento")
+    net_cash_from_financing: Decimal = Field(..., description="Flujo neto de actividades de financiamiento")
+    
+    # Efectivo final
+    net_change_in_cash: Decimal = Field(..., description="Cambio neto en efectivo")
+    cash_ending_period: Decimal = Field(..., description="Efectivo y equivalentes al final")
+    
+    # Validación
+    is_balanced: bool = Field(..., description="Si el estado cuadra correctamente")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # Esquemas para exportación
 class ReportExportRequest(BaseModel):
     """Schema para solicitar exportación de reporte"""

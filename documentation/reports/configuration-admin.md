@@ -190,6 +190,240 @@ if __name__ == "__main__":
     asyncio.run(setup_report_permissions())
 ```
 
+### 💰 **Configuración del Servicio de Flujo de Efectivo**
+
+#### Categorización de Cuentas
+
+El sistema de flujo de efectivo requiere que las cuentas estén categorizadas correctamente según el tipo de actividad:
+
+```python
+# Categorías disponibles
+from app.models.account import CashFlowCategory
+
+CASH_FLOW_CATEGORIES = {
+    CashFlowCategory.OPERATING: [
+        "Ventas y servicios",
+        "Cobros de clientes", 
+        "Pagos a proveedores",
+        "Sueldos y salarios",
+        "Gastos operativos",
+        "Impuestos operativos"
+    ],
+    CashFlowCategory.INVESTING: [
+        "Compra/venta de activos fijos",
+        "Inversiones en equipos",
+        "Adquisición de propiedades",
+        "Venta de inversiones",
+        "Préstamos otorgados/cobrados"
+    ],
+    CashFlowCategory.FINANCING: [
+        "Emisión/recompra de acciones",
+        "Dividendos pagados",
+        "Préstamos obtenidos/pagados",
+        "Aportes de capital",
+        "Líneas de crédito"
+    ],
+    CashFlowCategory.CASH_EQUIVALENTS: [
+        "Caja y bancos",
+        "Inversiones temporales",
+        "Certificados de depósito",
+        "Fondos mutuos de corto plazo"
+    ]
+}
+```
+
+#### Script de Migración y Categorización
+
+```python
+# categorize_accounts_cash_flow.py
+import asyncio
+from sqlalchemy import select, update
+from app.database import get_async_session
+from app.models.account import Account, CashFlowCategory
+
+async def categorize_existing_accounts():
+    """Categorizar cuentas existentes según patrones predefinidos"""
+    
+    async with get_async_session() as session:
+        # Obtener todas las cuentas sin categoría
+        stmt = select(Account).where(Account.cash_flow_category.is_(None))
+        result = await session.execute(stmt)
+        uncategorized_accounts = result.scalars().all()
+        
+        categorization_rules = {
+            # Cuentas de efectivo y equivalentes
+            CashFlowCategory.CASH_EQUIVALENTS: [
+                "1001", "1002", "1003",  # Caja, Bancos, Inversiones temporales
+                "efectivo", "caja", "banco", "inversiones temporales"
+            ],
+            
+            # Actividades operativas
+            CashFlowCategory.OPERATING: [
+                "4001", "4002", "4003",  # Ingresos por ventas
+                "5001", "5002", "5003",  # Gastos operativos
+                "ventas", "servicios", "sueldos", "gastos operativos"
+            ],
+            
+            # Actividades de inversión
+            CashFlowCategory.INVESTING: [
+                "1201", "1202", "1203",  # Activos fijos
+                "1301", "1302",          # Inversiones a largo plazo
+                "equipos", "maquinaria", "inversiones", "propiedades"
+            ],
+            
+            # Actividades de financiamiento
+            CashFlowCategory.FINANCING: [
+                "2101", "2102",  # Préstamos y financiamiento
+                "3001", "3002",  # Capital y aportes
+                "prestamos", "capital", "aportes", "dividendos"
+            ]
+        }
+        
+        categorized_count = 0
+        
+        for account in uncategorized_accounts:
+            category = determine_account_category(account, categorization_rules)
+            
+            if category:
+                # Actualizar categoría
+                stmt = update(Account).where(
+                    Account.id == account.id
+                ).values(cash_flow_category=category)
+                
+                await session.execute(stmt)
+                categorized_count += 1
+                
+                print(f"Categorizada: {account.code} - {account.name} -> {category.value}")
+        
+        await session.commit()
+        
+        print(f"\nTotal de cuentas categorizadas: {categorized_count}")
+        print(f"Cuentas pendientes: {len(uncategorized_accounts) - categorized_count}")
+
+def determine_account_category(account: Account, rules: dict) -> CashFlowCategory:
+    """Determinar categoría basada en código y nombre de cuenta"""
+    
+    account_code = account.code.lower()
+    account_name = account.name.lower()
+    
+    for category, patterns in rules.items():
+        for pattern in patterns:
+            if (pattern in account_code or 
+                pattern in account_name or 
+                account_code.startswith(pattern)):
+                return category
+    
+    return None
+
+# Ejecutar categorización
+if __name__ == "__main__":
+    asyncio.run(categorize_existing_accounts())
+```
+
+#### Configuración del CashFlowService
+
+```python
+# En app/config.py
+class CashFlowSettings:
+    # Métodos de flujo de efectivo
+    DEFAULT_METHOD = "indirect"  # indirect | direct
+    
+    # Configuración de validación
+    ENABLE_CASH_RECONCILIATION = True
+    TOLERANCE_THRESHOLD = Decimal('0.01')  # Tolerancia para diferencias
+    
+    # Configuración de narrativa
+    ENABLE_AI_NARRATIVE = True
+    NARRATIVE_DETAIL_LEVEL = "medium"  # low | medium | high
+    
+    # Límites de consulta
+    MAX_DATE_RANGE_DAYS = 365
+    QUERY_TIMEOUT_SECONDS = 60
+    
+    # Caché
+    CACHE_DURATION_MINUTES = 30
+    ENABLE_STATEMENT_CACHE = True
+```
+
+#### Validación de Configuración
+
+```python
+# validate_cash_flow_setup.py
+async def validate_cash_flow_configuration():
+    """Validar que el sistema esté correctamente configurado para flujo de efectivo"""
+    
+    validation_results = {
+        "accounts_categorized": False,
+        "cash_accounts_identified": False,
+        "sample_calculation": False,
+        "errors": []
+    }
+    
+    try:
+        async with get_async_session() as session:
+            # Verificar cuentas categorizadas
+            stmt = select(Account).where(Account.cash_flow_category.isnot(None))
+            categorized = await session.execute(stmt)
+            categorized_count = len(categorized.scalars().all())
+            
+            if categorized_count > 0:
+                validation_results["accounts_categorized"] = True
+            else:
+                validation_results["errors"].append("No hay cuentas categorizadas para flujo de efectivo")
+            
+            # Verificar cuentas de efectivo
+            cash_stmt = select(Account).where(
+                Account.cash_flow_category == CashFlowCategory.CASH_EQUIVALENTS
+            )
+            cash_accounts = await session.execute(cash_stmt)
+            cash_count = len(cash_accounts.scalars().all())
+            
+            if cash_count > 0:
+                validation_results["cash_accounts_identified"] = True
+            else:
+                validation_results["errors"].append("No se identificaron cuentas de efectivo")
+            
+            # Prueba de cálculo
+            from app.services.cash_flow_service import CashFlowService
+            from datetime import date, timedelta
+            
+            cash_service = CashFlowService(session)
+            
+            try:
+                test_statement = await cash_service.generate_cash_flow_statement(
+                    start_date=date.today() - timedelta(days=30),
+                    end_date=date.today(),
+                    method="indirect"
+                )
+                
+                validation_results["sample_calculation"] = True
+                
+            except Exception as e:
+                validation_results["errors"].append(f"Error en cálculo de prueba: {str(e)}")
+    
+    except Exception as e:
+        validation_results["errors"].append(f"Error de conexión: {str(e)}")
+    
+    # Generar reporte de validación
+    print("=== VALIDACIÓN DE CONFIGURACIÓN DE FLUJO DE EFECTIVO ===")
+    print(f"✅ Cuentas categorizadas: {validation_results['accounts_categorized']}")
+    print(f"✅ Cuentas de efectivo identificadas: {validation_results['cash_accounts_identified']}")
+    print(f"✅ Cálculo de prueba exitoso: {validation_results['sample_calculation']}")
+    
+    if validation_results["errors"]:
+        print("\n❌ ERRORES ENCONTRADOS:")
+        for error in validation_results["errors"]:
+            print(f"• {error}")
+        return False
+    
+    print("\n🎉 Configuración válida - Sistema listo para generar flujos de efectivo")
+    return True
+
+# Ejecutar validación
+if __name__ == "__main__":
+    asyncio.run(validate_cash_flow_configuration())
+```
+
 ### 📊 **Monitoreo y Métricas**
 
 #### Dashboard de Administración

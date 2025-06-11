@@ -5,7 +5,7 @@ from typing import Optional, List
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.account import AccountType, AccountCategory
+from app.models.account import AccountType, AccountCategory, CashFlowCategory
 
 
 # Esquemas base
@@ -16,6 +16,7 @@ class AccountBase(BaseModel):
     description: Optional[str] = Field(None, max_length=1000, description="Descripción detallada")
     account_type: AccountType = Field(..., description="Tipo de cuenta contable")
     category: Optional[AccountCategory] = Field(None, description="Categoría de la cuenta")
+    cash_flow_category: Optional[CashFlowCategory] = Field(None, description="Categoría de flujo de efectivo")
     is_active: bool = Field(True, description="Si la cuenta está activa")
     allows_movements: bool = Field(True, description="Si permite movimientos contables")
     requires_third_party: bool = Field(False, description="Si requiere especificar terceros")
@@ -48,6 +49,7 @@ class AccountUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     category: Optional[AccountCategory] = None
+    cash_flow_category: Optional[CashFlowCategory] = None
     is_active: Optional[bool] = None
     allows_movements: Optional[bool] = None
     requires_third_party: Optional[bool] = None
@@ -65,14 +67,14 @@ class AccountUpdate(BaseModel):
 class AccountRead(BaseModel):
     """Schema para leer cuentas contables - coincide exactamente con el modelo de BD"""
     model_config = ConfigDict(from_attributes=True)
-    
-    # Campos exactos del modelo Account
+      # Campos exactos del modelo Account
     id: uuid.UUID
     code: str
     name: str
     description: Optional[str]
     account_type: AccountType
     category: Optional[AccountCategory]
+    cash_flow_category: Optional[CashFlowCategory]
     parent_id: Optional[uuid.UUID]
     level: int
     is_active: bool

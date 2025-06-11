@@ -293,14 +293,14 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ### 💧 GET /flujo-efectivo
 
-Genera Estado de Flujo de Efectivo con análisis de liquidez.
+Genera Estado de Flujo de Efectivo con soporte para métodos directo e indirecto, categorización automática de actividades y análisis de liquidez.
 
 #### Permisos Requeridos
 - Usuario autenticado (cualquier rol)
 
 #### Request
 ```http
-GET /api/v1/reports/flujo-efectivo?project_context=Mi%20Empresa&from_date=2025-01-01&to_date=2025-06-10&detail_level=medio&include_subaccounts=false
+GET /api/v1/reports/flujo-efectivo?project_context=Mi%20Empresa&from_date=2025-01-01&to_date=2025-06-10&detail_level=alto&include_subaccounts=false
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
@@ -308,10 +308,19 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - `project_context` (string, opcional): Contexto o nombre del proyecto
 - `from_date` (date, requerido): Fecha de inicio del período
 - `to_date` (date, requerido): Fecha de fin del período
-- `detail_level` (DetailLevel, opcional): Nivel de detalle (bajo, medio, alto) - default: medio
+- `detail_level` (DetailLevel, opcional): 
+  - **alto**: Método directo - muestra entradas y salidas brutas de efectivo
+  - **medio/bajo**: Método indirecto - ajustes a la utilidad neta
+  - default: medio
 - `include_subaccounts` (bool, opcional): Incluir subcuentas - default: false
 
-#### Response Exitosa (200)
+#### Características Especiales
+- **Categorización Automática**: Las cuentas se categorizan automáticamente según su `cash_flow_category`
+- **Método Dinámico**: El nivel de detalle determina si se usa método directo o indirecto
+- **Validación**: Verifica que los flujos calculados coincidan con el cambio en efectivo
+- **Análisis Inteligente**: Narrativa específica para flujos de efectivo con recomendaciones de liquidez
+
+#### Response Exitosa (200) - Método Indirecto
 ```json
 {
   "success": true,
@@ -325,58 +334,186 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   "table": {
     "sections": [
       {
-        "section_name": "EFECTIVO_OPERATIVO",
+        "section_name": "Actividades Operativas",
         "items": [
           {
-            "account_group": "EFECTIVO",
-            "account_code": "1001",
-            "account_name": "Caja",
+            "account_group": "OPERATIVO",
+            "account_code": "",
+            "account_name": "Utilidad neta del período",
+            "opening_balance": "0.00",
+            "movements": "15000.00",
+            "closing_balance": "15000.00",
+            "level": 1
+          },
+          {
+            "account_group": "OPERATIVO",
+            "account_code": "",
+            "account_name": "Ajustes para conciliar utilidad neta:",
+            "opening_balance": "0.00",
+            "movements": "0.00",
+            "closing_balance": "0.00",
+            "level": 1
+          },
+          {
+            "account_group": "OPERATIVO",
+            "account_code": "5010",
+            "account_name": "  Depreciación",
+            "opening_balance": "0.00",
+            "movements": "2000.00",
+            "closing_balance": "2000.00",
+            "level": 2
+          }
+        ],
+        "total": "17000.00"
+      },
+      {
+        "section_name": "Actividades de Inversión",
+        "items": [
+          {
+            "account_group": "INVERSION",
+            "account_code": "1201",
+            "account_name": "Compra de equipos",
+            "opening_balance": "0.00",
+            "movements": "-10000.00",
+            "closing_balance": "-10000.00",
+            "level": 1
+          }
+        ],
+        "total": "-10000.00"
+      },
+      {
+        "section_name": "Actividades de Financiamiento",
+        "items": [
+          {
+            "account_group": "FINANCIAMIENTO",
+            "account_code": "3001",
+            "account_name": "Aporte de capital",
             "opening_balance": "0.00",
             "movements": "50000.00",
             "closing_balance": "50000.00",
             "level": 1
+          }
+        ],
+        "total": "50000.00"
+      },
+      {
+        "section_name": "Resumen de Efectivo",
+        "items": [
+          {
+            "account_group": "RESUMEN",
+            "account_code": "",
+            "account_name": "Aumento neto en efectivo",
+            "opening_balance": "0.00",
+            "movements": "57000.00",
+            "closing_balance": "57000.00",
+            "level": 1
           },
           {
-            "account_group": "EFECTIVO",
-            "account_code": "1002",
-            "account_name": "Bancos",
+            "account_group": "RESUMEN",
+            "account_code": "",
+            "account_name": "Efectivo al inicio del período",
             "opening_balance": "0.00",
-            "movements": "120000.00",
-            "closing_balance": "120000.00",
+            "movements": "0.00",
+            "closing_balance": "0.00",
+            "level": 1
+          },
+          {
+            "account_group": "RESUMEN",
+            "account_code": "",
+            "account_name": "Efectivo al final del período",
+            "opening_balance": "0.00",
+            "movements": "57000.00",
+            "closing_balance": "57000.00",
             "level": 1
           }
         ],
-        "total": "170000.00"
+        "total": "57000.00"
       }
     ],
     "totals": {
-      "flujo_operativo": "170000.00",
-      "flujo_inversion": "0.00",
-      "flujo_financiamiento": "0.00",
-      "flujo_neto": "170000.00"
+      "flujo_operativo": "17000.00",
+      "flujo_inversion": "-10000.00",
+      "flujo_financiamiento": "50000.00",
+      "flujo_neto": "57000.00"
     },
     "summary": {
       "start_date": "2025-01-01",
       "end_date": "2025-06-10",
-      "company_name": "Mi Empresa S.A."
+      "company_name": "Mi Empresa S.A.",
+      "method": "indirect",
+      "is_reconciled": true
     }
   },
   "narrative": {
-    "executive_summary": "El flujo de efectivo muestra una generación sólida de $170,000 proveniente principalmente de actividades operativas.",
+    "executive_summary": "El flujo de efectivo muestra una generación sólida de $57,000 con contribuciones positivas de actividades operativas y de financiamiento, parcialmente compensadas por inversiones en equipos.",
     "key_insights": [
-      "Las actividades operativas generaron un flujo positivo de $170,000",
-      "No se registraron flujos de inversión o financiamiento en el período",
-      "La posición de liquidez se fortaleció significativamente"
+      "Las actividades operativas generaron $17,000, indicando capacidad de generación de efectivo desde operaciones",
+      "La inversión de $10,000 en equipos representa una expansión de capacidades productivas",
+      "El aporte de capital de $50,000 fortalece significativamente la posición financiera",
+      "El flujo neto positivo de $57,000 mejora sustancialmente la liquidez"
     ],
     "recommendations": [
-      "Considerar inversiones estratégicas para utilizar el exceso de efectivo",
-      "Evaluar oportunidades de expansión o mejora de capacidades",
-      "Mantener una reserva prudente para operaciones"
+      "Continuar optimizando las actividades operativas para incrementar la generación de efectivo",
+      "Evaluar el retorno de la inversión en equipos y planificar futuras inversiones estratégicas",
+      "Considerar el establecimiento de una reserva de efectivo para oportunidades futuras",
+      "Monitorear la eficiencia en el uso del capital recién aportado"
     ],
     "financial_highlights": {
-      "operating_cash_flow": "170000.00",
+      "operating_cash_flow": "17000.00",
+      "investing_cash_flow": "-10000.00",
+      "financing_cash_flow": "50000.00",
+      "net_cash_flow": "57000.00",
       "cash_position_strength": "Muy fuerte",
-      "liquidity_trend": "Mejorando"
+      "liquidity_trend": "Mejorando significativamente",
+      "method_used": "Método Indirecto"
+    }
+  }
+}
+```
+
+#### Response Exitosa (200) - Método Directo (detail_level=alto)
+El método directo muestra entradas y salidas brutas de efectivo en lugar de ajustes a la utilidad neta:
+
+```json
+{
+  "table": {
+    "sections": [
+      {
+        "section_name": "Actividades Operativas",
+        "items": [
+          {
+            "account_group": "OPERATIVO",
+            "account_code": "4001",
+            "account_name": "Cobros por ventas",
+            "opening_balance": "0.00",
+            "movements": "100000.00",
+            "closing_balance": "100000.00",
+            "level": 1
+          },
+          {
+            "account_group": "OPERATIVO",
+            "account_code": "5001",
+            "account_name": "Pagos a proveedores",
+            "opening_balance": "0.00",
+            "movements": "-65000.00",
+            "closing_balance": "-65000.00",
+            "level": 1
+          },
+          {
+            "account_group": "OPERATIVO",
+            "account_code": "5002",
+            "account_name": "Pagos por sueldos",
+            "opening_balance": "0.00",
+            "movements": "-18000.00",
+            "closing_balance": "-18000.00",
+            "level": 1
+          }
+        ],
+        "total": "17000.00"
+      }
+    ],
+    "summary": {
+      "method": "direct"
     }
   }
 }

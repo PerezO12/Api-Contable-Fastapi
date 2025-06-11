@@ -11,6 +11,7 @@ Esta sección documenta todos los esquemas de datos, modelos y estructuras utili
 ├── 📊 Reportes Clásicos (reports.py)
 │   ├── BalanceSheet
 │   ├── IncomeStatement
+│   ├── CashFlowStatement
 │   ├── TrialBalance
 │   └── GeneralLedger
 ├── 🔄 API Unificada (report_api.py)
@@ -210,6 +211,138 @@ class TrialBalanceItem(BaseModel):
 - `credit_movements`: Suma de todos los créditos del período
 - `closing_balance`: Saldo final calculado
 - `normal_balance_side`: "debit" o "credit" según tipo de cuenta
+
+---
+
+### CashFlowStatement
+
+Schema completo para el Estado de Flujo de Efectivo con soporte para métodos directo e indirecto.
+
+```python
+class CashFlowStatement(BaseModel):
+    """Schema para estado de flujo de efectivo"""
+    report_date: date
+    company_name: str
+    method: CashFlowMethod  # DIRECT o INDIRECT
+    operating_activities: CashFlowSection
+    investing_activities: CashFlowSection
+    financing_activities: CashFlowSection
+    beginning_cash_balance: Decimal
+    ending_cash_balance: Decimal
+    net_increase_decrease: Decimal
+    is_reconciled: bool
+```
+
+### CashFlowMethod
+
+```python
+class CashFlowMethod(str, Enum):
+    """Métodos de presentación del flujo de efectivo"""
+    DIRECT = "direct"      # Método directo - muestra entradas y salidas brutas
+    INDIRECT = "indirect"  # Método indirecto - ajustes a la utilidad neta
+```
+
+### CashFlowSection
+
+```python
+class CashFlowSection(BaseModel):
+    """Schema para secciones del flujo de efectivo"""
+    section_name: str  # "Actividades Operativas", "Actividades de Inversión", etc.
+    items: List[CashFlowItem]
+    subtotal: Decimal
+```
+
+### CashFlowItem
+
+```python
+class CashFlowItem(BaseModel):
+    """Schema para items del flujo de efectivo"""
+    description: str
+    amount: Decimal
+    cash_flow_type: CashFlowType
+    account_codes: List[str]  # Cuentas que contribuyen a este item
+```
+
+### CashFlowType
+
+```python
+class CashFlowType(str, Enum):
+    """Tipos de flujo de efectivo"""
+    OPERATING_INFLOW = "operating_inflow"      # Entradas operativas
+    OPERATING_OUTFLOW = "operating_outflow"    # Salidas operativas
+    INVESTING_INFLOW = "investing_inflow"      # Entradas de inversión
+    INVESTING_OUTFLOW = "investing_outflow"    # Salidas de inversión
+    FINANCING_INFLOW = "financing_inflow"      # Entradas de financiamiento
+    FINANCING_OUTFLOW = "financing_outflow"    # Salidas de financiamiento
+```
+
+**Ejemplo JSON - Método Indirecto:**
+```json
+{
+  "report_date": "2025-06-10",
+  "company_name": "Mi Empresa S.A.",
+  "method": "indirect",
+  "operating_activities": {
+    "section_name": "Actividades Operativas",
+    "items": [
+      {
+        "description": "Utilidad neta del período",
+        "amount": "15000.00",
+        "cash_flow_type": "operating_inflow",
+        "account_codes": ["4001", "4002", "5001", "5002"]
+      },
+      {
+        "description": "Ajustes para conciliar utilidad neta:",
+        "amount": "0.00",
+        "cash_flow_type": "operating_inflow",
+        "account_codes": []
+      },
+      {
+        "description": "Depreciación",
+        "amount": "2000.00",
+        "cash_flow_type": "operating_inflow",
+        "account_codes": ["5010"]
+      }
+    ],
+    "subtotal": "17000.00"
+  },
+  "investing_activities": {
+    "section_name": "Actividades de Inversión",
+    "items": [
+      {
+        "description": "Compra de equipos",
+        "amount": "-10000.00",
+        "cash_flow_type": "investing_outflow",
+        "account_codes": ["1201"]
+      }
+    ],
+    "subtotal": "-10000.00"
+  },
+  "financing_activities": {
+    "section_name": "Actividades de Financiamiento",
+    "items": [
+      {
+        "description": "Aporte de capital",
+        "amount": "50000.00",
+        "cash_flow_type": "financing_inflow",
+        "account_codes": ["3001"]
+      }
+    ],
+    "subtotal": "50000.00"
+  },
+  "beginning_cash_balance": "0.00",
+  "ending_cash_balance": "57000.00",
+  "net_increase_decrease": "57000.00",
+  "is_reconciled": true
+}
+```
+
+**Campos Explicados:**
+- `method`: Determina si se usa el método directo (mostrando entradas/salidas brutas) o indirecto (ajustes a utilidad neta)
+- `operating_activities`: Flujos relacionados con operaciones principales del negocio
+- `investing_activities`: Flujos de compra/venta de activos a largo plazo
+- `financing_activities`: Flujos de financiamiento, deuda y patrimonio
+- `is_reconciled`: Indica si los flujos calculados coinciden con el cambio en efectivo
 
 ---
 
