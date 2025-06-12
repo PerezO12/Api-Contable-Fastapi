@@ -20,7 +20,10 @@ from app.schemas.journal_entry import (
     JournalEntryStatistics,
     JournalEntryFilter,
     JournalEntryCancel,
-    JournalEntryPost
+    JournalEntryPost,
+    BulkJournalEntryDelete,
+    BulkJournalEntryDeleteResult,
+    JournalEntryDeleteValidation
 )
 from app.services.journal_entry_service import JournalEntryService
 from app.utils.exceptions import (
@@ -404,3 +407,105 @@ async def get_journal_entry_by_number(
         return JournalEntryDetailResponse.model_validate(journal_entry)
     except JournalEntryNotFoundError:
         raise_journal_entry_not_found()
+
+
+@router.post(
+    "/validate-deletion",
+    response_model=List[JournalEntryDeleteValidation],
+    summary="Validate journal entries for deletion",
+    description="Validate multiple journal entries before deletion to check for errors and warnings"
+)
+async def validate_journal_entries_for_deletion(
+    journal_entry_ids: List[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> List[JournalEntryDeleteValidation]:
+    """Validate journal entries for deletion."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        validations = []
+        
+        for entry_id in journal_entry_ids:
+            validation = await service.validate_journal_entry_for_deletion(entry_id)
+            validations.append(validation)
+        
+        return validations
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/bulk-delete",
+    response_model=BulkJournalEntryDeleteResult,
+    summary="Bulk delete journal entries",
+    description="Delete multiple journal entries at once (only draft entries can be deleted)"
+)
+async def bulk_delete_journal_entries(
+    bulk_delete_data: BulkJournalEntryDelete,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> BulkJournalEntryDeleteResult:
+    """Bulk delete journal entries."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        result = await service.bulk_delete_journal_entries(
+            entry_ids=bulk_delete_data.journal_entry_ids,
+            force_delete=bulk_delete_data.force_delete,
+            reason=bulk_delete_data.reason
+        )
+        return result
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/bulk-operation",
+    summary="Bulk operations on journal entries",
+    description="Perform bulk operations (delete, approve, cancel) on multiple journal entries"
+)
+async def bulk_operation_journal_entries(
+    operation: str = Query(..., description="Operation to perform: delete, approve, cancel"),
+    journal_entry_ids: List[uuid.UUID] = Query(..., description="List of journal entry IDs"),
+    force_operation: bool = Query(False, description="Force operation ignoring warnings"),
+    reason: Optional[str] = Query(None, description="Reason for the operation"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Perform bulk operations on journal entries."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    # Validate operation
+    valid_operations = ["delete", "approve", "cancel"]
+    if operation not in valid_operations:
+        raise_validation_error(f"Invalid operation. Valid operations: {', '.join(valid_operations)}")
+    
+    try:
+        service = JournalEntryService(db)
+        
+        # Prepare operation data
+        operation_data = {
+            "force_delete": force_operation if operation == "delete" else False,
+            "reason": reason,
+            "approved_by_id": current_user.id if operation == "approve" else None,
+            "cancelled_by_id": current_user.id if operation == "cancel" else None
+        }
+        
+        result = await service.bulk_operation(
+            operation=operation,
+            entry_ids=journal_entry_ids,
+            operation_data=operation_data
+        )
+        
+        return result
+    except JournalEntryError as e:
+        raise_validation_error(str(e))

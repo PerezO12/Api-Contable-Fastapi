@@ -228,6 +228,53 @@ class BulkAccountOperation(BaseModel):
     reason: Optional[str] = None
 
 
+class BulkAccountDelete(BaseModel):
+    """Schema específico para borrado múltiple de cuentas"""
+    account_ids: List[uuid.UUID] = Field(min_length=1, max_length=100, description="Lista de IDs de cuentas a eliminar")
+    force_delete: bool = Field(default=False, description="Forzar eliminación (requiere confirmación)")
+    delete_reason: Optional[str] = Field(default=None, max_length=500, description="Razón para la eliminación")
+    
+    @field_validator('account_ids')
+    @classmethod
+    def validate_unique_ids(cls, v):
+        """Validar que no haya IDs duplicados"""
+        if len(v) != len(set(v)):
+            raise ValueError("No se permiten IDs de cuentas duplicados")
+        return v
+
+
+class BulkAccountDeleteResult(BaseModel):
+    """Schema para el resultado del borrado múltiple"""
+    total_requested: int = Field(description="Total de cuentas solicitadas para eliminar")
+    successfully_deleted: List[uuid.UUID] = Field(default_factory=list, description="Cuentas eliminadas exitosamente")
+    failed_to_delete: List[dict] = Field(default_factory=list, description="Cuentas que no pudieron eliminarse")
+    validation_errors: List[dict] = Field(default_factory=list, description="Errores de validación")
+    warnings: List[str] = Field(default_factory=list, description="Advertencias del proceso")
+    
+    @property
+    def success_count(self) -> int:
+        return len(self.successfully_deleted)
+    
+    @property
+    def failure_count(self) -> int:
+        return len(self.failed_to_delete)
+    
+    @property
+    def success_rate(self) -> float:
+        if self.total_requested == 0:
+            return 0.0
+        return (self.success_count / self.total_requested) * 100
+
+
+class AccountDeleteValidation(BaseModel):
+    """Schema para validación previa al borrado"""
+    account_id: uuid.UUID
+    can_delete: bool
+    blocking_reasons: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    dependencies: dict = Field(default_factory=dict)  # Información sobre dependencias
+
+
 class AccountStats(BaseModel):
     """Schema para estadísticas de cuentas"""
     total_accounts: int

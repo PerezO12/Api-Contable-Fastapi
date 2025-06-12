@@ -3,7 +3,10 @@ API v1 router configuration.
 """
 from fastapi import APIRouter
 
-from app.api.v1 import accounts, auth, users, journal_entries, reports, report_api, import_data, export_templates, export
+from app.api.v1 import (
+    accounts, auth, users, journal_entries, reports, report_api, 
+    import_data, export_templates, export, cost_centers, third_parties, cost_center_reports
+)
 
 api_router = APIRouter()
 
@@ -18,6 +21,15 @@ api_router.include_router(accounts.router, prefix="/accounts", tags=["accounts"]
 
 # Journal entry routes
 api_router.include_router(journal_entries.router, prefix="/journal-entries", tags=["journal-entries"])
+
+# Cost center routes
+api_router.include_router(cost_centers.router, prefix="/cost-centers", tags=["cost-centers"])
+
+# Third party routes
+api_router.include_router(third_parties.router, prefix="/third-parties", tags=["third-parties"])
+
+# Cost center reports routes
+api_router.include_router(cost_center_reports.router, prefix="/cost-center-reports", tags=["cost-center-reports"])
 
 # Data import routes
 api_router.include_router(import_data.router, prefix="/import", tags=["import"])

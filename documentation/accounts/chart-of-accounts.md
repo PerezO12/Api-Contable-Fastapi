@@ -243,6 +243,76 @@ El sistema implementa validaciones para mantener la integridad del plan de cuent
 3. **Unicidad de Códigos**: No puede haber dos cuentas con el mismo código
 4. **Estructura Jerárquica**: La cuenta padre debe existir antes de crear una cuenta hija
 5. **Saldo Coherente**: Los saldos consolidados deben reflejar la suma de los movimientos
+6. **Categorización de Flujo de Efectivo**: Las cuentas deben tener una categoría de flujo asignada para reportes automáticos
+
+## Configuración para Flujo de Efectivo
+
+El plan de cuentas incluye configuración especial para la generación automática del Estado de Flujo de Efectivo:
+
+### Categorización Automática
+
+```python
+# Reglas de categorización por patrones de código
+categorization_rules = {
+    CashFlowCategory.CASH_EQUIVALENTS: [
+        "1.1.01",  # Efectivo y equivalentes
+        "caja", "banco", "inversiones temporales"
+    ],
+    CashFlowCategory.OPERATING: [
+        "tipo:INGRESO",     # Todos los ingresos
+        "tipo:GASTO",       # Todos los gastos
+        "tipo:COSTOS",      # Todos los costos
+        "1.1.02",           # Cuentas por cobrar
+        "2.1"               # Pasivos corrientes
+    ],
+    CashFlowCategory.INVESTING: [
+        "1.2",              # Activos no corrientes
+        "equipos", "propiedades", "inversiones"
+    ],
+    CashFlowCategory.FINANCING: [
+        "2.2",              # Pasivos no corrientes
+        "3.",               # Patrimonio
+        "prestamos", "capital", "dividendos"
+    ]
+}
+```
+
+### Validación de Configuración
+
+```python
+async def validate_cash_flow_configuration():
+    """Validar que el plan de cuentas esté configurado correctamente para flujo de efectivo"""
+    
+    # Verificar cuentas de efectivo
+    cash_accounts = await get_accounts_by_cash_flow_category(CashFlowCategory.CASH_EQUIVALENTS)
+    if not cash_accounts:
+        raise ValidationError("No hay cuentas configuradas como efectivo y equivalentes")
+    
+    # Verificar categorización por tipo
+    for account_type in [AccountType.INGRESO, AccountType.GASTO]:
+        uncategorized = await get_uncategorized_accounts_by_type(account_type)
+        if uncategorized:
+            logger.warning(f"Cuentas {account_type} sin categoría de flujo: {len(uncategorized)}")
+    
+    return True
+```
+
+### Migración y Actualización
+
+```sql
+-- Script SQL para categorizar cuentas existentes
+UPDATE accounts SET cash_flow_category = 'cash' 
+WHERE code LIKE '1.1.01%' OR LOWER(name) LIKE '%caja%' OR LOWER(name) LIKE '%banco%';
+
+UPDATE accounts SET cash_flow_category = 'operating' 
+WHERE account_type IN ('INGRESO', 'GASTO', 'COSTOS');
+
+UPDATE accounts SET cash_flow_category = 'investing' 
+WHERE code LIKE '1.2%' AND account_type = 'ACTIVO';
+
+UPDATE accounts SET cash_flow_category = 'financing' 
+WHERE code LIKE '2.2%' OR code LIKE '3.%';
+```
 
 ## Reportes por Tipo de Cuenta
 
@@ -318,7 +388,88 @@ class AccountStats(BaseModel):
        6.1.01 Costo de Mercadería Vendida
 ```
 
-### Ejemplo 2: Consultar Estructura Jerárquica
+### Ejemplo 2: Plan de Cuentas con Categorías de Flujo de Efectivo
+
+```json
+{
+  "accounts": [
+    {
+      "code": "1.1.01.01",
+      "name": "Caja General",
+      "account_type": "ACTIVO",
+      "category": "ACTIVO_CORRIENTE",
+      "cash_flow_category": "cash",
+      "description": "Efectivo en caja para operaciones diarias"
+    },
+    {
+      "code": "1.1.01.02", 
+      "name": "Banco Cuenta Corriente",
+      "account_type": "ACTIVO",
+      "category": "ACTIVO_CORRIENTE",
+      "cash_flow_category": "cash",
+      "description": "Depósitos bancarios de disponibilidad inmediata"
+    },
+    {
+      "code": "1.1.02.01",
+      "name": "Clientes Nacionales",
+      "account_type": "ACTIVO",
+      "category": "ACTIVO_CORRIENTE", 
+      "cash_flow_category": "operating",
+      "description": "Cuentas por cobrar de ventas a crédito"
+    },
+    {
+      "code": "1.2.01.01",
+      "name": "Equipos de Oficina",
+      "account_type": "ACTIVO",
+      "category": "ACTIVO_NO_CORRIENTE",
+      "cash_flow_category": "investing",
+      "description": "Mobiliario y equipos para uso operativo"
+    },
+    {
+      "code": "2.1.01.01",
+      "name": "Proveedores Nacionales",
+      "account_type": "PASIVO",
+      "category": "PASIVO_CORRIENTE",
+      "cash_flow_category": "operating",
+      "description": "Obligaciones por compras a crédito"
+    },
+    {
+      "code": "2.2.01.01",
+      "name": "Préstamo Bancario LP",
+      "account_type": "PASIVO", 
+      "category": "PASIVO_NO_CORRIENTE",
+      "cash_flow_category": "financing",
+      "description": "Financiamiento bancario a largo plazo"
+    },
+    {
+      "code": "3.1.01.01",
+      "name": "Capital Social",
+      "account_type": "PATRIMONIO",
+      "category": "CAPITAL",
+      "cash_flow_category": "financing",
+      "description": "Aportes de los socios"
+    },
+    {
+      "code": "4.1.01.01",
+      "name": "Ventas de Productos",
+      "account_type": "INGRESO",
+      "category": "INGRESOS_OPERACIONALES",
+      "cash_flow_category": "operating",
+      "description": "Ingresos por venta de mercaderías"
+    },
+    {
+      "code": "5.1.01.01",
+      "name": "Sueldos y Salarios",
+      "account_type": "GASTO",
+      "category": "GASTOS_OPERACIONALES", 
+      "cash_flow_category": "operating",
+      "description": "Remuneraciones del personal"
+    }
+  ]
+}
+```
+
+### Ejemplo 3: Consultar Estructura Jerárquica
 
 ```python
 # Solicitud para obtener el árbol de cuentas de tipo ACTIVO

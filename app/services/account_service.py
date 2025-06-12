@@ -12,7 +12,8 @@ from app.models.journal_entry import JournalEntryLine
 from app.schemas.account import (
     AccountCreate, AccountUpdate, AccountTree, AccountSummary,
     AccountBalance, AccountMovementHistory, AccountsByType, ChartOfAccounts,
-    AccountValidation, BulkAccountOperation, AccountStats
+    AccountValidation, BulkAccountOperation, AccountStats, BulkAccountDelete,
+    BulkAccountDeleteResult, AccountDeleteValidation
 )
 from app.utils.exceptions import AccountNotFoundError, AccountValidationError
 
@@ -431,8 +432,7 @@ class AccountService:
             by_category[category.value] = cat_result.scalar() or 0
         
         return AccountStats(
-            total_accounts=total_accounts,
-            active_accounts=active_accounts,
+            total_accounts=total_accounts,            active_accounts=active_accounts,
             inactive_accounts=total_accounts - active_accounts,
             by_type=by_type,
             by_category=by_category,
@@ -449,6 +449,34 @@ class AccountService:
             "total_processed": 0
         }
         
+        # Si la operación es delete, usar el método mejorado
+        if operation.operation == "delete":
+            from app.schemas.account import BulkAccountDelete
+            
+            delete_request = BulkAccountDelete(
+                account_ids=operation.account_ids,
+                force_delete=False,
+                delete_reason=operation.reason
+            )
+            
+            delete_result = await self.bulk_delete_accounts(delete_request, user_id)
+            
+            return {
+                "success": [str(account_id) for account_id in delete_result.successfully_deleted],
+                "errors": [
+                    f"Cuenta {item['account_id']}: {item['reason']}"
+                    for item in delete_result.failed_to_delete
+                ],
+                "total_processed": delete_result.total_requested,
+                "delete_summary": {
+                    "success_count": delete_result.success_count,
+                    "failure_count": delete_result.failure_count,
+                    "success_rate": f"{delete_result.success_rate:.1f}%",
+                    "warnings": delete_result.warnings
+                }
+            }
+        
+        # Para otras operaciones, usar la lógica existente
         for account_id in operation.account_ids:
             try:
                 account = await self.get_account_by_id(account_id)
@@ -460,19 +488,164 @@ class AccountService:
                     account.is_active = True
                 elif operation.operation == "deactivate":
                     account.is_active = False
-                elif operation.operation == "delete":
-                    await self.delete_account(account_id)
                 
                 results["success"].append(account_id)
                 results["total_processed"] += 1
                 
-            except Exception as e:
+            except Exception as e:                
                 results["errors"].append(f"Error en cuenta {account_id}: {str(e)}")
         
         if results["success"]:
             await self.db.commit()
         
-        return results    
+        return results
+    
+    async def validate_account_for_deletion(self, account_id: uuid.UUID) -> 'AccountDeleteValidation':
+        """Validar si una cuenta puede ser eliminada"""
+        from app.schemas.account import AccountDeleteValidation
+        
+        account = await self.get_account_by_id(account_id)
+        if not account:
+            return AccountDeleteValidation(
+                account_id=account_id,
+                can_delete=False,
+                blocking_reasons=["Cuenta no encontrada"],
+                warnings=[],
+                dependencies={}
+            )
+        
+        blocking_reasons = []
+        warnings = []
+        dependencies = {}
+        
+        # Verificar que no tenga movimientos
+        movements_result = await self.db.execute(
+            select(func.count(JournalEntryLine.id))
+            .where(JournalEntryLine.account_id == account_id)
+        )
+        movements_count = movements_result.scalar() or 0
+        
+        if movements_count > 0:
+            blocking_reasons.append(f"La cuenta tiene {movements_count} movimientos contables")
+            dependencies["movements_count"] = movements_count
+        
+        # Verificar que no tenga cuentas hijas
+        children_result = await self.db.execute(
+            select(func.count(Account.id))
+            .where(Account.parent_id == account_id)
+        )
+        children_count = children_result.scalar() or 0
+        
+        if children_count > 0:
+            blocking_reasons.append(f"La cuenta tiene {children_count} cuentas hijas")
+            dependencies["children_count"] = children_count
+        
+        # Verificar si es una cuenta de sistema (códigos básicos)
+        system_codes = ["1", "2", "3", "4", "5", "6"]
+        if account.code in system_codes:
+            blocking_reasons.append("No se puede eliminar una cuenta de sistema")
+        
+        # Advertencias
+        if account.balance != 0:
+            warnings.append(f"La cuenta tiene un saldo pendiente de {account.balance}")
+            dependencies["balance"] = str(account.balance)
+        
+        if not account.is_active:
+            warnings.append("La cuenta ya está inactiva")
+        
+        can_delete = len(blocking_reasons) == 0
+        
+        return AccountDeleteValidation(
+            account_id=account_id,
+            can_delete=can_delete,
+            blocking_reasons=blocking_reasons,
+            warnings=warnings,
+            dependencies=dependencies
+        )
+    
+    async def bulk_delete_accounts(self, delete_request: 'BulkAccountDelete', user_id: uuid.UUID) -> 'BulkAccountDeleteResult':
+        """Borrar múltiples cuentas con validaciones exhaustivas"""
+        from app.schemas.account import BulkAccountDeleteResult
+        
+        result = BulkAccountDeleteResult(
+            total_requested=len(delete_request.account_ids),
+            successfully_deleted=[],
+            failed_to_delete=[],
+            validation_errors=[],
+            warnings=[]
+        )
+        
+        # Validar primero todas las cuentas
+        validations = {}
+        for account_id in delete_request.account_ids:
+            validation = await self.validate_account_for_deletion(account_id)
+            validations[account_id] = validation
+            
+            if not validation.can_delete and not delete_request.force_delete:
+                result.failed_to_delete.append({
+                    "account_id": str(account_id),
+                    "reason": "; ".join(validation.blocking_reasons),
+                    "details": validation.dependencies
+                })
+            elif validation.warnings:
+                result.warnings.extend([
+                    f"Cuenta {account_id}: {warning}" for warning in validation.warnings
+                ])
+        
+        # Si force_delete es False y hay errores, no proceder
+        if not delete_request.force_delete and result.failed_to_delete:
+            result.validation_errors.append({
+                "error": "Hay cuentas que no pueden eliminarse. Use force_delete=true para forzar la eliminación de las que sí pueden eliminarse."
+            })
+            return result
+        
+        # Proceder con la eliminación
+        accounts_to_delete = []
+        for account_id in delete_request.account_ids:
+            validation = validations[account_id]
+            
+            if validation.can_delete or (delete_request.force_delete and not any("no encontrada" in reason for reason in validation.blocking_reasons)):
+                if validation.can_delete:
+                    accounts_to_delete.append(account_id)
+                elif delete_request.force_delete:
+                    # Con force_delete, solo eliminar si no tiene movimientos ni hijos
+                    has_critical_blocks = any(
+                        "movimientos" in reason or "hijas" in reason or "sistema" in reason 
+                        for reason in validation.blocking_reasons
+                    )
+                    if not has_critical_blocks:
+                        accounts_to_delete.append(account_id)
+                    else:
+                        result.failed_to_delete.append({
+                            "account_id": str(account_id),
+                            "reason": "No se puede forzar la eliminación: " + "; ".join(validation.blocking_reasons),
+                            "details": validation.dependencies
+                        })
+        
+        # Eliminar las cuentas validadas
+        for account_id in accounts_to_delete:
+            try:
+                success = await self.delete_account(account_id)
+                if success:
+                    result.successfully_deleted.append(account_id)
+                else:
+                    result.failed_to_delete.append({
+                        "account_id": str(account_id),
+                        "reason": "Error desconocido durante la eliminación",
+                        "details": {}
+                    })
+            except Exception as e:
+                result.failed_to_delete.append({
+                    "account_id": str(account_id),
+                    "reason": str(e),
+                    "details": {}
+                })
+        
+        # Añadir información sobre la razón de eliminación si se proporcionó
+        if delete_request.delete_reason and result.successfully_deleted:
+            result.warnings.append(f"Razón de eliminación: {delete_request.delete_reason}")
+        
+        return result
     
     async def get_accounts_by_type(self, account_type: AccountType, active_only: bool = True) -> AccountsByType:
         """Obtener cuentas por tipo"""

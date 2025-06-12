@@ -31,6 +31,7 @@ Content-Type: application/json
   "description": "Cuenta bancaria principal para operaciones",
   "account_type": "ACTIVO",
   "category": "ACTIVO_CORRIENTE",
+  "cash_flow_category": "cash",
   "parent_id": "12345678-1234-1234-1234-123456789012",
   "is_active": true,
   "allows_movements": true,
@@ -97,6 +98,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - `limit` (int, opcional): Máximo número de registros (default: 100)
 - `account_type` (AccountType, opcional): Filtrar por tipo de cuenta
 - `category` (AccountCategory, opcional): Filtrar por categoría
+- `cash_flow_category` (CashFlowCategory, opcional): Filtrar por categoría de flujo de efectivo
 - `is_active` (bool, opcional): Filtrar por estado activo/inactivo
 - `parent_id` (UUID, opcional): Filtrar por cuenta padre
 - `search` (string, opcional): Texto a buscar en código, nombre o descripción
@@ -676,6 +678,156 @@ class BulkAccountOperation(BaseModel):
 
 ---
 
+### 🗑️ POST /bulk-delete
+
+Elimina múltiples cuentas con validaciones exhaustivas y control de errores avanzado.
+
+#### Permisos Requeridos
+- **ADMIN** únicamente
+
+#### Request
+```http
+POST /api/v1/accounts/bulk-delete
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "account_ids": [
+    "87654321-4321-4321-4321-987654321098",
+    "12345678-5678-5678-5678-123456789012",
+    "98765432-8765-8765-8765-987654321987"
+  ],
+  "force_delete": false,
+  "delete_reason": "Limpieza de cuentas obsoletas del ejercicio anterior"
+}
+```
+
+#### Schema de Request
+```python
+class BulkAccountDelete(BaseModel):
+    """Schema específico para borrado múltiple de cuentas"""
+    account_ids: List[uuid.UUID] = Field(min_length=1, max_length=100, description="Lista de IDs de cuentas a eliminar")
+    force_delete: bool = Field(default=False, description="Forzar eliminación (requiere confirmación)")
+    delete_reason: Optional[str] = Field(default=None, max_length=500, description="Razón para la eliminación")
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "total_requested": 3,
+  "successfully_deleted": [
+    "87654321-4321-4321-4321-987654321098"
+  ],
+  "failed_to_delete": [
+    {
+      "account_id": "12345678-5678-5678-5678-123456789012",
+      "reason": "La cuenta tiene 45 movimientos contables",
+      "details": {
+        "movements_count": 45
+      }
+    },
+    {
+      "account_id": "98765432-8765-8765-8765-987654321987",
+      "reason": "La cuenta tiene 3 cuentas hijas",
+      "details": {
+        "children_count": 3
+      }
+    }
+  ],
+  "validation_errors": [],
+  "warnings": [
+    "Cuenta 87654321-4321-4321-4321-987654321098: La cuenta tiene un saldo pendiente de 150.00",
+    "Razón de eliminación: Limpieza de cuentas obsoletas del ejercicio anterior"
+  ],
+  "success_count": 1,
+  "failure_count": 2,
+  "success_rate": 33.3
+}
+```
+
+#### Validaciones Realizadas
+
+El endpoint realiza las siguientes validaciones automáticas:
+
+1. **Cuenta Existente**: Verifica que la cuenta exista en el sistema
+2. **Sin Movimientos**: No puede tener movimientos contables asociados
+3. **Sin Cuentas Hijas**: No puede tener subcuentas dependientes
+4. **No es Cuenta de Sistema**: No permite eliminar cuentas principales (códigos 1-6)
+5. **Advertencias de Saldo**: Notifica si la cuenta tiene saldo pendiente
+6. **Estado de Actividad**: Informa si la cuenta ya está inactiva
+
+#### Códigos de Error
+- **400 Bad Request**: Datos de entrada inválidos
+- **403 Forbidden**: Permisos insuficientes
+- **422 Unprocessable Entity**: Error en validación de datos
+
+---
+
+### ✅ POST /validate-deletion
+
+Valida si múltiples cuentas pueden ser eliminadas sin proceder con la eliminación real.
+
+#### Permisos Requeridos
+- **ADMIN** únicamente
+
+#### Request
+```http
+POST /api/v1/accounts/validate-deletion
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+[
+  "87654321-4321-4321-4321-987654321098",
+  "12345678-5678-5678-5678-123456789012",
+  "98765432-8765-8765-8765-987654321987"
+]
+```
+
+#### Response Exitosa (200)
+```json
+[
+  {
+    "account_id": "87654321-4321-4321-4321-987654321098",
+    "can_delete": true,
+    "blocking_reasons": [],
+    "warnings": [
+      "La cuenta tiene un saldo pendiente de 150.00"
+    ],
+    "dependencies": {
+      "balance": "150.00"
+    }
+  },
+  {
+    "account_id": "12345678-5678-5678-5678-123456789012",
+    "can_delete": false,
+    "blocking_reasons": [
+      "La cuenta tiene 45 movimientos contables"
+    ],
+    "warnings": [],
+    "dependencies": {
+      "movements_count": 45
+    }
+  },
+  {
+    "account_id": "98765432-8765-8765-8765-987654321987",
+    "can_delete": false,
+    "blocking_reasons": [
+      "La cuenta tiene 3 cuentas hijas"
+    ],
+    "warnings": [],
+    "dependencies": {
+      "children_count": 3
+    }
+  }
+]
+```
+
+#### Códigos de Error
+- **403 Forbidden**: Permisos insuficientes
+- **422 Unprocessable Entity**: Datos de entrada inválidos
+
+---
+
 ### 🏷️ GET /type/{account_type}
 
 Obtiene todas las cuentas de un tipo específico.
@@ -917,13 +1069,238 @@ def test_admin_cannot_delete_account_with_movements(client, admin_token, account
         headers={"Authorization": f"Bearer {admin_token}"}
     )
     
-    assert response.status_code == 409
-    assert "movimientos" in response.json()["detail"]
+    assert response.status_code == 409    assert "movimientos" in response.json()["detail"]
 ```
+
+---
+
+### 💰 GET /cash-flow-category/{category}
+
+Obtiene cuentas por categoría de flujo de efectivo.
+
+#### Permisos Requeridos
+- Usuario autenticado (cualquier rol)
+
+#### Request
+```http
+GET /api/v1/accounts/cash-flow-category/operating?active_only=true
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Path Parameters
+- `category` (CashFlowCategory): Categoría de flujo de efectivo
+  - `operating`: Actividades de Operación
+  - `investing`: Actividades de Inversión  
+  - `financing`: Actividades de Financiamiento
+  - `cash`: Efectivo y Equivalentes
+
+#### Query Parameters
+- `active_only` (bool, opcional): Solo cuentas activas (default: true)
+
+#### Response Exitosa (200)
+```json
+{
+  "category": "operating",
+  "accounts": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "code": "4.1.01",
+      "name": "Ventas de Productos",
+      "account_type": "INGRESO",
+      "category": "INGRESOS_OPERACIONALES",
+      "cash_flow_category": "operating",
+      "balance": "50000.00"
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "code": "5.1.01",
+      "name": "Sueldos y Salarios",
+      "account_type": "GASTO",
+      "category": "GASTOS_OPERACIONALES",
+      "cash_flow_category": "operating",
+      "balance": "25000.00"
+    }
+  ],
+  "total_count": 2,
+  "total_balance": {
+    "debit": "25000.00",
+    "credit": "50000.00",
+    "net": "-25000.00"
+  }
+}
+```
+
+#### Códigos de Error
+- **404 Not Found**: Categoría no válida
+- **401 Unauthorized**: Token de acceso inválido
+
+---
+
+### 🔄 POST /categorize-cash-flow
+
+Ejecuta la categorización automática de cuentas para flujo de efectivo.
+
+#### Permisos Requeridos
+- **ADMIN**
+
+#### Request
+```http
+POST /api/v1/accounts/categorize-cash-flow
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "force_recategorize": false,
+  "apply_rules": ["cash_patterns", "account_type_mapping", "code_patterns"]
+}
+```
+
+#### Request Body
+```python
+class CashFlowCategorizationRequest(BaseModel):
+    force_recategorize: bool = Field(False, description="Recategorizar cuentas ya categorizadas")
+    apply_rules: List[str] = Field(
+        ["cash_patterns", "account_type_mapping", "code_patterns"],
+        description="Reglas a aplicar en la categorización"
+    )
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "categorized_count": 45,
+  "uncategorized_count": 5,
+  "categories_applied": {
+    "operating": 25,
+    "investing": 8,
+    "financing": 7,
+    "cash": 5
+  },
+  "uncategorized_accounts": [
+    {
+      "id": "99999999-9999-9999-9999-999999999999",
+      "code": "9.9.99",
+      "name": "Cuenta Sin Clasificar",
+      "reason": "No matching pattern found"
+    }
+  ]
+}
+```
+
+#### Códigos de Error
+- **403 Forbidden**: Permisos insuficientes
+- **500 Internal Server Error**: Error en el proceso de categorización
+
+## Casos de Uso de Borrado Múltiple
+
+Los nuevos endpoints de borrado múltiple `/bulk-delete` y `/validate-deletion` proporcionan capacidades avanzadas para la gestión masiva de cuentas con validaciones exhaustivas.
+
+### Flujo Recomendado
+
+#### 1. Validación Previa
+Antes de eliminar cuentas, es recomendable validarlas:
+
+```http
+POST /api/v1/accounts/validate-deletion
+Content-Type: application/json
+
+[
+  "87654321-4321-4321-4321-987654321098",
+  "12345678-5678-5678-5678-123456789012"
+]
+```
+
+#### 2. Interpretación de Resultados
+```json
+[
+  {
+    "account_id": "87654321-4321-4321-4321-987654321098",
+    "can_delete": true,
+    "blocking_reasons": [],
+    "warnings": ["La cuenta tiene un saldo pendiente de 150.00"]
+  },
+  {
+    "account_id": "12345678-5678-5678-5678-123456789012",
+    "can_delete": false,
+    "blocking_reasons": ["La cuenta tiene 45 movimientos contables"]
+  }
+]
+```
+
+#### 3. Eliminación Controlada
+Con base en la validación, proceder con la eliminación:
+
+```http
+POST /api/v1/accounts/bulk-delete
+Content-Type: application/json
+
+{
+  "account_ids": ["87654321-4321-4321-4321-987654321098"],
+  "force_delete": false,
+  "delete_reason": "Limpieza de cuentas obsoletas"
+}
+```
+
+### Validaciones Implementadas
+
+#### Validaciones Críticas (Bloquean eliminación)
+- **Movimientos contables**: La cuenta tiene asientos o movimientos asociados
+- **Cuentas hijas**: La cuenta tiene subcuentas dependientes
+- **Cuenta de sistema**: Cuentas principales del plan contable (códigos 1-6)
+- **Cuenta inexistente**: El ID de cuenta no existe en el sistema
+
+#### Advertencias (No bloquean eliminación)
+- **Saldo pendiente**: La cuenta tiene un saldo diferente de cero
+- **Cuenta inactiva**: La cuenta ya está marcada como inactiva
+
+### Parámetro force_delete
+
+El parámetro `force_delete` permite mayor control:
+
+- `false` (default): Solo elimina cuentas que pasan todas las validaciones
+- `true`: Intenta eliminar incluso cuentas con advertencias, pero respeta validaciones críticas
+
+### Casos de Uso Comunes
+
+#### Limpieza de Final de Ejercicio
+```json
+{
+  "account_ids": ["uuid1", "uuid2", "uuid3"],
+  "force_delete": false,
+  "delete_reason": "Limpieza de cuentas obsoletas del ejercicio 2024"
+}
+```
+
+#### Migración de Plan de Cuentas
+```json
+{
+  "account_ids": ["uuid1", "uuid2"],
+  "force_delete": true,
+  "delete_reason": "Migración a nuevo plan de cuentas"
+}
+```
+
+#### Corrección de Errores de Configuración
+```json
+{
+  "account_ids": ["uuid1"],
+  "force_delete": false,
+  "delete_reason": "Corrección de cuenta creada por error"
+}
+```
+
+### Mejores Prácticas
+
+1. **Validación previa**: Siempre usar `/validate-deletion` antes de `/bulk-delete`
+2. **Documentación**: Incluir siempre `delete_reason` para auditoría
+3. **Lotes pequeños**: Procesar máximo 50-100 cuentas por operación
+4. **Respaldo**: Realizar respaldo antes de eliminaciones masivas
+5. **Verificación**: Revisar el resultado y procesar errores individualmente
 
 ## Referencias
 
-- [Modelo de Cuenta](../account-management.md): Documentación detallada del modelo de datos
-- [Tipos de Cuenta](../account-types.md): Descripción de tipos y categorías de cuentas
-- [Plan de Cuentas](../chart-of-accounts.md): Estructura y organización jerárquica
+- [Modelo de Cuenta](../account-management.md): Documentación detallada del modelo de datos y categorías de flujo de efectivo
+- [Tipos de Cuenta](../account-types.md): Descripción de tipos, categorías tradicionales y categorías de flujo de efectivo
+- [Plan de Cuentas](../chart-of-accounts.md): Estructura jerárquica y configuración para flujo de efectivo
 - [Movimientos de Cuentas](../account-movements.md): Gestión de movimientos y saldos
+- [Configuración de Flujo de Efectivo](../../reports/configuration-admin.md): Scripts de migración y categorización automática

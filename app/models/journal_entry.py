@@ -2,7 +2,7 @@ import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import Boolean, String, Text, ForeignKey, Numeric, DateTime, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -11,6 +11,10 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from app.models.account import Account
 from app.models.base import Base
 from app.models.user import User
+
+if TYPE_CHECKING:
+    from app.models.cost_center import CostCenter
+    from app.models.third_party import ThirdParty
 
 
 class JournalEntryStatus(str, Enum):
@@ -183,18 +187,17 @@ class JournalEntryLine(Base):
     
     # Descripción específica de la línea
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
-    # Referencias adicionales
+      # Referencias adicionales
     reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    third_party_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Para cuentas que requieren terceros
-    cost_center_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Para centros de costo
+    third_party_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("third_parties.id"), nullable=True)
+    cost_center_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("cost_centers.id"), nullable=True)
     
     # Orden de la línea en el asiento
-    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
-
-    # Relationships
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)    # Relationships
     journal_entry: Mapped["JournalEntry"] = relationship("JournalEntry", back_populates="lines")
     account: Mapped["Account"] = relationship("Account")
+    third_party: Mapped[Optional["ThirdParty"]] = relationship("ThirdParty", lazy="select")
+    cost_center: Mapped[Optional["CostCenter"]] = relationship("CostCenter", lazy="select")
 
     def __repr__(self) -> str:
         return f"<JournalEntryLine(account='{self.account.code}', debit={self.debit_amount}, credit={self.credit_amount})>"

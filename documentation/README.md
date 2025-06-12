@@ -27,6 +27,22 @@ Este directorio contiene toda la documentación técnica del sistema contable, o
 - [Operaciones de Asientos](./journal-entries/journal-entry-operations.md) - Operaciones y lógica de asientos
 - [Endpoints de Asientos](./journal-entries/journal-entry-endpoints.md) - API de gestión de asientos
 
+### Sistema de Centros de Costo
+- [Índice de Centros de Costo](./cost-centers/README.md) - Visión general del módulo de centros de costo
+- [Gestión de Centros de Costo](./cost-centers/cost-center-management.md) - CRUD y administración de centros de costo
+- [Estructura Jerárquica](./cost-centers/cost-center-hierarchy.md) - Sistema jerárquico y validaciones
+- [Reportes de Rentabilidad](./cost-centers/cost-center-reports.md) - Análisis de rentabilidad y KPIs
+- [Análisis Comparativo](./cost-centers/cost-center-analysis.md) - Comparaciones y benchmarking
+- [Endpoints de Centros de Costo](./cost-centers/cost-center-endpoints.md) - API de gestión y reportes
+
+### Sistema de Terceros
+- [Índice de Terceros](./third-parties/README.md) - Visión general del módulo de terceros
+- [Gestión de Terceros](./third-parties/third-party-management.md) - CRUD de clientes, proveedores y empleados
+- [Estados de Cuenta](./third-parties/third-party-statements.md) - Generación de estados de cuenta
+- [Balances y Antigüedad](./third-parties/third-party-balances.md) - Análisis de saldos y vencimientos
+- [Operaciones Masivas](./third-parties/third-party-operations.md) - Importación y actualización masiva
+- [Endpoints de Terceros](./third-parties/third-party-endpoints.md) - API de gestión de terceros
+
 ### Sistema de Importación de Datos
 - [Índice de Importación](./data-import/README.md) - Visión general del sistema de importación
 - [Estructuras de Datos](./data-import/import-data-structures.md) - Modelos y esquemas para importación
@@ -86,6 +102,12 @@ Este directorio contiene toda la documentación técnica del sistema contable, o
 
 ## Últimas Actualizaciones
 
+- **Diciembre 2024** - **SPRINT 2 COMPLETADO** - Sistema de Centros de Costo y Terceros
+  - **Centros de Costo**: Sistema jerárquico completo con análisis de rentabilidad
+  - **Terceros**: Gestión integral de clientes, proveedores y empleados
+  - **Reportes Avanzados**: KPIs, comparaciones, seguimiento presupuestario
+  - **Integración**: Conexión completa con asientos contables
+  - **28 endpoints nuevos** completamente documentados
 - **Junio 2025** - Documentación inicial del sistema de autenticación
   - Sistema de usuarios y roles completamente funcional
   - Endpoints de autenticación documentados

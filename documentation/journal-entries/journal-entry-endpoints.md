@@ -18,6 +18,9 @@ Este documento detalla todos los endpoints disponibles para la gestión de asien
 | GET | `/journal-entries/statistics/summary` | Obtener estadísticas |
 | GET | `/journal-entries/search` | Búsqueda avanzada |
 | POST | `/journal-entries/bulk-create` | Crear múltiples asientos |
+| POST | `/journal-entries/validate-deletion` | Validar asientos para eliminación |
+| POST | `/journal-entries/bulk-delete` | Eliminar múltiples asientos |
+| POST | `/journal-entries/bulk-operation` | Operaciones masivas en asientos |
 | GET | `/journal-entries/by-number/{number}` | Obtener asiento por número |
 
 ## 📝 Detalle de Endpoints

@@ -15,8 +15,8 @@ class JournalEntryLineBase(BaseModel):
     description: str = Field(..., min_length=1, max_length=500, description="Descripción del movimiento")
     debit_amount: Decimal = Field(Decimal('0'), ge=0, description="Monto débito")
     credit_amount: Decimal = Field(Decimal('0'), ge=0, description="Monto crédito")
-    third_party: Optional[str] = Field(None, max_length=100, description="Tercero/Cliente/Proveedor")
-    cost_center: Optional[str] = Field(None, max_length=50, description="Centro de costo")
+    third_party_id: Optional[uuid.UUID] = Field(None, description="ID del tercero")
+    cost_center_id: Optional[uuid.UUID] = Field(None, description="ID del centro de costo")
     reference: Optional[str] = Field(None, max_length=100, description="Referencia adicional")
 
     @model_validator(mode='after')
@@ -42,8 +42,8 @@ class JournalEntryLineUpdate(BaseModel):
     description: Optional[str] = Field(None, min_length=1, max_length=500)
     debit_amount: Optional[Decimal] = Field(None, ge=0)
     credit_amount: Optional[Decimal] = Field(None, ge=0)
-    third_party: Optional[str] = Field(None, max_length=100)
-    cost_center: Optional[str] = Field(None, max_length=50)
+    third_party_id: Optional[uuid.UUID] = Field(None, description="ID del tercero")
+    cost_center_id: Optional[uuid.UUID] = Field(None, description="ID del centro de costo")
     reference: Optional[str] = Field(None, max_length=100)
 
 
@@ -58,6 +58,10 @@ class JournalEntryLineRead(JournalEntryLineBase):
     # Campos relacionados
     account_code: Optional[str] = None
     account_name: Optional[str] = None
+    third_party_code: Optional[str] = None
+    third_party_name: Optional[str] = None
+    cost_center_code: Optional[str] = None
+    cost_center_name: Optional[str] = None
     amount: Decimal = Decimal('0')  # Monto absoluto
     movement_type: str = "debit"    # "debit" o "credit"
     
@@ -265,6 +269,44 @@ class JournalEntryValidation(BaseModel):
     warnings: List[str]
     balance_check: bool
     line_count: int
+
+
+# Esquemas para operaciones masivas de eliminación
+class JournalEntryDeleteValidation(BaseModel):
+    """Schema para validación individual de eliminación de asiento"""
+    journal_entry_id: uuid.UUID
+    journal_entry_number: str
+    journal_entry_description: str
+    status: JournalEntryStatus
+    can_delete: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class BulkJournalEntryDelete(BaseModel):
+    """Schema para eliminación masiva de asientos"""
+    journal_entry_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=100, description="Lista de IDs de asientos a eliminar")
+    force_delete: bool = Field(False, description="Forzar eliminación ignorando advertencias")
+    reason: Optional[str] = Field(None, max_length=500, description="Razón para la eliminación masiva")
+    
+    @field_validator('journal_entry_ids')
+    @classmethod
+    def validate_unique_ids(cls, v):
+        """Validar que los IDs sean únicos"""
+        if len(v) != len(set(v)):
+            raise ValueError("Los IDs de asientos deben ser únicos")
+        return v
+
+
+class BulkJournalEntryDeleteResult(BaseModel):
+    """Schema para resultado de eliminación masiva de asientos"""
+    total_requested: int
+    total_deleted: int
+    total_failed: int
+    deleted_entries: List[JournalEntryDeleteValidation] = []
+    failed_entries: List[JournalEntryDeleteValidation] = []
+    errors: List[str] = []
+    warnings: List[str] = []
 
 
 # Additional response schemas for API

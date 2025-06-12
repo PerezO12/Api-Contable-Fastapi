@@ -239,6 +239,69 @@ ACTIVO (1)
         ├── EQUIPOS DE CÓMPUTO (1.2.01.02)
 ```
 
+## Categorías de Flujo de Efectivo
+
+Además de la clasificación tradicional por tipo y categoría, el sistema incluye una clasificación especial para el Estado de Flujo de Efectivo:
+
+### CashFlowCategory
+
+```python
+class CashFlowCategory(str, Enum):
+    """Categorías para clasificar cuentas según actividades del flujo de efectivo"""
+    OPERATING = "operating"        # Actividades de Operación
+    INVESTING = "investing"        # Actividades de Inversión  
+    FINANCING = "financing"        # Actividades de Financiamiento
+    CASH_EQUIVALENTS = "cash"      # Efectivo y Equivalentes de Efectivo
+```
+
+### Relación con Tipos de Cuenta
+
+| Tipo de Cuenta | Categoría Típica de Flujo | Ejemplos |
+|----------------|---------------------------|----------|
+| ACTIVO (Corriente) | CASH_EQUIVALENTS o OPERATING | Caja, Bancos, Cuentas por Cobrar |
+| ACTIVO (No Corriente) | INVESTING | Equipos, Propiedades, Inversiones |
+| PASIVO (Corriente) | OPERATING | Proveedores, Gastos Acumulados |
+| PASIVO (No Corriente) | FINANCING | Préstamos a Largo Plazo |
+| PATRIMONIO | FINANCING | Capital Social, Utilidades Retenidas |
+| INGRESO | OPERATING | Ventas, Servicios |
+| GASTO | OPERATING | Sueldos, Arriendos, Servicios |
+| COSTOS | OPERATING | Costo de Ventas |
+
+### Configuración Recomendada
+
+```python
+# Ejemplos de configuración por actividad
+
+# ACTIVIDADES OPERATIVAS
+cuentas_operativas = [
+    {"code": "4001", "name": "Ventas", "type": "INGRESO", "cash_flow": "operating"},
+    {"code": "5001", "name": "Sueldos", "type": "GASTO", "cash_flow": "operating"},
+    {"code": "1102", "name": "Clientes", "type": "ACTIVO", "cash_flow": "operating"},
+    {"code": "2101", "name": "Proveedores", "type": "PASIVO", "cash_flow": "operating"}
+]
+
+# ACTIVIDADES DE INVERSIÓN
+cuentas_inversion = [
+    {"code": "1201", "name": "Equipos", "type": "ACTIVO", "cash_flow": "investing"},
+    {"code": "1202", "name": "Propiedades", "type": "ACTIVO", "cash_flow": "investing"},
+    {"code": "1301", "name": "Inversiones LP", "type": "ACTIVO", "cash_flow": "investing"}
+]
+
+# ACTIVIDADES DE FINANCIAMIENTO
+cuentas_financiamiento = [
+    {"code": "2201", "name": "Préstamos LP", "type": "PASIVO", "cash_flow": "financing"},
+    {"code": "3001", "name": "Capital Social", "type": "PATRIMONIO", "cash_flow": "financing"},
+    {"code": "3002", "name": "Utilidades Retenidas", "type": "PATRIMONIO", "cash_flow": "financing"}
+]
+
+# EFECTIVO Y EQUIVALENTES
+cuentas_efectivo = [
+    {"code": "1101", "name": "Caja", "type": "ACTIVO", "cash_flow": "cash"},
+    {"code": "1102", "name": "Bancos", "type": "ACTIVO", "cash_flow": "cash"},
+    {"code": "1103", "name": "Inversiones Temporales", "type": "ACTIVO", "cash_flow": "cash"}
+]
+```
+
 ## Buenas Prácticas
 
 1. **Consistencia en Codificación**: Mantener un sistema coherente de codificación por tipo
@@ -246,3 +309,4 @@ ACTIVO (1)
 3. **Categorización Correcta**: Asignar la categoría adecuada para facilitar reportes
 4. **Cuentas Hoja**: Solo las cuentas hoja deben recibir movimientos directos
 5. **Nombres Descriptivos**: Usar nombres claros que indiquen el propósito de la cuenta
+6. **Categorización de Flujo de Efectivo**: Asignar la categoría `cash_flow_category` apropiada para facilitar la generación automática del Estado de Flujo de Efectivo

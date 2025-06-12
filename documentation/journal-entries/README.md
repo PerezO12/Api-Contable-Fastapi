@@ -24,6 +24,16 @@ Este directorio contiene la documentación completa del módulo de Asientos Cont
 - Ciclo de vida según tipo de asiento
 - Casos de uso específicos
 
+### 🔗 [journal-entry-integration.md](./journal-entry-integration.md)
+**Integración con Centros de Costo y Terceros - Sprint 2**
+- Cambios en el modelo de datos para soporte de terceros y centros de costo
+- Validaciones mejoradas con entidades relacionadas
+- Nuevos endpoints para reportes integrados
+- Casos de uso con distribución por centros de costo
+- Estados de cuenta por tercero
+- Análisis multidimensional y reportes cruzados
+- Mejores prácticas para asignación de terceros y centros
+
 ### 📊 [journal-entry-operations.md](./journal-entry-operations.md)
 **Operaciones de Asientos Contables**
 - Creación y validación de asientos

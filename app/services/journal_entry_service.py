@@ -12,7 +12,8 @@ from app.models.account import Account
 from app.schemas.journal_entry import (
     JournalEntryCreate, JournalEntryUpdate, JournalEntryRead, JournalEntryLineCreate,
     JournalEntryFilter, JournalEntryStatistics, JournalEntrySummary, JournalEntryPost,
-    JournalEntryCancel
+    JournalEntryCancel, BulkJournalEntryDelete, BulkJournalEntryDeleteResult, 
+    JournalEntryDeleteValidation
 )
 from app.utils.exceptions import JournalEntryError, AccountNotFoundError, BalanceError
 
@@ -52,8 +53,7 @@ class JournalEntryService:
         
         # Generar número de asiento
         entry_number = await self.generate_entry_number(entry_data.entry_type)
-        
-        # Crear las líneas en memoria primero (evitar lazy loading)
+          # Crear las líneas en memoria primero (evitar lazy loading)
         journal_lines = []
         total_debit = Decimal('0')
         total_credit = Decimal('0')
@@ -73,8 +73,8 @@ class JournalEntryService:
                 credit_amount=line_data.credit_amount,
                 description=line_data.description,
                 reference=line_data.reference,
-                third_party_id=line_data.third_party,
-                cost_center_id=line_data.cost_center,
+                third_party_id=line_data.third_party_id,
+                cost_center_id=line_data.cost_center_id,
                 line_number=line_number
             )
             
@@ -106,8 +106,7 @@ class JournalEntryService:
         
         self.db.add(journal_entry)
         await self.db.flush()  # Para obtener el ID
-        
-        # Asignar el journal_entry_id a las líneas y agregarlas a la sesión
+          # Asignar el journal_entry_id a las líneas y agregarlas a la sesión
         for journal_line in journal_lines:
             journal_line.journal_entry_id = journal_entry.id
             self.db.add(journal_line)
@@ -122,7 +121,11 @@ class JournalEntryService:
         # Recargar el asiento con todas sus relaciones usando selectinload para optimizar
         result = await self.db.execute(
             select(JournalEntry)
-            .options(selectinload(JournalEntry.lines))
+            .options(
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.third_party),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.cost_center)
+            )
             .where(JournalEntry.id == journal_entry.id)
         )
         journal_entry = result.scalar_one()
@@ -138,6 +141,8 @@ class JournalEntryService:
         
         query = select(JournalEntry).options(
             selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account),
+            selectinload(JournalEntry.lines).selectinload(JournalEntryLine.third_party),
+            selectinload(JournalEntry.lines).selectinload(JournalEntryLine.cost_center),
             selectinload(JournalEntry.created_by),
             selectinload(JournalEntry.posted_by)
         )
@@ -194,13 +199,15 @@ class JournalEntryService:
         entries = result.scalars().all()
         
         return list(entries), total
-    
+
     async def get_journal_entry_by_id(self, entry_id: uuid.UUID) -> Optional[JournalEntry]:
         """Obtener un asiento por ID"""
         result = await self.db.execute(
             select(JournalEntry)
             .options(
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account).selectinload(Account.children),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.third_party),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.cost_center),
                 selectinload(JournalEntry.created_by),
                 selectinload(JournalEntry.posted_by),
                 selectinload(JournalEntry.approved_by)
@@ -215,6 +222,8 @@ class JournalEntryService:
             select(JournalEntry)
             .options(
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account).selectinload(Account.children),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.third_party),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.cost_center),
                 selectinload(JournalEntry.created_by),
                 selectinload(JournalEntry.posted_by)
             )
@@ -583,8 +592,7 @@ class JournalEntryService:
         total_amount = sum(line.debit_amount + line.credit_amount for line in entry.lines)
         if total_amount == 0:
             errors.append("El asiento no puede tener todas las líneas en cero")
-        
-        # Validar cuentas
+          # Validar cuentas
         for line in entry.lines:
             if not line.account.allows_movements:
                 errors.append(f"La cuenta {line.account.code} no permite movimientos")
@@ -611,8 +619,195 @@ class JournalEntryService:
                 created_entries.append(entry)
             
             return created_entries
-            
         except Exception as e:
             # En caso de error, hacer rollback
             await self.db.rollback()
             raise JournalEntryError(f"Error en creación masiva: {str(e)}")
+
+    async def validate_journal_entry_for_deletion(self, entry_id: uuid.UUID) -> JournalEntryDeleteValidation:
+        """Validar si un asiento puede ser eliminado"""
+        
+        journal_entry = await self.get_journal_entry_by_id(entry_id)
+        
+        if not journal_entry:
+            return JournalEntryDeleteValidation(
+                journal_entry_id=entry_id,
+                journal_entry_number="N/A",
+                journal_entry_description="N/A",
+                status=JournalEntryStatus.DRAFT,
+                can_delete=False,
+                errors=["Asiento no encontrado"]
+            )
+        
+        errors = []
+        warnings = []
+        can_delete = True
+        
+        # Solo se pueden eliminar asientos en estado DRAFT
+        if journal_entry.status != JournalEntryStatus.DRAFT:
+            errors.append(f"Solo se pueden eliminar asientos en estado borrador. Estado actual: {journal_entry.status}")
+            can_delete = False
+        
+        # Verificar si el asiento tiene referencias o dependencias (si aplica en el futuro)
+        # Por ejemplo, si está referenciado en reportes o tiene documentos adjuntos
+        
+        # Advertencias adicionales
+        if journal_entry.entry_type == JournalEntryType.OPENING:
+            warnings.append("Eliminar asientos de apertura puede afectar los saldos iniciales")
+        
+        if journal_entry.entry_type == JournalEntryType.CLOSING:
+            warnings.append("Eliminar asientos de cierre puede afectar el balance del período")
+        
+        # Verificar si tiene líneas con importes significativos
+        total_amount = journal_entry.total_debit
+        if total_amount > Decimal('10000'):  # Umbral configurable
+            warnings.append(f"El asiento tiene un monto significativo: {total_amount}")
+        
+        return JournalEntryDeleteValidation(
+            journal_entry_id=entry_id,
+            journal_entry_number=journal_entry.number,
+            journal_entry_description=journal_entry.description,
+            status=journal_entry.status,
+            can_delete=can_delete,
+            errors=errors,
+            warnings=warnings
+        )    
+    async def bulk_delete_journal_entries(
+        self, 
+        entry_ids: List[uuid.UUID],
+        force_delete: bool = False,
+        reason: Optional[str] = None
+    ) -> BulkJournalEntryDeleteResult:        
+        """Eliminar múltiples asientos contables en lote"""
+        
+        total_requested = len(entry_ids)
+        deleted_entries = []
+        failed_entries = []
+        global_errors = []
+        global_warnings = []
+        
+        try:
+            # Validar cada asiento individualmente
+            for entry_id in entry_ids:
+                validation = await self.validate_journal_entry_for_deletion(entry_id)
+                
+                # Si puede ser eliminado o se fuerza la eliminación (solo para warnings)
+                if validation.can_delete and (force_delete or not validation.warnings):
+                    try:
+                        # Obtener el asiento para eliminarlo
+                        journal_entry = await self.get_journal_entry_by_id(entry_id)
+                        if journal_entry:
+                            await self.db.delete(journal_entry)
+                            deleted_entries.append(validation)
+                            
+                            # Log de auditoría
+                            if reason:
+                                global_warnings.append(f"Asiento {validation.journal_entry_number} eliminado: {reason}")
+                        else:
+                            validation.can_delete = False
+                            validation.errors.append("Asiento no encontrado durante eliminación")
+                            failed_entries.append(validation)
+                    except Exception as e:
+                        validation.can_delete = False
+                        validation.errors.append(f"Error durante eliminación: {str(e)}")
+                        failed_entries.append(validation)
+                else:
+                    failed_entries.append(validation)
+            
+            # Confirmar transacción si hay eliminaciones exitosas
+            if deleted_entries:
+                await self.db.commit()
+            
+            return BulkJournalEntryDeleteResult(
+                total_requested=total_requested,
+                total_deleted=len(deleted_entries),
+                total_failed=len(failed_entries),
+                deleted_entries=deleted_entries,
+                failed_entries=failed_entries,
+                errors=global_errors,
+                warnings=global_warnings
+            )
+            
+        except Exception as e:
+            await self.db.rollback()
+            raise JournalEntryError(f"Error en eliminación masiva: {str(e)}")
+
+    async def bulk_operation(
+        self, 
+        operation: str, 
+        entry_ids: List[uuid.UUID],
+        operation_data: Optional[dict] = None
+    ) -> dict:
+        """Operaciones masivas en asientos contables"""
+        
+        if operation == "delete":
+            force_delete = operation_data.get("force_delete", False) if operation_data else False
+            reason = operation_data.get("reason") if operation_data else None
+            
+            result = await self.bulk_delete_journal_entries(
+                entry_ids=entry_ids,
+                force_delete=force_delete,
+                reason=reason
+            )
+            return {
+                "operation": "delete",
+                "result": result.model_dump()
+            }
+        elif operation == "approve":
+            # Implementar aprobación masiva en el futuro
+            approved_count = 0
+            failed_count = 0
+            errors = []
+            
+            if not operation_data or not operation_data.get("approved_by_id"):
+                raise JournalEntryError("Se requiere el ID del usuario que aprueba")
+            
+            approved_by_id = uuid.UUID(operation_data.get("approved_by_id"))
+            
+            for entry_id in entry_ids:
+                try:
+                    await self.approve_journal_entry(entry_id, approved_by_id)
+                    approved_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    errors.append(f"Error aprobando {entry_id}: {str(e)}")
+            return {
+                "operation": "approve",
+                "approved_count": approved_count,
+                "failed_count": failed_count,
+                "errors": errors
+            }
+        
+        elif operation == "cancel":
+            # Implementar cancelación masiva en el futuro
+            cancelled_count = 0
+            failed_count = 0
+            errors = []
+            
+            cancel_reason = operation_data.get("reason", "Cancelación masiva") if operation_data else "Cancelación masiva"
+            cancelled_by_id = operation_data.get("cancelled_by_id") if operation_data else None
+            
+            if not cancelled_by_id:
+                raise JournalEntryError("Se requiere el ID del usuario que cancela")
+            
+            cancelled_by_id = uuid.UUID(cancelled_by_id)
+            
+            for entry_id in entry_ids:
+                try:
+                    from app.schemas.journal_entry import JournalEntryCancel
+                    cancel_data = JournalEntryCancel(reason=cancel_reason)
+                    await self.cancel_journal_entry(entry_id, cancelled_by_id, cancel_data)
+                    cancelled_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    errors.append(f"Error cancelando {entry_id}: {str(e)}")
+            
+            return {
+                "operation": "cancel",
+                "cancelled_count": cancelled_count,
+                "failed_count": failed_count,
+                "errors": errors
+            }
+        
+        else:
+            raise JournalEntryError(f"Operación no soportada: {operation}")

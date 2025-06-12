@@ -19,6 +19,7 @@ El modelo `Account` es la entidad principal y tiene las siguientes característi
 - **Clasificación Contable**:
   - `account_type`: Tipo fundamental (ACTIVO, PASIVO, PATRIMONIO, INGRESO, GASTO, COSTOS)
   - `category`: Categoría específica dentro del tipo (ej: ACTIVO_CORRIENTE, PASIVO_NO_CORRIENTE)
+  - `cash_flow_category`: Categoría para el flujo de efectivo (OPERATING, INVESTING, FINANCING, CASH_EQUIVALENTS)
   
 - **Estructura Jerárquica**:
   - `parent_id`: Referencia a la cuenta padre (opcional)
@@ -111,6 +112,42 @@ La eliminación de cuentas está restringida para mantener la integridad histór
 - No se pueden eliminar cuentas que tienen hijos
 - Se recomienda inactivar en lugar de eliminar
 
+#### Eliminación Individual
+
+```python
+# Endpoint: DELETE /api/v1/accounts/{account_id}
+# Solo elimina una cuenta por vez con validaciones básicas
+```
+
+#### Eliminación Múltiple (Nuevo)
+
+El sistema ahora incluye capacidades avanzadas para eliminación múltiple con validaciones exhaustivas:
+
+```python
+# Endpoint: POST /api/v1/accounts/bulk-delete
+# Permite eliminar múltiples cuentas con validaciones detalladas
+
+# Validación previa: POST /api/v1/accounts/validate-deletion
+# Verifica qué cuentas pueden eliminarse sin proceder con la eliminación
+```
+
+**Características del borrado múltiple:**
+- **Validaciones exhaustivas**: Verifica movimientos, cuentas hijas, cuentas de sistema
+- **Modo force_delete**: Permite forzar eliminación de cuentas con advertencias
+- **Documentación de cambios**: Requiere razón para la eliminación
+- **Procesamiento por lotes**: Hasta 100 cuentas por operación
+- **Reporte detallado**: Indica éxitos, fallos y advertencias
+
+**Validaciones específicas:**
+- Cuenta no tiene movimientos contables
+- Cuenta no tiene subcuentas dependientes  
+- No es una cuenta de sistema (códigos 1-6)
+- Cuenta existe en el sistema
+
+**Advertencias (no bloquean eliminación):**
+- Cuenta tiene saldo pendiente
+- Cuenta ya está inactiva
+
 ## Validaciones de Negocio
 
 Las principales validaciones implementadas incluyen:
@@ -121,6 +158,68 @@ Las principales validaciones implementadas incluyen:
 4. **Movimientos**: Solo cuentas hoja pueden recibir movimientos directos
 5. **Integridad Referencial**: No se pueden eliminar cuentas con movimientos o relaciones
 6. **Validaciones de Nombre**: Normalizados automáticamente (primera letra mayúscula, espacios)
+
+## Categorías de Flujo de Efectivo
+
+El sistema incluye un campo `cash_flow_category` que permite clasificar las cuentas según las actividades del Estado de Flujo de Efectivo:
+
+### Categorías Disponibles
+
+- **OPERATING** (`operating`): Actividades de Operación
+  - Cuentas relacionadas con la actividad principal del negocio
+  - Ejemplos: Ventas, Gastos operativos, Cuentas por cobrar, Proveedores
+  
+- **INVESTING** (`investing`): Actividades de Inversión
+  - Cuentas relacionadas con la compra y venta de activos a largo plazo
+  - Ejemplos: Equipos, Propiedades, Inversiones, Intangibles
+  
+- **FINANCING** (`financing`): Actividades de Financiamiento
+  - Cuentas relacionadas con el financiamiento y estructura de capital
+  - Ejemplos: Préstamos, Capital social, Dividendos, Aportes de socios
+  
+- **CASH_EQUIVALENTS** (`cash`): Efectivo y Equivalentes
+  - Cuentas que representan efectivo o instrumentos líquidos
+  - Ejemplos: Caja, Bancos, Inversiones temporales
+
+### Configuración y Uso
+
+```python
+# Ejemplo de cuenta configurada para flujo de efectivo
+cuenta_banco = {
+    "code": "1.1.01",
+    "name": "Banco Cuenta Corriente",
+    "account_type": "ACTIVO",
+    "category": "ACTIVO_CORRIENTE",
+    "cash_flow_category": "cash",  # Efectivo y equivalentes
+    "allows_movements": True
+}
+
+# Ejemplo de cuenta de gastos operativos
+cuenta_sueldos = {
+    "code": "5.1.01",
+    "name": "Sueldos y Salarios",
+    "account_type": "GASTO",
+    "category": "GASTOS_OPERACIONALES",
+    "cash_flow_category": "operating",  # Actividades operativas
+    "allows_movements": True
+}
+```
+
+### Migración y Categorización Automática
+
+El sistema incluye herramientas para categorizar automáticamente las cuentas existentes:
+
+```python
+# Script de migración disponible en:
+# documentation/reports/configuration-admin.md
+# categorize_accounts_cash_flow.py
+
+# Patrones de categorización automática:
+# - Cuentas de efectivo: códigos que empiecen con "1.1.01" o contengan "caja", "banco"
+# - Actividades operativas: cuentas de tipo INGRESO, GASTO
+# - Actividades de inversión: activos fijos, equipos
+# - Actividades de financiamiento: préstamos, capital, patrimonio
+```
 
 ## Ejemplos de Uso
 

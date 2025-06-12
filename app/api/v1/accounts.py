@@ -13,7 +13,8 @@ from app.models.user import User
 from app.schemas.account import (
     AccountCreate, AccountUpdate, AccountRead, AccountTree, AccountSummary,
     AccountBalance, AccountMovementHistory, AccountsByType, ChartOfAccounts,
-    AccountValidation, BulkAccountOperation, AccountStats
+    AccountValidation, BulkAccountOperation, AccountStats, BulkAccountDelete,
+    BulkAccountDeleteResult, AccountDeleteValidation
 )
 from app.services.account_service import AccountService
 from app.utils.exceptions import (
@@ -244,6 +245,56 @@ async def bulk_account_operation(
     """
     account_service = AccountService(db)
     return await account_service.bulk_operation(operation, current_user.id)
+
+
+@router.post("/bulk-delete", response_model=BulkAccountDeleteResult, status_code=status.HTTP_200_OK)
+async def bulk_delete_accounts(
+    delete_request: BulkAccountDelete,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+) -> BulkAccountDeleteResult:
+    """
+    Eliminar múltiples cuentas con validaciones exhaustivas.
+    
+    Este endpoint realiza validaciones detalladas antes de eliminar cada cuenta:
+    - Verifica que no tengan movimientos contables
+    - Verifica que no tengan cuentas hijas
+    - Verifica que no sean cuentas de sistema
+    - Permite forzar eliminación con force_delete=true
+    
+    Solo disponible para administradores.
+    """
+    account_service = AccountService(db)
+    
+    try:
+        result = await account_service.bulk_delete_accounts(delete_request, current_user.id)
+        return result
+    except AccountValidationError as e:
+        raise_validation_error(str(e))
+
+
+@router.post("/validate-deletion", response_model=List[AccountDeleteValidation])
+async def validate_accounts_for_deletion(
+    account_ids: List[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+) -> List[AccountDeleteValidation]:
+    """
+    Validar si múltiples cuentas pueden ser eliminadas sin proceder con la eliminación.
+    
+    Este endpoint es útil para verificar qué cuentas pueden eliminarse antes de 
+    realizar la operación de borrado masivo.
+    
+    Solo disponible para administradores.
+    """
+    account_service = AccountService(db)
+    
+    validations = []
+    for account_id in account_ids:
+        validation = await account_service.validate_account_for_deletion(account_id)
+        validations.append(validation)
+    
+    return validations
 
 
 @router.get("/type/{account_type}", response_model=AccountsByType)

@@ -380,3 +380,48 @@ def raise_import_validation_error(detail: str, field: Optional[str] = None, row:
             "error_code": "IMPORT_VALIDATION_ERROR"
         }
     )
+
+
+# Additional exception classes for Sprint 2
+class NotFoundError(AccountingSystemException):
+    """Generic not found error"""
+    def __init__(self, resource: str, identifier: Optional[str] = None):
+        message = f"{resource} not found"
+        if identifier:
+            message += f": {identifier}"
+        super().__init__(message, "NOT_FOUND", {"resource": resource, "identifier": identifier})
+
+
+class ConflictError(AccountingSystemException):
+    """Generic conflict error"""
+    def __init__(self, message: str, resource: Optional[str] = None):
+        super().__init__(message, "CONFLICT", {"resource": resource})
+
+
+class ValidationError(AccountingSystemException):
+    """Generic validation error"""
+    def __init__(self, message: str, field: Optional[str] = None):
+        super().__init__(message, "VALIDATION_ERROR", {"field": field})
+
+
+class BusinessLogicError(AccountingSystemException):
+    """Business logic violation error"""
+    def __init__(self, message: str, rule: Optional[str] = None):
+        super().__init__(message, "BUSINESS_LOGIC_ERROR", {"rule": rule})
+
+
+# Helper functions for Sprint 2
+def raise_not_found(detail: str) -> NoReturn:
+    """Raise a not found error"""
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=detail
+    )
+
+
+def raise_conflict_error(detail: str) -> NoReturn:
+    """Raise a conflict error"""
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=detail
+    )

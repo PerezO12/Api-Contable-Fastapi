@@ -1,8 +1,8 @@
-"""Initial migration: create all tables
+"""Initial migration
 
-Revision ID: be3062ca33b2
+Revision ID: 83d75a0f0b1c
 Revises: 
-Create Date: 2025-06-09 20:02:48.805922
+Create Date: 2025-06-12 08:06:27.135453
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'be3062ca33b2'
+revision: str = '83d75a0f0b1c'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -45,6 +45,24 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('pk_company_info'))
     )
     op.create_index(op.f('ix_company_info_id'), 'company_info', ['id'], unique=False)
+    op.create_table('cost_centers',
+    sa.Column('code', sa.String(length=20), nullable=False),
+    sa.Column('name', sa.String(length=200), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('parent_id', sa.UUID(), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.Column('allows_direct_assignment', sa.Boolean(), nullable=False, comment='Si permite asignación directa de transacciones o solo es agrupador'),
+    sa.Column('manager_name', sa.String(length=200), nullable=True),
+    sa.Column('budget_code', sa.String(length=50), nullable=True),
+    sa.Column('notes', sa.Text(), nullable=True),
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['parent_id'], ['cost_centers.id'], name=op.f('fk_cost_centers_parent_id_cost_centers')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_cost_centers'))
+    )
+    op.create_index(op.f('ix_cost_centers_code'), 'cost_centers', ['code'], unique=True)
+    op.create_index(op.f('ix_cost_centers_id'), 'cost_centers', ['id'], unique=False)
     op.create_table('number_sequences',
     sa.Column('sequence_type', sa.String(length=50), nullable=False),
     sa.Column('prefix', sa.String(length=10), nullable=True),
@@ -63,6 +81,42 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_number_sequences_id'), 'number_sequences', ['id'], unique=False)
     op.create_index(op.f('ix_number_sequences_sequence_type'), 'number_sequences', ['sequence_type'], unique=True)
+    op.create_table('third_parties',
+    sa.Column('code', sa.String(length=20), nullable=False),
+    sa.Column('name', sa.String(length=200), nullable=False),
+    sa.Column('commercial_name', sa.String(length=200), nullable=True),
+    sa.Column('third_party_type', sa.Enum('CUSTOMER', 'SUPPLIER', 'EMPLOYEE', 'SHAREHOLDER', 'BANK', 'GOVERNMENT', 'OTHER', name='thirdpartytype'), nullable=False),
+    sa.Column('document_type', sa.Enum('RUT', 'NIT', 'CUIT', 'RFC', 'PASSPORT', 'DNI', 'OTHER', name='documenttype'), nullable=False),
+    sa.Column('document_number', sa.String(length=50), nullable=False),
+    sa.Column('tax_id', sa.String(length=50), nullable=True),
+    sa.Column('email', sa.String(length=254), nullable=True),
+    sa.Column('phone', sa.String(length=20), nullable=True),
+    sa.Column('mobile', sa.String(length=20), nullable=True),
+    sa.Column('website', sa.String(length=255), nullable=True),
+    sa.Column('address', sa.String(length=500), nullable=True),
+    sa.Column('city', sa.String(length=100), nullable=True),
+    sa.Column('state', sa.String(length=100), nullable=True),
+    sa.Column('country', sa.String(length=100), nullable=True),
+    sa.Column('postal_code', sa.String(length=20), nullable=True),
+    sa.Column('credit_limit', sa.String(length=20), nullable=True),
+    sa.Column('payment_terms', sa.String(length=100), nullable=True),
+    sa.Column('discount_percentage', sa.String(length=10), nullable=True),
+    sa.Column('bank_name', sa.String(length=200), nullable=True),
+    sa.Column('bank_account', sa.String(length=50), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.Column('is_tax_withholding_agent', sa.Boolean(), nullable=False),
+    sa.Column('notes', sa.Text(), nullable=True),
+    sa.Column('internal_code', sa.String(length=50), nullable=True),
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_third_parties'))
+    )
+    op.create_index(op.f('ix_third_parties_code'), 'third_parties', ['code'], unique=True)
+    op.create_index(op.f('ix_third_parties_document_number'), 'third_parties', ['document_number'], unique=False)
+    op.create_index(op.f('ix_third_parties_id'), 'third_parties', ['id'], unique=False)
+    op.create_index(op.f('ix_third_parties_name'), 'third_parties', ['name'], unique=False)
+    op.create_index(op.f('ix_third_parties_third_party_type'), 'third_parties', ['third_party_type'], unique=False)
     op.create_table('users',
     sa.Column('email', sa.String(length=255), nullable=False),
     sa.Column('full_name', sa.String(length=100), nullable=False),
@@ -92,6 +146,7 @@ def upgrade() -> None:
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('account_type', sa.Enum('ACTIVO', 'PASIVO', 'PATRIMONIO', 'INGRESO', 'GASTO', 'COSTOS', name='accounttype'), nullable=False),
     sa.Column('category', sa.Enum('ACTIVO_CORRIENTE', 'ACTIVO_NO_CORRIENTE', 'PASIVO_CORRIENTE', 'PASIVO_NO_CORRIENTE', 'CAPITAL', 'RESERVAS', 'RESULTADOS', 'INGRESOS_OPERACIONALES', 'INGRESOS_NO_OPERACIONALES', 'GASTOS_OPERACIONALES', 'GASTOS_NO_OPERACIONALES', 'COSTO_VENTAS', 'COSTOS_PRODUCCION', name='accountcategory'), nullable=True),
+    sa.Column('cash_flow_category', sa.Enum('OPERATING', 'INVESTING', 'FINANCING', 'CASH_EQUIVALENTS', name='cashflowcategory'), nullable=True),
     sa.Column('parent_id', sa.UUID(), nullable=True),
     sa.Column('level', sa.Integer(), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
@@ -216,14 +271,16 @@ def upgrade() -> None:
     sa.Column('credit_amount', sa.Numeric(precision=15, scale=2), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('reference', sa.String(length=100), nullable=True),
-    sa.Column('third_party_id', sa.String(length=50), nullable=True),
-    sa.Column('cost_center_id', sa.String(length=50), nullable=True),
+    sa.Column('third_party_id', sa.UUID(), nullable=True),
+    sa.Column('cost_center_id', sa.UUID(), nullable=True),
     sa.Column('line_number', sa.Integer(), nullable=False),
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['account_id'], ['accounts.id'], name=op.f('fk_journal_entry_lines_account_id_accounts')),
+    sa.ForeignKeyConstraint(['cost_center_id'], ['cost_centers.id'], name=op.f('fk_journal_entry_lines_cost_center_id_cost_centers')),
     sa.ForeignKeyConstraint(['journal_entry_id'], ['journal_entries.id'], name=op.f('fk_journal_entry_lines_journal_entry_id_journal_entries')),
+    sa.ForeignKeyConstraint(['third_party_id'], ['third_parties.id'], name=op.f('fk_journal_entry_lines_third_party_id_third_parties')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_journal_entry_lines'))
     )
     op.create_index(op.f('ix_journal_entry_lines_id'), 'journal_entry_lines', ['id'], unique=False)
@@ -257,9 +314,18 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_users_id'), table_name='users')
     op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_table('users')
+    op.drop_index(op.f('ix_third_parties_third_party_type'), table_name='third_parties')
+    op.drop_index(op.f('ix_third_parties_name'), table_name='third_parties')
+    op.drop_index(op.f('ix_third_parties_id'), table_name='third_parties')
+    op.drop_index(op.f('ix_third_parties_document_number'), table_name='third_parties')
+    op.drop_index(op.f('ix_third_parties_code'), table_name='third_parties')
+    op.drop_table('third_parties')
     op.drop_index(op.f('ix_number_sequences_sequence_type'), table_name='number_sequences')
     op.drop_index(op.f('ix_number_sequences_id'), table_name='number_sequences')
     op.drop_table('number_sequences')
+    op.drop_index(op.f('ix_cost_centers_id'), table_name='cost_centers')
+    op.drop_index(op.f('ix_cost_centers_code'), table_name='cost_centers')
+    op.drop_table('cost_centers')
     op.drop_index(op.f('ix_company_info_id'), table_name='company_info')
     op.drop_table('company_info')
     # ### end Alembic commands ###
