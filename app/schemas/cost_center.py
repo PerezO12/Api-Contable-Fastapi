@@ -216,6 +216,70 @@ class BulkCostCenterOperation(BaseModel):
     reason: Optional[str] = None
 
 
+class BulkCostCenterDelete(BaseModel):
+    """Schema específico para borrado múltiple de centros de costo"""
+    cost_center_ids: List[uuid.UUID] = Field(min_length=1, max_length=100, description="Lista de IDs de centros de costo a eliminar")
+    force_delete: bool = Field(default=False, description="Forzar eliminación (requiere confirmación)")
+    delete_reason: Optional[str] = Field(default=None, max_length=500, description="Razón para la eliminación")
+    
+    @field_validator('cost_center_ids')
+    @classmethod
+    def validate_unique_ids(cls, v):
+        """Validar que no haya IDs duplicados"""
+        if len(v) != len(set(v)):
+            raise ValueError("No se permiten IDs de centros de costo duplicados")
+        return v
+
+
+class BulkCostCenterDeleteResult(BaseModel):
+    """Schema para el resultado del borrado múltiple"""
+    total_requested: int = Field(description="Total de centros de costo solicitados para eliminar")
+    successfully_deleted: List[uuid.UUID] = Field(default_factory=list, description="Centros de costo eliminados exitosamente")
+    failed_to_delete: List[dict] = Field(default_factory=list, description="Centros de costo que no pudieron eliminarse")
+    validation_errors: List[dict] = Field(default_factory=list, description="Errores de validación")
+    warnings: List[str] = Field(default_factory=list, description="Advertencias del proceso")
+    
+    @property
+    def success_count(self) -> int:
+        return len(self.successfully_deleted)
+    
+    @property
+    def failure_count(self) -> int:
+        return len(self.failed_to_delete)
+    
+    @property
+    def success_rate(self) -> float:
+        if self.total_requested == 0:
+            return 0.0
+        return (self.success_count / self.total_requested) * 100
+
+
+class CostCenterDeleteValidation(BaseModel):
+    """Schema para validación previa al borrado"""
+    cost_center_id: uuid.UUID
+    can_delete: bool
+    blocking_reasons: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    dependencies: dict = Field(default_factory=dict)  # Información sobre dependencias
+
+
+class CostCenterImportResult(BaseModel):
+    """Schema para el resultado de importación de centros de costo"""
+    total_rows: int = Field(description="Total de filas procesadas")
+    successfully_imported: int = Field(description="Centros de costo importados exitosamente")
+    updated_existing: int = Field(description="Centros de costo existentes actualizados")
+    failed_imports: List[dict] = Field(default_factory=list, description="Filas que fallaron al importar")
+    validation_errors: List[dict] = Field(default_factory=list, description="Errores de validación")
+    warnings: List[str] = Field(default_factory=list, description="Advertencias del proceso")
+    created_cost_centers: List[uuid.UUID] = Field(default_factory=list, description="IDs de centros de costo creados")
+    
+    @property
+    def success_rate(self) -> float:
+        if self.total_rows == 0:
+            return 0.0
+        return ((self.successfully_imported + self.updated_existing) / self.total_rows) * 100
+
+
 class CostCenterStats(BaseModel):
     """Schema para estadísticas de centros de costo"""
     total_cost_centers: int

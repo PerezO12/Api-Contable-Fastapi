@@ -143,9 +143,10 @@ class JournalEntry(Base):
         if self.status not in [JournalEntryStatus.DRAFT, JournalEntryStatus.PENDING]:
             raise ValueError("Solo se pueden aprobar asientos en estado borrador o pendiente")
         
-        errors = self.validate_entry()
-        if errors:
-            raise ValueError(f"No se puede aprobar el asiento: {'; '.join(errors)}")
+        # Note: validation is performed in the service layer to avoid async issues
+        # errors = self.validate_entry()
+        # if errors:
+        #     raise ValueError(f"No se puede aprobar el asiento: {'; '.join(errors)}")
         
         self.status = JournalEntryStatus.APPROVED
         self.approved_by_id = approved_by_user_id
@@ -166,6 +167,40 @@ class JournalEntry(Base):
         self.posted_at = datetime.now(timezone.utc)
         self.posting_date = datetime.now(timezone.utc)
         return True
+
+    def reset_to_draft(self, reset_by_user_id: uuid.UUID) -> bool:
+        """Restablece el asiento a borrador desde approved o pending"""
+        if self.status not in [JournalEntryStatus.APPROVED, JournalEntryStatus.PENDING]:
+            raise ValueError("Solo se pueden restablecer asientos desde estado aprobado o pendiente")
+        
+        # Verificar que no esté contabilizado
+        if self.status == JournalEntryStatus.POSTED:
+            raise ValueError("No se puede restablecer a borrador un asiento contabilizado")
+        
+        # Verificar que no esté cancelado
+        if self.status == JournalEntryStatus.CANCELLED:
+            raise ValueError("No se puede restablecer a borrador un asiento cancelado")
+        
+        # Limpiar campos de aprobación
+        self.status = JournalEntryStatus.DRAFT
+        self.approved_by_id = None
+        self.approved_at = None
+        
+        # Agregar nota del restablecimiento
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        reset_note = f"Restablecido a borrador el {timestamp} por usuario {reset_by_user_id}"
+        
+        if self.notes:
+            self.notes += f"\\n\\n{reset_note}"
+        else:
+            self.notes = reset_note
+        
+        return True
+
+    @property
+    def can_be_reset_to_draft(self) -> bool:
+        """Verifica si el asiento puede ser restablecido a borrador"""
+        return self.status in [JournalEntryStatus.APPROVED, JournalEntryStatus.PENDING]
 
 
 class JournalEntryLine(Base):

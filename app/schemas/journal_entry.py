@@ -154,111 +154,227 @@ class JournalEntryPost(BaseModel):
 
 
 class JournalEntryCancel(BaseModel):
-    """Schema para cancelar asiento"""
-    reason: str = Field(..., min_length=1, max_length=500, description="Razón para cancelar")
+    """Schema para anulación de asiento contable"""
+    reason: str = Field(..., min_length=1, max_length=500, description="Razón de la anulación")
 
 
-# Esquemas para listados
+class JournalEntryFilter(BaseModel):
+    """Schema para filtros de búsqueda de asientos contables"""
+    start_date: Optional[date] = Field(None, description="Fecha inicial")
+    end_date: Optional[date] = Field(None, description="Fecha final")
+    status: Optional[List[JournalEntryStatus]] = Field(None, description="Estados a filtrar")
+    entry_type: Optional[List[JournalEntryType]] = Field(None, description="Tipos de asiento")
+    created_by_id: Optional[uuid.UUID] = Field(None, description="ID del usuario creador")
+    account_id: Optional[uuid.UUID] = Field(None, description="ID de cuenta específica")
+    min_amount: Optional[Decimal] = Field(None, description="Monto mínimo")
+    max_amount: Optional[Decimal] = Field(None, description="Monto máximo")
+    search_text: Optional[str] = Field(None, description="Texto a buscar en descripción o referencia")
+
+
 class JournalEntrySummary(BaseModel):
-    """Schema resumido para listados"""
+    """Schema para resumen de asientos contables"""
     id: uuid.UUID
     number: str
-    entry_date: date
     description: str
+    entry_date: date
     status: JournalEntryStatus
     entry_type: JournalEntryType
     total_debit: Decimal
+    total_credit: Decimal
     created_by_name: Optional[str] = None
-    created_at: datetime
-    
-    @field_validator('entry_date', mode='before')
-    @classmethod
-    def convert_datetime_to_date(cls, v):
-        """Convertir datetime a date si es necesario para compatibilidad con SQLAlchemy"""
-        if isinstance(v, datetime):
-            return v.date()
-        return v
     
     model_config = ConfigDict(from_attributes=True)
 
 
-class JournalEntryList(BaseModel):
-    """Schema para listado paginado de asientos"""
-    entries: List[JournalEntrySummary]
-    total: int
-    page: int
-    size: int
-    pages: int
+class JournalEntryResetToDraft(BaseModel):
+    """Schema para restablecer asiento a borrador"""
+    reason: str = Field(..., min_length=1, max_length=500, description="Razón para restablecer a borrador")
 
 
-# Esquemas para filtros
-class JournalEntryFilter(BaseModel):
-    """Schema para filtrar asientos"""
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    status: Optional[JournalEntryStatus] = None
-    entry_type: Optional[JournalEntryType] = None
-    account_id: Optional[uuid.UUID] = None
-    created_by_id: Optional[uuid.UUID] = None
-    search: Optional[str] = None  # Búsqueda en descripción/referencia
+class JournalEntryResetToDraftValidation(BaseModel):
+    """Schema para validación de restablecimiento a borrador"""
+    journal_entry_id: uuid.UUID
+    journal_entry_number: str
+    journal_entry_description: str
+    current_status: JournalEntryStatus
+    can_reset: bool
+    errors: List[str] = []
+    warnings: List[str] = []
 
 
-# Esquemas para importación
-class JournalEntryImportLine(BaseModel):
-    """Schema para importar líneas de asiento"""
-    account_code: str
-    description: str
-    debit_amount: Optional[Decimal] = None
-    credit_amount: Optional[Decimal] = None
-    third_party: Optional[str] = None
-    cost_center: Optional[str] = None
-    reference: Optional[str] = None
+class BulkJournalEntryResetToDraft(BaseModel):
+    """Schema para restablecimiento masivo a borrador de asientos"""
+    journal_entry_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=100, description="Lista de IDs de asientos a restablecer")
+    force_reset: bool = Field(False, description="Forzar restablecimiento ignorando advertencias")
+    reason: str = Field(..., min_length=1, max_length=500, description="Razón para el restablecimiento masivo")
+    
+    @field_validator('journal_entry_ids')
+    @classmethod
+    def validate_unique_ids(cls, v):
+        """Validar que los IDs sean únicos"""
+        if len(v) != len(set(v)):
+            raise ValueError("Los IDs de asientos deben ser únicos")
+        return v
 
 
-class JournalEntryImport(BaseModel):
-    """Schema para importar asientos"""
-    entry_date: date
-    reference: Optional[str] = None
-    description: str
-    lines: List[JournalEntryImportLine]
+class BulkJournalEntryResetToDraftResult(BaseModel):
+    """Schema para resultado de restablecimiento masivo a borrador"""
+    total_requested: int
+    total_reset: int
+    total_failed: int
+    reset_entries: List[JournalEntryResetToDraftValidation] = []
+    failed_entries: List[JournalEntryResetToDraftValidation] = []
+    errors: List[str] = []
+    warnings: List[str] = []
 
 
-class BulkJournalEntryImport(BaseModel):
-    """Schema para importación masiva"""
-    entries: List[JournalEntryImport]
-    validate_only: bool = False  # Solo validar sin guardar
+class BulkJournalEntryApprove(BaseModel):
+    """Schema para aprobación masiva de asientos"""
+    journal_entry_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=100, description="Lista de IDs de asientos a aprobar")
+    force_approve: bool = Field(False, description="Forzar aprobación ignorando advertencias")
+    reason: Optional[str] = Field(None, max_length=500, description="Razón para la aprobación masiva")
+    
+    @field_validator('journal_entry_ids')
+    @classmethod
+    def validate_unique_ids(cls, v):
+        """Validar que los IDs sean únicos"""
+        if len(v) != len(set(v)):
+            raise ValueError("Los IDs de asientos deben ser únicos")
+        return v
 
 
-# Esquemas para reportes
-class JournalEntryStats(BaseModel):
-    """Schema para estadísticas de asientos"""
-    total_entries: int
-    posted_entries: int
-    draft_entries: int
-    cancelled_entries: int
-    entries_by_type: dict[str, int]
-    total_amount_posted: Decimal
-    entries_by_month: dict[str, int]
+class JournalEntryApproveValidation(BaseModel):
+    """Schema para validación de aprobación"""
+    journal_entry_id: uuid.UUID
+    journal_entry_number: str
+    journal_entry_description: str
+    current_status: JournalEntryStatus
+    can_approve: bool
+    errors: List[str] = []
+    warnings: List[str] = []
 
 
-class AccountMovementSummary(BaseModel):
-    """Schema para resumen de movimientos por cuenta"""
-    account_id: uuid.UUID
-    account_code: str
-    account_name: str
-    total_debits: Decimal
-    total_credits: Decimal
-    net_movement: Decimal
-    movement_count: int
+class BulkJournalEntryApproveResult(BaseModel):
+    """Schema para resultado de aprobación masiva"""
+    total_requested: int
+    total_approved: int
+    total_failed: int
+    approved_entries: List[JournalEntryApproveValidation] = []
+    failed_entries: List[JournalEntryApproveValidation] = []
+    errors: List[str] = []
+    warnings: List[str] = []
 
 
-class JournalReport(BaseModel):
-    """Schema para reporte de libro diario"""
-    period_start: date
-    period_end: date
-    entries: List[JournalEntryDetail]
-    total_entries: int
-    total_amount: Decimal
+class BulkJournalEntryPost(BaseModel):
+    """Schema para contabilización masiva de asientos"""
+    journal_entry_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=100, description="Lista de IDs de asientos a contabilizar")
+    force_post: bool = Field(False, description="Forzar contabilización ignorando advertencias")
+    reason: Optional[str] = Field(None, max_length=500, description="Razón para la contabilización masiva")
+    
+    @field_validator('journal_entry_ids')
+    @classmethod
+    def validate_unique_ids(cls, v):
+        """Validar que los IDs sean únicos"""
+        if len(v) != len(set(v)):
+            raise ValueError("Los IDs de asientos deben ser únicos")
+        return v
+
+
+class JournalEntryPostValidation(BaseModel):
+    """Schema para validación de contabilización"""
+    journal_entry_id: uuid.UUID
+    journal_entry_number: str
+    journal_entry_description: str
+    current_status: JournalEntryStatus
+    can_post: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class BulkJournalEntryPostResult(BaseModel):
+    """Schema para resultado de contabilización masiva"""
+    total_requested: int
+    total_posted: int
+    total_failed: int
+    posted_entries: List[JournalEntryPostValidation] = []
+    failed_entries: List[JournalEntryPostValidation] = []
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class BulkJournalEntryCancel(BaseModel):
+    """Schema para cancelación masiva de asientos"""
+    journal_entry_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=100, description="Lista de IDs de asientos a cancelar")
+    force_cancel: bool = Field(False, description="Forzar cancelación ignorando advertencias")
+    reason: str = Field(..., min_length=1, max_length=500, description="Razón para la cancelación masiva")
+    
+    @field_validator('journal_entry_ids')
+    @classmethod
+    def validate_unique_ids(cls, v):
+        """Validar que los IDs sean únicos"""
+        if len(v) != len(set(v)):
+            raise ValueError("Los IDs de asientos deben ser únicos")
+        return v
+
+
+class JournalEntryCancelValidation(BaseModel):
+    """Schema para validación de cancelación"""
+    journal_entry_id: uuid.UUID
+    journal_entry_number: str
+    journal_entry_description: str
+    current_status: JournalEntryStatus
+    can_cancel: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class BulkJournalEntryCancelResult(BaseModel):
+    """Schema para resultado de cancelación masiva"""
+    total_requested: int
+    total_cancelled: int
+    total_failed: int
+    cancelled_entries: List[JournalEntryCancelValidation] = []
+    failed_entries: List[JournalEntryCancelValidation] = []
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class BulkJournalEntryReverse(BaseModel):
+    """Schema para reversión masiva de asientos"""
+    journal_entry_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=50, description="Lista de IDs de asientos a revertir (máximo 50)")
+    force_reverse: bool = Field(False, description="Forzar reversión ignorando advertencias")
+    reason: str = Field(..., min_length=1, max_length=500, description="Razón para la reversión masiva")
+    
+    @field_validator('journal_entry_ids')
+    @classmethod
+    def validate_unique_ids(cls, v):
+        """Validar que los IDs sean únicos"""
+        if len(v) != len(set(v)):
+            raise ValueError("Los IDs de asientos deben ser únicos")
+        return v
+
+
+class JournalEntryReverseValidation(BaseModel):
+    """Schema para validación de reversión"""
+    journal_entry_id: uuid.UUID
+    journal_entry_number: str
+    journal_entry_description: str
+    current_status: JournalEntryStatus
+    can_reverse: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class BulkJournalEntryReverseResult(BaseModel):
+    """Schema para resultado de reversión masiva"""
+    total_requested: int
+    total_reversed: int
+    total_failed: int
+    reversed_entries: List[JournalEntryReverseValidation] = []
+    failed_entries: List[JournalEntryReverseValidation] = []
+    created_reversal_entries: List[str] = []  # Números de los asientos de reversión creados
+    errors: List[str] = []
+    warnings: List[str] = []
 
 
 # Esquemas para validación

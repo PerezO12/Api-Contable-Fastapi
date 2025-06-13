@@ -21,6 +21,31 @@ from app.schemas.journal_entry import (
     JournalEntryFilter,
     JournalEntryCancel,
     JournalEntryPost,
+    JournalEntryResetToDraft,
+    JournalEntryResetToDraftValidation,
+    BulkJournalEntryResetToDraft,
+    BulkJournalEntryResetToDraftResult,
+    BulkJournalEntryApprove,
+    JournalEntryApproveValidation,
+    BulkJournalEntryApproveResult,
+    BulkJournalEntryPost,
+    JournalEntryPostValidation,
+    BulkJournalEntryPostResult,
+    BulkJournalEntryCancel,
+    JournalEntryCancelValidation,
+    BulkJournalEntryCancelResult,
+    BulkJournalEntryReverse,
+    JournalEntryReverseValidation,
+    BulkJournalEntryReverseResult,
+    BulkJournalEntryPost,
+    JournalEntryPostValidation,
+    BulkJournalEntryPostResult,
+    BulkJournalEntryCancel,
+    JournalEntryCancelValidation,
+    BulkJournalEntryCancelResult,
+    BulkJournalEntryReverse,
+    JournalEntryReverseValidation,
+    BulkJournalEntryReverseResult,
     BulkJournalEntryDelete,
     BulkJournalEntryDeleteResult,
     JournalEntryDeleteValidation
@@ -61,6 +86,8 @@ async def create_journal_entry(
             journal_entry_data, 
             created_by_id=current_user.id
         )
+        # Force load relationships to avoid lazy loading during serialization
+        _ = len(journal_entry.lines)  # Force load the relationship
         return JournalEntryResponse.model_validate(journal_entry)
     except BalanceError as e:
         raise_validation_error(f"Balance error: {str(e)}")
@@ -87,20 +114,35 @@ async def list_journal_entries(
 ) -> JournalEntryListResponse:
     """Get paginated list of journal entries."""
     service = JournalEntryService(db)
-    # Create filter object
+      # Create filter object
     filters = JournalEntryFilter(
-        status=status,
+        status=[status] if status else None,
         account_id=account_id,
         start_date=date_from,
         end_date=date_to,
-        search=reference
+        search_text=reference,
+        entry_type=None,
+        created_by_id=None,
+        min_amount=None,
+        max_amount=None    
     )
     
     journal_entries, total = await service.get_journal_entries(
         skip=skip,
         limit=limit,
         filters=filters
-    )
+    )    
+    # Force load relationships to avoid lazy loading during serialization
+    for je in journal_entries:
+        _ = len(je.lines)  # Force load the relationship
+        # Force load nested relationships within lines
+        for line in je.lines:
+            if line.account:
+                _ = line.account.code  # Force load account
+            if line.third_party:
+                _ = line.third_party.name  # Force load third party
+            if line.cost_center:
+                _ = line.cost_center.name  # Force load cost center
     
     return JournalEntryListResponse(
         items=[JournalEntryResponse.model_validate(je) for je in journal_entries],
@@ -157,6 +199,8 @@ async def update_journal_entry(
         )
         if not journal_entry:
             raise_journal_entry_not_found()
+        # Force load relationships to avoid lazy loading during serialization
+        _ = len(journal_entry.lines)  # Force load the relationship
         return JournalEntryResponse.model_validate(journal_entry)
     except JournalEntryNotFoundError:
         raise_journal_entry_not_found()
@@ -213,6 +257,8 @@ async def approve_journal_entry(
             journal_entry_id,
             approved_by_id=current_user.id
         )
+        # Force load relationships to avoid lazy loading during serialization
+        _ = len(journal_entry.lines)  # Force load the relationship
         return JournalEntryResponse.model_validate(journal_entry)
     except JournalEntryNotFoundError:
         raise_journal_entry_not_found()
@@ -244,6 +290,8 @@ async def post_journal_entry(
             posted_by_id=current_user.id,
             post_data=post_data
         )
+        # Force load relationships to avoid lazy loading during serialization
+        _ = len(journal_entry.lines)  # Force load the relationship
         return JournalEntryResponse.model_validate(journal_entry)
     except JournalEntryNotFoundError:
         raise_journal_entry_not_found()
@@ -275,6 +323,8 @@ async def cancel_journal_entry(
             cancelled_by_id=current_user.id,
             cancel_data=cancel_data
         )
+        # Force load relationships to avoid lazy loading during serialization
+        _ = len(journal_entry.lines)  # Force load the relationship
         return JournalEntryResponse.model_validate(journal_entry)
     except JournalEntryNotFoundError:
         raise_journal_entry_not_found()
@@ -313,6 +363,8 @@ async def reverse_journal_entry(
             created_by_id=current_user.id,
             reason=reason
         )
+        # Force load relationships to avoid lazy loading during serialization
+        _ = len(reversal_entry.lines)  # Force load the relationship
         return JournalEntryResponse.model_validate(reversal_entry)
     except JournalEntryNotFoundError:
         raise_journal_entry_not_found()
@@ -355,6 +407,19 @@ async def search_journal_entries(
     """Search journal entries with advanced filters."""
     service = JournalEntryService(db)
     journal_entries = await service.search_journal_entries(filters)
+    
+    # Force load relationships to avoid lazy loading during serialization
+    for je in journal_entries:
+        _ = len(je.lines)  # Force load the relationship
+        # Force load nested relationships within lines
+        for line in je.lines:
+            if line.account:
+                _ = line.account.code  # Force load account
+            if line.third_party:
+                _ = line.third_party.name  # Force load third party
+            if line.cost_center:
+                _ = line.cost_center.name  # Force load cost center
+        
     return [JournalEntryResponse.model_validate(je) for je in journal_entries]
 
 
@@ -375,11 +440,23 @@ async def bulk_create_journal_entries(
         raise_insufficient_permissions()
     
     try:
-        service = JournalEntryService(db)
+        service = JournalEntryService(db)        
         journal_entries = await service.bulk_create_journal_entries(
             entries_data,
             created_by_id=current_user.id
         )
+          # Force load relationships to avoid lazy loading during serialization
+        for je in journal_entries:
+            _ = len(je.lines)  # Force load the relationship
+            # Force load nested relationships within lines
+            for line in je.lines:
+                if line.account:
+                    _ = line.account.code  # Force load account
+                if line.third_party:
+                    _ = line.third_party.name  # Force load third party
+                if line.cost_center:
+                    _ = line.cost_center.name  # Force load cost center
+            
         return [JournalEntryResponse.model_validate(je) for je in journal_entries]
     except JournalEntryError as e:
         raise_validation_error(str(e))
@@ -461,51 +538,405 @@ async def bulk_delete_journal_entries(
             force_delete=bulk_delete_data.force_delete,
             reason=bulk_delete_data.reason
         )
+        
+        # Si no se procesó ninguna entrada exitosamente, devolver error
+        if result.total_deleted == 0 and result.total_requested > 0:
+            error_details = []
+            for failed_entry in result.failed_entries:
+                error_details.extend(failed_entry.errors)
+            
+            if error_details:
+                raise_validation_error(f"No se pudo eliminar ninguna entrada. Errores: {'; '.join(error_details)}")
+            else:
+                raise_validation_error("No se encontraron entradas válidas para eliminar")
+        
+        return result
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+# ===== OPERACIONES MASIVAS ADICIONALES =====
+
+@router.post(
+    "/validate-approve",
+    response_model=List[JournalEntryApproveValidation],
+    summary="Validate journal entries for approval",
+    description="Validate multiple journal entries before approval to check for errors and warnings"
+)
+async def validate_journal_entries_for_approve(
+    journal_entry_ids: List[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> List[JournalEntryApproveValidation]:
+    """Validate journal entries for approval."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        validations = []
+        
+        for entry_id in journal_entry_ids:
+            validation = await service.validate_journal_entry_for_approve(entry_id)
+            validations.append(validation)
+        
+        return validations
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/bulk-approve",
+    response_model=BulkJournalEntryApproveResult,
+    summary="Bulk approve journal entries",
+    description="Approve multiple journal entries at once (only draft entries can be approved)"
+)
+async def bulk_approve_journal_entries(
+    bulk_approve_data: BulkJournalEntryApprove,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> BulkJournalEntryApproveResult:
+    """Bulk approve journal entries."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        result = await service.bulk_approve_journal_entries(
+            entry_ids=bulk_approve_data.journal_entry_ids,
+            approved_by_id=current_user.id,
+            force_approve=bulk_approve_data.force_approve,
+            reason=bulk_approve_data.reason
+        )
+        
+        # Si no se procesó ninguna entrada exitosamente, devolver error
+        if result.total_approved == 0 and result.total_requested > 0:
+            error_details = []
+            for failed_entry in result.failed_entries:
+                error_details.extend(failed_entry.errors)
+            
+            if error_details:
+                raise_validation_error(f"No se pudo aprobar ninguna entrada. Errores: {'; '.join(error_details)}")
+            else:
+                raise_validation_error("No se encontraron entradas válidas para aprobar")
+        
         return result
     except JournalEntryError as e:
         raise_validation_error(str(e))
 
 
 @router.post(
-    "/bulk-operation",
-    summary="Bulk operations on journal entries",
-    description="Perform bulk operations (delete, approve, cancel) on multiple journal entries"
+    "/validate-post",
+    response_model=List[JournalEntryPostValidation],
+    summary="Validate journal entries for posting",
+    description="Validate multiple journal entries before posting to check for errors and warnings"
 )
-async def bulk_operation_journal_entries(
-    operation: str = Query(..., description="Operation to perform: delete, approve, cancel"),
-    journal_entry_ids: List[uuid.UUID] = Query(..., description="List of journal entry IDs"),
-    force_operation: bool = Query(False, description="Force operation ignoring warnings"),
-    reason: Optional[str] = Query(None, description="Reason for the operation"),
+async def validate_journal_entries_for_post(
+    journal_entry_ids: List[uuid.UUID],
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
-):
-    """Perform bulk operations on journal entries."""
+) -> List[JournalEntryPostValidation]:
+    """Validate journal entries for posting."""
     # Check permissions
     if not current_user.can_create_entries:
         raise_insufficient_permissions()
     
-    # Validate operation
-    valid_operations = ["delete", "approve", "cancel"]
-    if operation not in valid_operations:
-        raise_validation_error(f"Invalid operation. Valid operations: {', '.join(valid_operations)}")
+    try:
+        service = JournalEntryService(db)
+        validations = []
+        
+        for entry_id in journal_entry_ids:
+            validation = await service.validate_journal_entry_for_post(entry_id)
+            validations.append(validation)
+        
+        return validations
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/bulk-post",
+    response_model=BulkJournalEntryPostResult,
+    summary="Bulk post journal entries",
+    description="Post multiple journal entries to accounts at once (only approved entries can be posted)"
+)
+async def bulk_post_journal_entries(
+    bulk_post_data: BulkJournalEntryPost,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> BulkJournalEntryPostResult:
+    """Bulk post journal entries."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
     
     try:
         service = JournalEntryService(db)
-        
-        # Prepare operation data
-        operation_data = {
-            "force_delete": force_operation if operation == "delete" else False,
-            "reason": reason,
-            "approved_by_id": current_user.id if operation == "approve" else None,
-            "cancelled_by_id": current_user.id if operation == "cancel" else None
-        }
-        
-        result = await service.bulk_operation(
-            operation=operation,
-            entry_ids=journal_entry_ids,
-            operation_data=operation_data
+        result = await service.bulk_post_journal_entries(
+            entry_ids=bulk_post_data.journal_entry_ids,
+            posted_by_id=current_user.id,
+            force_post=bulk_post_data.force_post,
+            reason=bulk_post_data.reason
         )
         
+        # Si no se procesó ninguna entrada exitosamente, devolver error
+        if result.total_posted == 0 and result.total_requested > 0:
+            error_details = []
+            for failed_entry in result.failed_entries:
+                error_details.extend(failed_entry.errors)
+            
+            if error_details:
+                raise_validation_error(f"No se pudo contabilizar ninguna entrada. Errores: {'; '.join(error_details)}")
+            else:
+                raise_validation_error("No se encontraron entradas válidas para contabilizar")
+        
         return result
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/validate-cancel",
+    response_model=List[JournalEntryCancelValidation],
+    summary="Validate journal entries for cancellation",
+    description="Validate multiple journal entries before cancellation to check for errors and warnings"
+)
+async def validate_journal_entries_for_cancel(
+    journal_entry_ids: List[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> List[JournalEntryCancelValidation]:
+    """Validate journal entries for cancellation."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        validations = []
+        
+        for entry_id in journal_entry_ids:
+            validation = await service.validate_journal_entry_for_cancel(entry_id)
+            validations.append(validation)
+        
+        return validations
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/bulk-cancel",
+    response_model=BulkJournalEntryCancelResult,
+    summary="Bulk cancel journal entries",
+    description="Cancel multiple journal entries at once (creates reversal entries for posted entries)"
+)
+async def bulk_cancel_journal_entries(
+    bulk_cancel_data: BulkJournalEntryCancel,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> BulkJournalEntryCancelResult:
+    """Bulk cancel journal entries."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        result = await service.bulk_cancel_journal_entries(
+            entry_ids=bulk_cancel_data.journal_entry_ids,
+            cancelled_by_id=current_user.id,
+            force_cancel=bulk_cancel_data.force_cancel,
+            reason=bulk_cancel_data.reason
+        )
+        
+        # Si no se procesó ninguna entrada exitosamente, devolver error
+        if result.total_cancelled == 0 and result.total_requested > 0:
+            error_details = []
+            for failed_entry in result.failed_entries:
+                error_details.extend(failed_entry.errors)
+            
+            if error_details:
+                raise_validation_error(f"No se pudo cancelar ninguna entrada. Errores: {'; '.join(error_details)}")
+            else:
+                raise_validation_error("No se encontraron entradas válidas para cancelar")
+        
+        return result
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/validate-reverse",
+    response_model=List[JournalEntryReverseValidation],
+    summary="Validate journal entries for reversal",
+    description="Validate multiple journal entries before reversal to check for errors and warnings"
+)
+async def validate_journal_entries_for_reverse(
+    journal_entry_ids: List[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> List[JournalEntryReverseValidation]:
+    """Validate journal entries for reversal."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        validations = []
+        
+        for entry_id in journal_entry_ids:
+            validation = await service.validate_journal_entry_for_reverse(entry_id)
+            validations.append(validation)
+        
+        return validations
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/bulk-reverse",
+    response_model=BulkJournalEntryReverseResult,
+    summary="Bulk reverse journal entries",
+    description="Create reversal entries for multiple posted journal entries at once"
+)
+async def bulk_reverse_journal_entries(
+    bulk_reverse_data: BulkJournalEntryReverse,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> BulkJournalEntryReverseResult:
+    """Bulk reverse journal entries."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        result = await service.bulk_reverse_journal_entries(
+            entry_ids=bulk_reverse_data.journal_entry_ids,
+            created_by_id=current_user.id,
+            force_reverse=bulk_reverse_data.force_reverse,
+            reason=bulk_reverse_data.reason
+        )
+        
+        # Si no se procesó ninguna entrada exitosamente, devolver error
+        if result.total_reversed == 0 and result.total_requested > 0:
+            error_details = []
+            for failed_entry in result.failed_entries:
+                error_details.extend(failed_entry.errors)
+            
+            if error_details:
+                raise_validation_error(f"No se pudo revertir ninguna entrada. Errores: {'; '.join(error_details)}")
+            else:
+                raise_validation_error("No se encontraron entradas válidas para revertir")
+        
+        return result
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+# ===== OPERACIÓN RESET TO DRAFT MASIVA =====
+
+@router.post(
+    "/validate-reset-to-draft",
+    response_model=List[JournalEntryResetToDraftValidation],
+    summary="Validate journal entries for reset to draft",
+    description="Validate multiple journal entries before resetting to draft to check for errors and warnings"
+)
+async def validate_journal_entries_for_reset_to_draft(
+    journal_entry_ids: List[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> List[JournalEntryResetToDraftValidation]:
+    """Validate journal entries for reset to draft."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        validations = []
+        
+        for entry_id in journal_entry_ids:
+            validation = await service.validate_journal_entry_for_reset_to_draft(entry_id)
+            validations.append(validation)
+        
+        return validations
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/bulk-reset-to-draft",
+    response_model=BulkJournalEntryResetToDraftResult,
+    summary="Bulk reset journal entries to draft",
+    description="Reset multiple journal entries to draft status at once (only approved/pending entries can be reset)"
+)
+async def bulk_reset_to_draft_journal_entries(
+    bulk_reset_data: BulkJournalEntryResetToDraft,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> BulkJournalEntryResetToDraftResult:
+    """Bulk reset journal entries to draft."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        result = await service.bulk_reset_journal_entries_to_draft(
+            entry_ids=bulk_reset_data.journal_entry_ids,
+            reset_by_id=current_user.id,
+            force_reset=bulk_reset_data.force_reset,
+            reason=bulk_reset_data.reason
+        )
+        
+        # Si no se procesó ninguna entrada exitosamente, devolver error
+        if result.total_reset == 0 and result.total_requested > 0:
+            error_details = []
+            for failed_entry in result.failed_entries:
+                error_details.extend(failed_entry.errors)
+            
+            if error_details:
+                raise_validation_error(f"No se pudo restablecer ninguna entrada. Errores: {'; '.join(error_details)}")
+            else:
+                raise_validation_error("No se encontraron entradas válidas para restablecer a borrador")
+        
+        return result
+    except JournalEntryError as e:
+        raise_validation_error(str(e))
+
+
+@router.post(
+    "/{journal_entry_id}/reset-to-draft",
+    response_model=JournalEntryResponse,
+    summary="Reset journal entry to draft",
+    description="Reset a journal entry back to draft status"
+)
+async def reset_journal_entry_to_draft(
+    journal_entry_id: uuid.UUID,
+    reset_data: JournalEntryResetToDraft,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> JournalEntryResponse:
+    """Reset journal entry to draft status."""
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    try:
+        service = JournalEntryService(db)
+        journal_entry = await service.reset_journal_entry_to_draft(
+            journal_entry_id,
+            reset_by_id=current_user.id,
+            reset_data=reset_data
+        )
+        # Force load relationships to avoid lazy loading during serialization
+        _ = len(journal_entry.lines)  # Force load the relationship
+        return JournalEntryResponse.model_validate(journal_entry)
+    except JournalEntryNotFoundError:
+        raise_journal_entry_not_found()
     except JournalEntryError as e:
         raise_validation_error(str(e))

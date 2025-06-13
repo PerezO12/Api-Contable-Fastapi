@@ -13,7 +13,8 @@ from app.models.user import User
 from app.schemas.cost_center import (
     CostCenterCreate, CostCenterUpdate, CostCenterResponse, CostCenterDetailResponse,
     CostCenterListResponse, CostCenterList, CostCenterFilter, CostCenterReport,
-    CostCenterValidation, BulkCostCenterOperation, CostCenterStats
+    CostCenterValidation, BulkCostCenterOperation, CostCenterStats, BulkCostCenterDelete,
+    BulkCostCenterDeleteResult, CostCenterDeleteValidation, CostCenterImportResult
 )
 from app.services.cost_center_service import CostCenterService
 from app.utils.exceptions import (
@@ -280,3 +281,106 @@ async def bulk_cost_center_operation(
     service = CostCenterService(db)
     results = await service.bulk_operation(operation_data)
     return results
+
+
+@router.post("/bulk-delete", response_model=BulkCostCenterDeleteResult, status_code=status.HTTP_200_OK)
+async def bulk_delete_cost_centers(
+    delete_request: BulkCostCenterDelete,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> BulkCostCenterDeleteResult:
+    """
+    Eliminar múltiples centros de costo con validaciones exhaustivas.
+    
+    Este endpoint realiza validaciones detalladas antes de eliminar cada centro de costo:
+    - Verifica que no tengan asientos contables asociados
+    - Verifica que no tengan centros de costo hijos
+    - Verifica que no estén siendo utilizados en otras partes del sistema
+    - Permite forzar eliminación con force_delete=true
+    
+    Requiere permisos de creación de asientos.
+    """
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    service = CostCenterService(db)
+    
+    try:
+        result = await service.bulk_delete_cost_centers(delete_request, current_user.id)
+        return result
+    except ValidationError as e:
+        raise_validation_error(str(e))
+
+
+@router.post("/validate-deletion", response_model=List[CostCenterDeleteValidation])
+async def validate_cost_centers_for_deletion(
+    cost_center_ids: List[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> List[CostCenterDeleteValidation]:
+    """
+    Validar si múltiples centros de costo pueden ser eliminados sin proceder con la eliminación.
+    
+    Este endpoint es útil para verificar qué centros de costo pueden eliminarse antes de 
+    realizar la operación de borrado masivo.
+    
+    Requiere permisos de creación de asientos.
+    """
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    service = CostCenterService(db)
+    
+    validations = []
+    for cost_center_id in cost_center_ids:
+        validation = await service.validate_cost_center_for_deletion(cost_center_id)
+        validations.append(validation)
+    
+    return validations
+
+
+@router.post("/import", response_model=CostCenterImportResult, status_code=status.HTTP_201_CREATED)
+async def import_cost_centers(
+    file_content: str,  # En producción usar UploadFile de FastAPI
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> CostCenterImportResult:
+    """
+    Importar centros de costo desde archivo CSV/Excel.
+    
+    El archivo debe contener las siguientes columnas:
+    - code: Código único del centro de costo (requerido)
+    - name: Nombre del centro de costo (requerido)
+    - description: Descripción (opcional)
+    - parent_code: Código del centro de costo padre (opcional)
+    - is_active: Si está activo (opcional, por defecto true)
+    - allows_direct_assignment: Si permite asignación directa (opcional, por defecto true)
+    - manager_name: Nombre del responsable (opcional)
+    - budget_code: Código presupuestario (opcional)
+    - notes: Notas adicionales (opcional)
+    
+    Requiere permisos de creación de asientos.
+    """
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    service = CostCenterService(db)
+    return await service.import_cost_centers_from_csv(file_content, current_user.id)
+
+
+@router.get("/export/csv")
+async def export_cost_centers_csv(
+    is_active: Optional[bool] = None,
+    parent_id: Optional[uuid.UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Exportar centros de costo a formato CSV.
+    
+    Genera un archivo CSV con todos los centros de costo y sus propiedades,
+    útil para respaldo o para preparar archivos de importación masiva.
+    """
+    service = CostCenterService(db)
+    # En producción retornar StreamingResponse con el CSV
+    return await service.export_cost_centers_to_csv(is_active, parent_id)

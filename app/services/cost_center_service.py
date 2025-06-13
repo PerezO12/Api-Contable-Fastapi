@@ -18,7 +18,9 @@ from app.models.account import Account
 from app.schemas.cost_center import (
     CostCenterCreate, CostCenterUpdate, CostCenterSummary, CostCenterList,
     CostCenterFilter, CostCenterReport, CostCenterMovement, CostCenterValidation,
-    BulkCostCenterOperation, CostCenterStats, CostCenterImport, CostCenterRead
+    BulkCostCenterOperation, CostCenterStats, CostCenterImport, CostCenterRead,
+    BulkCostCenterDelete, BulkCostCenterDeleteResult, CostCenterDeleteValidation,
+    CostCenterImportResult
 )
 from app.utils.exceptions import (
     ValidationError, NotFoundError, ConflictError, BusinessLogicError
@@ -556,3 +558,321 @@ class CostCenterService:
             current_parent_id = parent_result.scalar_one_or_none()
         
         return level
+
+    async def bulk_delete_cost_centers(self, delete_request: 'BulkCostCenterDelete', user_id: uuid.UUID) -> 'BulkCostCenterDeleteResult':
+        """Borrar múltiples centros de costo con validaciones exhaustivas"""
+        from app.schemas.cost_center import BulkCostCenterDeleteResult
+        
+        result = BulkCostCenterDeleteResult(
+            total_requested=len(delete_request.cost_center_ids),
+            successfully_deleted=[],
+            failed_to_delete=[],
+            validation_errors=[],
+            warnings=[]
+        )
+        
+        # Validar primero todos los centros de costo
+        validations = {}
+        for cost_center_id in delete_request.cost_center_ids:
+            validation = await self.validate_cost_center_for_deletion(cost_center_id)
+            validations[cost_center_id] = validation
+            
+            if not validation.can_delete and not delete_request.force_delete:
+                result.failed_to_delete.append({
+                    "cost_center_id": str(cost_center_id),
+                    "reason": "; ".join(validation.blocking_reasons),
+                    "details": validation.dependencies
+                })
+            elif validation.warnings:
+                result.warnings.extend([
+                    f"Centro de costo {cost_center_id}: {warning}" for warning in validation.warnings
+                ])
+        
+        # Si force_delete es False y hay errores, no proceder
+        if not delete_request.force_delete and result.failed_to_delete:
+            result.validation_errors.append({
+                "error": "Hay centros de costo que no pueden eliminarse. Use force_delete=true para forzar la eliminación de los que sí pueden eliminarse."
+            })
+            return result
+        
+        # Proceder con la eliminación
+        cost_centers_to_delete = []
+        for cost_center_id in delete_request.cost_center_ids:
+            validation = validations[cost_center_id]
+            
+            if validation.can_delete or (delete_request.force_delete and not any("no encontrado" in reason for reason in validation.blocking_reasons)):
+                if validation.can_delete:
+                    cost_centers_to_delete.append(cost_center_id)
+                elif delete_request.force_delete:
+                    # Con force_delete, solo eliminar si no tiene movimientos ni hijos
+                    has_critical_blocks = any(
+                        "movimientos" in reason or "hijos" in reason 
+                        for reason in validation.blocking_reasons
+                    )
+                    if not has_critical_blocks:
+                        cost_centers_to_delete.append(cost_center_id)
+                    else:
+                        result.failed_to_delete.append({
+                            "cost_center_id": str(cost_center_id),
+                            "reason": f"Eliminación forzada bloqueada: {'; '.join(validation.blocking_reasons)}",
+                            "force_delete_blocked": True
+                        })
+        
+        # Eliminar los centros de costo validados
+        for cost_center_id in cost_centers_to_delete:
+            try:
+                # Obtener el centro de costo
+                cost_center_result = await self.db.execute(
+                    select(CostCenter).where(CostCenter.id == cost_center_id)
+                )
+                cost_center = cost_center_result.scalar_one_or_none()
+                
+                if cost_center:
+                    await self.db.delete(cost_center)
+                    result.successfully_deleted.append(cost_center_id)
+                else:
+                    result.failed_to_delete.append({
+                        "cost_center_id": str(cost_center_id),
+                        "reason": "Centro de costo no encontrado al momento de eliminar"
+                    })
+            except Exception as e:
+                result.failed_to_delete.append({
+                    "cost_center_id": str(cost_center_id),
+                    "reason": f"Error durante eliminación: {str(e)}"
+                })
+        
+        if result.successfully_deleted:
+            await self.db.commit()
+            result.warnings.append(f"Se eliminaron {len(result.successfully_deleted)} centros de costo exitosamente")
+        
+        return result
+    
+    async def validate_cost_center_for_deletion(self, cost_center_id: uuid.UUID) -> 'CostCenterDeleteValidation':
+        """Validar si un centro de costo puede ser eliminado"""
+        from app.schemas.cost_center import CostCenterDeleteValidation
+        
+        validation = CostCenterDeleteValidation(
+            cost_center_id=cost_center_id,
+            can_delete=True,
+            blocking_reasons=[],
+            warnings=[],
+            dependencies={}
+        )
+        
+        # Verificar que el centro de costo exista
+        cost_center_result = await self.db.execute(
+            select(CostCenter).where(CostCenter.id == cost_center_id)
+        )
+        cost_center = cost_center_result.scalar_one_or_none()
+        
+        if not cost_center:
+            validation.can_delete = False
+            validation.blocking_reasons.append("Centro de costo no encontrado")
+            return validation
+        
+        # Verificar si tiene centros de costo hijos
+        children_result = await self.db.execute(
+            select(func.count(CostCenter.id))
+            .where(CostCenter.parent_id == cost_center_id)
+        )
+        children_count = children_result.scalar() or 0
+        
+        if children_count > 0:
+            validation.can_delete = False
+            validation.blocking_reasons.append(f"Tiene {children_count} centros de costo hijos")
+            validation.dependencies["children_count"] = children_count
+        
+        # Verificar si tiene movimientos contables (asientos)
+        movements_result = await self.db.execute(
+            select(func.count(JournalEntryLine.id))
+            .where(JournalEntryLine.cost_center_id == cost_center_id)
+        )
+        movements_count = movements_result.scalar() or 0
+        
+        if movements_count > 0:
+            validation.can_delete = False
+            validation.blocking_reasons.append(f"Tiene {movements_count} movimientos contables asociados")
+            validation.dependencies["movements_count"] = movements_count
+        
+        # Agregar información adicional como advertencias
+        if cost_center.is_active:
+            validation.warnings.append("El centro de costo está activo")
+        
+        if cost_center.allows_direct_assignment:
+            validation.warnings.append("El centro de costo permite asignación directa")
+        
+        return validation
+    
+    async def import_cost_centers_from_csv(self, file_content: str, user_id: uuid.UUID) -> 'CostCenterImportResult':
+        """Importar centros de costo desde CSV"""
+        from app.schemas.cost_center import CostCenterImportResult
+        import csv
+        import io
+        
+        result = CostCenterImportResult(
+            total_rows=0,
+            successfully_imported=0,
+            updated_existing=0,
+            failed_imports=[],
+            validation_errors=[],
+            warnings=[],
+            created_cost_centers=[]
+        )
+        
+        try:
+            # Procesar el contenido CSV
+            csv_reader = csv.DictReader(io.StringIO(file_content))
+            rows = list(csv_reader)
+            result.total_rows = len(rows)
+              # Validar headers requeridos
+            required_headers = ['code', 'name']
+            fieldnames = csv_reader.fieldnames or []
+            missing_headers = [h for h in required_headers if h not in fieldnames]
+            
+            if missing_headers:
+                result.validation_errors.append({
+                    "error": f"Faltan columnas requeridas: {', '.join(missing_headers)}"
+                })
+                return result
+            
+            # Procesar cada fila
+            for row_num, row in enumerate(rows, start=2):  # +2 porque la primera es header
+                try:
+                    # Limpiar y validar datos
+                    code = row.get('code', '').strip().upper()
+                    name = row.get('name', '').strip()
+                    
+                    if not code or not name:
+                        result.failed_imports.append({
+                            "row": row_num,
+                            "error": "Código y nombre son requeridos",
+                            "data": row
+                        })
+                        continue
+                    
+                    # Verificar si ya existe
+                    existing_result = await self.db.execute(
+                        select(CostCenter).where(CostCenter.code == code)
+                    )
+                    existing_cost_center = existing_result.scalar_one_or_none()
+                    
+                    # Preparar datos para crear/actualizar
+                    cost_center_data = {
+                        'code': code,
+                        'name': name,
+                        'description': row.get('description', '').strip() or None,
+                        'is_active': row.get('is_active', 'true').lower() in ['true', '1', 'yes', 'sí'],
+                        'allows_direct_assignment': row.get('allows_direct_assignment', 'true').lower() in ['true', '1', 'yes', 'sí'],
+                        'manager_name': row.get('manager_name', '').strip() or None,
+                        'budget_code': row.get('budget_code', '').strip() or None,
+                        'notes': row.get('notes', '').strip() or None
+                    }
+                    
+                    # Manejar parent_id si existe parent_code
+                    parent_code = row.get('parent_code', '').strip()
+                    if parent_code:
+                        parent_result = await self.db.execute(
+                            select(CostCenter.id).where(CostCenter.code == parent_code)
+                        )
+                        parent_id = parent_result.scalar_one_or_none()
+                        if parent_id:
+                            cost_center_data['parent_id'] = parent_id
+                        else:
+                            result.warnings.append(f"Fila {row_num}: Centro de costo padre '{parent_code}' no encontrado, se creará sin padre")
+                    
+                    if existing_cost_center:
+                        # Actualizar existente
+                        for key, value in cost_center_data.items():
+                            if key != 'code':  # No actualizar el código
+                                setattr(existing_cost_center, key, value)
+                        
+                        existing_cost_center.updated_at = datetime.utcnow()
+                        await self._calculate_cost_center_properties_safe(existing_cost_center)
+                        result.updated_existing += 1
+                        
+                    else:
+                        # Crear nuevo
+                        cost_center_data['id'] = uuid.uuid4()
+                        cost_center_data['created_at'] = datetime.utcnow()
+                        cost_center_data['updated_at'] = datetime.utcnow()
+                        
+                        new_cost_center = CostCenter(**cost_center_data)
+                        await self._calculate_cost_center_properties_safe(new_cost_center)
+                        
+                        self.db.add(new_cost_center)
+                        result.successfully_imported += 1
+                        result.created_cost_centers.append(new_cost_center.id)
+                
+                except Exception as e:
+                    result.failed_imports.append({
+                        "row": row_num,
+                        "error": str(e),
+                        "data": row
+                    })
+            
+            # Confirmar cambios si hay éxitos
+            if result.successfully_imported > 0 or result.updated_existing > 0:
+                await self.db.commit()
+                result.warnings.append(f"Importación completada: {result.successfully_imported} creados, {result.updated_existing} actualizados")
+            
+        except Exception as e:
+            result.validation_errors.append({
+                "error": f"Error general de importación: {str(e)}"
+            })
+        
+        return result
+    
+    async def export_cost_centers_to_csv(self, is_active: Optional[bool] = None, parent_id: Optional[uuid.UUID] = None) -> str:
+        """Exportar centros de costo a CSV"""
+        import csv
+        import io
+        
+        # Construir consulta
+        query = select(CostCenter).options(joinedload(CostCenter.parent))
+        
+        if is_active is not None:
+            query = query.where(CostCenter.is_active == is_active)
+        
+        if parent_id is not None:
+            query = query.where(CostCenter.parent_id == parent_id)
+        
+        query = query.order_by(CostCenter.code)
+        
+        result = await self.db.execute(query)
+        cost_centers = result.scalars().all()
+        
+        # Crear CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Headers
+        headers = [
+            'code', 'name', 'description', 'parent_code', 'is_active',
+            'allows_direct_assignment', 'manager_name', 'budget_code', 'notes',
+            'full_code', 'level', 'is_leaf', 'created_at', 'updated_at'
+        ]
+        writer.writerow(headers)
+        
+        # Datos
+        for cc in cost_centers:
+            parent_code = cc.parent.code if cc.parent else ''
+            
+            row = [
+                cc.code,
+                cc.name,
+                cc.description or '',
+                parent_code,
+                cc.is_active,
+                cc.allows_direct_assignment,
+                cc.manager_name or '',
+                cc.budget_code or '',
+                cc.notes or '',
+                cc.full_code or '',
+                cc.level or 0,
+                cc.is_leaf,
+                cc.created_at.isoformat() if cc.created_at else '',
+                cc.updated_at.isoformat() if cc.updated_at else ''
+            ]
+            writer.writerow(row)
+        
+        return output.getvalue()
