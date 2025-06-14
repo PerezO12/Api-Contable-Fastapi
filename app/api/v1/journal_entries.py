@@ -37,15 +37,6 @@ from app.schemas.journal_entry import (
     BulkJournalEntryReverse,
     JournalEntryReverseValidation,
     BulkJournalEntryReverseResult,
-    BulkJournalEntryPost,
-    JournalEntryPostValidation,
-    BulkJournalEntryPostResult,
-    BulkJournalEntryCancel,
-    JournalEntryCancelValidation,
-    BulkJournalEntryCancelResult,
-    BulkJournalEntryReverse,
-    JournalEntryReverseValidation,
-    BulkJournalEntryReverseResult,
     BulkJournalEntryDelete,
     BulkJournalEntryDeleteResult,
     JournalEntryDeleteValidation
@@ -169,6 +160,20 @@ async def get_journal_entry(
         journal_entry = await service.get_journal_entry_by_id(journal_entry_id)
         if not journal_entry:
             raise_journal_entry_not_found()
+        
+        # Force load all relationships to avoid lazy loading during serialization
+        _ = len(journal_entry.lines)  # Force load lines
+        for line in journal_entry.lines:
+            if line.account:
+                _ = line.account.code  # Force load account
+                _ = line.account.name  # Force load account name
+            if line.third_party:
+                _ = line.third_party.code  # Force load third party
+                _ = line.third_party.name  # Force load third party name
+            if line.cost_center:
+                _ = line.cost_center.code  # Force load cost center
+                _ = line.cost_center.name  # Force load cost center name
+                
         return JournalEntryDetailResponse.model_validate(journal_entry)
     except JournalEntryNotFoundError:
         raise_journal_entry_not_found()
@@ -610,15 +615,19 @@ async def bulk_approve_journal_entries(
             force_approve=bulk_approve_data.force_approve,
             reason=bulk_approve_data.reason
         )
-        
-        # Si no se procesó ninguna entrada exitosamente, devolver error
+          # Si no se procesó ninguna entrada exitosamente, devolver error
         if result.total_approved == 0 and result.total_requested > 0:
             error_details = []
+            failed_details = []
+            
             for failed_entry in result.failed_entries:
+                failed_details.append(f"Asiento {failed_entry.journal_entry_number}: {'; '.join(failed_entry.errors)}")
                 error_details.extend(failed_entry.errors)
             
+            detailed_message = f"No se pudo aprobar ninguna entrada. Detalles: {' | '.join(failed_details)}"
+            
             if error_details:
-                raise_validation_error(f"No se pudo aprobar ninguna entrada. Errores: {'; '.join(error_details)}")
+                raise_validation_error(detailed_message)
             else:
                 raise_validation_error("No se encontraron entradas válidas para aprobar")
         

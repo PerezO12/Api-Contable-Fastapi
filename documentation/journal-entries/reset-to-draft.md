@@ -292,10 +292,10 @@ response = await client.post(
 ### Ejemplo 2: Validación Previa
 ```python
 # Validar antes de restablecer
-entry_ids = ["id1", "id2", "id3"]
+journal_entry_ids = ["id1", "id2", "id3"]
 validations = await client.post(
     "/api/v1/journal-entries/validate-reset-to-draft",
-    json=entry_ids
+    json=journal_entry_ids
 )
 
 # Procesar solo los que pueden restablecerse

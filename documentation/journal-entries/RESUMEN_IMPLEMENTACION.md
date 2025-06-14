@@ -139,13 +139,13 @@ except Exception:
 # 1. Validar asientos antes de eliminar
 curl -X POST "/api/v1/journal-entries/validate-deletion" \
   -H "Authorization: Bearer <token>" \
-  -d '{"entry_ids": ["uuid1", "uuid2"]}'
+  -d '{"journal_entry_ids": ["uuid1", "uuid2"]}'
 
 # 2. Eliminar con auditoría
 curl -X POST "/api/v1/journal-entries/bulk-delete" \
   -H "Authorization: Bearer <token>" \
   -d '{
-    "entry_ids": ["uuid1", "uuid2"],
+    "journal_entry_ids": ["uuid1", "uuid2"],
     "force_delete": false,
     "reason": "Corrección de errores de digitación"
   }'

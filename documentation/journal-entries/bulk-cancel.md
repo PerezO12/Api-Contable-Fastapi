@@ -54,13 +54,13 @@ CANCELLED ─────X (Ya está cancelado)
 ### 1. Validación Previa de Cancelación Masiva
 
 ```http
-POST /api/v1/journal-entries/bulk/cancel/validate
+POST /api/v1/journal-entries/bulk-cancel/validate
 ```
 
 **Request Body:**
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"],
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"],
   "cancelled_by_id": "user-uuid",
   "reason": "Cancelación por error en proceso de importación"
 }
@@ -110,13 +110,13 @@ POST /api/v1/journal-entries/bulk/cancel/validate
 ### 2. Cancelación Masiva
 
 ```http
-POST /api/v1/journal-entries/bulk/cancel
+POST /api/v1/journal-entries/bulk-cancel
 ```
 
 **Request Body:**
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"],
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"],
   "cancelled_by_id": "user-uuid",
   "reason": "Cancelación por error en proceso de importación",
   "confirm_action": true
@@ -187,7 +187,7 @@ POST /api/v1/journal-entries/bulk/cancel
 
 ### Parámetros Requeridos
 
-- **entry_ids**: Lista de IDs de asientos a cancelar
+- **journal_entry_ids**: Lista de IDs de asientos a cancelar
 - **reason**: Razón obligatoria para la cancelación
 - **confirm_action**: Confirmación explícita de la acción
 

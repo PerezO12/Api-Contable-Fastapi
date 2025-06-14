@@ -48,7 +48,7 @@ class JournalEntryDeleteValidation(BaseModel):
 #### `BulkJournalEntryDelete`
 ```python
 class BulkJournalEntryDelete(BaseModel):
-    entry_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=100)
+    journal_entry_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=100)
     force_delete: bool = False
     reason: Optional[str] = None
 ```
@@ -232,7 +232,7 @@ GET /journal-entries?status=DRAFT&search="error"
 # 2. Validar antes de eliminar
 POST /journal-entries/validate-deletion
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"]
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"]
 }
 
 # 3. Revisar resultados de validación
@@ -243,7 +243,7 @@ POST /journal-entries/validate-deletion
 # 4. Ejecutar eliminación
 POST /journal-entries/bulk-delete
 {
-  "entry_ids": ["uuid1", "uuid3"],  // Solo los válidos
+  "journal_entry_ids": ["uuid1", "uuid3"],  // Solo los válidos
   "force_delete": false,
   "reason": "Corrección de asientos con errores de digitación"
 }

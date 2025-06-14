@@ -9,22 +9,22 @@ Se han implementado cinco operaciones masivas principales para asientos contable
 ### 1. Aprobación Masiva (Bulk Approve)
 - **Estados origen**: DRAFT, PENDING
 - **Estado destino**: APPROVED
-- **Endpoint validación**: `POST /api/v1/journal-entries/bulk/approve/validate`
-- **Endpoint ejecución**: `POST /api/v1/journal-entries/bulk/approve`
+- **Endpoint validación**: `POST /api/v1/journal-entries/bulk-approve/validate`
+- **Endpoint ejecución**: `POST /api/v1/journal-entries/bulk-approve`
 - **Impacto**: Cambio de estado, sin afectar saldos
 
 ### 2. Contabilización Masiva (Bulk Post)
 - **Estados origen**: APPROVED
 - **Estado destino**: POSTED
-- **Endpoint validación**: `POST /api/v1/journal-entries/bulk/post/validate`
-- **Endpoint ejecución**: `POST /api/v1/journal-entries/bulk/post`
+- **Endpoint validación**: `POST /api/v1/journal-entries/bulk-post/validate`
+- **Endpoint ejecución**: `POST /api/v1/journal-entries/bulk-post`
 - **Impacto**: Cambio de estado + actualización de saldos de cuentas
 
 ### 3. Cancelación Masiva (Bulk Cancel)
 - **Estados origen**: DRAFT, PENDING, APPROVED
 - **Estado destino**: CANCELLED
-- **Endpoint validación**: `POST /api/v1/journal-entries/bulk/cancel/validate`
-- **Endpoint ejecución**: `POST /api/v1/journal-entries/bulk/cancel`
+- **Endpoint validación**: `POST /api/v1/journal-entries/bulk-cancel/validate`
+- **Endpoint ejecución**: `POST /api/v1/journal-entries/bulk-cancel`
 - **Impacto**: Cambio de estado, sin afectar saldos
 
 ### 4. Reversión Masiva (Bulk Reverse)
@@ -109,7 +109,7 @@ class JournalEntry{Operation}Validation(BaseModel):
 
 # Request masivo
 class BulkJournalEntry{Operation}(BaseModel):
-    entry_ids: List[uuid.UUID] = Field(..., min_items=1, max_items=100)
+    journal_entry_ids: List[uuid.UUID] = Field(..., min_items=1, max_items=100)
     {operation}_by_id: Optional[uuid.UUID] = None
     reason: str = Field(..., min_length=10, max_length=500)
     force_{operation}: bool = False
@@ -265,7 +265,7 @@ Todos los endpoints incluyen:
 entries = await db.execute(
     select(JournalEntry)
     .options(selectinload(JournalEntry.lines))
-    .where(JournalEntry.id.in_(entry_ids))
+    .where(JournalEntry.id.in_(journal_entry_ids))
 )
 ```
 
@@ -312,7 +312,7 @@ logger.info(
     extra={
         "operation_id": operation_id,
         "user_id": user.id,
-        "entry_count": len(entry_ids),
+        "entry_count": len(journal_entry_ids),
         "operation": operation
     }
 )

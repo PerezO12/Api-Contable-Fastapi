@@ -150,7 +150,7 @@ POST /journal-entries/bulk-operation
 # 1. Validar asientos antes de eliminar
 curl -X POST "/api/v1/journal-entries/validate-deletion" \
   -H "Authorization: Bearer <token>" \
-  -d '{"entry_ids": ["uuid1", "uuid2", "uuid3"]}'
+  -d '{"journal_entry_ids": ["uuid1", "uuid2", "uuid3"]}'
 
 # 2. Revisar respuesta y decidir
 {
@@ -165,7 +165,7 @@ curl -X POST "/api/v1/journal-entries/validate-deletion" \
 curl -X POST "/api/v1/journal-entries/bulk-delete" \
   -H "Authorization: Bearer <token>" \
   -d '{
-    "entry_ids": ["uuid1", "uuid3"],
+    "journal_entry_ids": ["uuid1", "uuid3"],
     "force_delete": true,
     "reason": "Corrección de errores detectados en revisión contable"
   }'

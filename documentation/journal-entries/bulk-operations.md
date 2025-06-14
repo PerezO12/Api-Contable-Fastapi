@@ -30,8 +30,8 @@ Las operaciones masivas permiten ejecutar acciones sobre múltiples asientos con
 
 #### Endpoint
 ```
-POST /api/v1/journal-entries/bulk/approve
-POST /api/v1/journal-entries/bulk/approve/validate
+POST /api/v1/journal-entries/bulk-approve
+POST /api/v1/journal-entries/bulk-approve/validate
 ```
 
 #### Descripción
@@ -46,7 +46,7 @@ Permite aprobar múltiples asientos contables simultáneamente.
 #### Parámetros de Entrada
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"],
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"],
   "approved_by_id": "user-uuid",
   "force_approve": false,
   "reason": "Aprobación masiva del cierre mensual"
@@ -90,8 +90,8 @@ Permite aprobar múltiples asientos contables simultáneamente.
 
 #### Endpoint
 ```
-POST /api/v1/journal-entries/bulk/post
-POST /api/v1/journal-entries/bulk/post/validate
+POST /api/v1/journal-entries/bulk-post
+POST /api/v1/journal-entries/bulk-post/validate
 ```
 
 #### Descripción
@@ -106,7 +106,7 @@ Permite contabilizar múltiples asientos aprobados, afectando los saldos de las 
 #### Parámetros de Entrada
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "posted_by_id": "user-uuid",
   "force_post": false,
   "reason": "Contabilización masiva del período"
@@ -117,8 +117,8 @@ Permite contabilizar múltiples asientos aprobados, afectando los saldos de las 
 
 #### Endpoint
 ```
-POST /api/v1/journal-entries/bulk/cancel
-POST /api/v1/journal-entries/bulk/cancel/validate
+POST /api/v1/journal-entries/bulk-cancel
+POST /api/v1/journal-entries/bulk-cancel/validate
 ```
 
 #### Descripción
@@ -132,7 +132,7 @@ Permite cancelar múltiples asientos contables simultáneamente.
 #### Parámetros de Entrada
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "cancelled_by_id": "user-uuid",
   "reason": "Cancelación por error en el período"
 }
@@ -157,7 +157,7 @@ Permite revertir múltiples asientos contabilizados, creando asientos de reversi
 #### Parámetros de Entrada
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "reversed_by_id": "user-uuid",
   "reversal_date": "2024-01-15",
   "reason": "Reversión por corrección contable"
@@ -231,7 +231,7 @@ Permite eliminar múltiples asientos contables simultáneamente.
 ```json
 {
   "operation": "bulk_approve",
-  "entry_ids": ["uuid1", "uuid2", ...],
+  "journal_entry_ids": ["uuid1", "uuid2", ...],
   "approved_by_id": "supervisor-uuid",
   "reason": "Aprobación del cierre mensual de enero 2024"
 }
@@ -241,7 +241,7 @@ Permite eliminar múltiples asientos contables simultáneamente.
 ```json
 {
   "operation": "bulk_reset_to_draft",
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "reset_by_id": "accountant-uuid",
   "reason": "Corrección de cuentas contables incorrectas"
 }
@@ -251,7 +251,7 @@ Permite eliminar múltiples asientos contables simultáneamente.
 ```json
 {
   "operation": "bulk_reverse",
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "reversed_by_id": "supervisor-uuid",
   "reversal_date": "2024-01-31",
   "reason": "Reversión del cierre por ajustes adicionales"

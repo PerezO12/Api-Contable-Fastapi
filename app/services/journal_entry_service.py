@@ -299,6 +299,15 @@ class JournalEntryService:
         # Ensure lines are loaded to avoid lazy loading issues
         _ = len(journal_entry.lines)  # Force load the relationship
         
+        # Force load account relationships in lines to avoid lazy loading during validation
+        for line in journal_entry.lines:
+            if line.account:
+                _ = line.account.code  # Force load account properties
+                _ = line.account.name
+                _ = line.account.can_receive_movements
+                _ = line.account.requires_third_party
+                _ = line.account.requires_cost_center
+        
         errors = []
         
         # Validar que tenga al menos 2 líneas
@@ -348,6 +357,15 @@ class JournalEntryService:
         
         # Ensure lines are loaded to avoid lazy loading issues
         _ = len(journal_entry.lines)  # Force load the relationship
+        
+        # Force load account relationships in lines to avoid lazy loading during validation
+        for line in journal_entry.lines:
+            if line.account:
+                _ = line.account.code  # Force load account properties
+                _ = line.account.name
+                _ = line.account.can_receive_movements
+                _ = line.account.requires_third_party
+                _ = line.account.requires_cost_center
         
         # Verificar si puede ser contabilizado (reemplazando can_be_posted para evitar lazy loading)
         if journal_entry.status != JournalEntryStatus.APPROVED:
@@ -926,19 +944,20 @@ class JournalEntryService:
         if not journal_entry:
             raise JournalEntryError("Asiento no encontrado")
         
+        # COMENTADO: Permitir restablecer cualquier transacción sin importar el estado
         # Manual check to avoid sync property in async context
-        if journal_entry.status not in [JournalEntryStatus.APPROVED, JournalEntryStatus.PENDING]:
-            raise JournalEntryError(
-                f"El asiento no puede ser restablecido a borrador desde el estado {journal_entry.status}. "
-                f"Solo se pueden restablecer asientos aprobados o pendientes."
-            )
+        # if journal_entry.status not in [JournalEntryStatus.APPROVED, JournalEntryStatus.PENDING]:
+        #     raise JournalEntryError(
+        #         f"El asiento no puede ser restablecido a borrador desde el estado {journal_entry.status}. "
+        #         f"Solo se pueden restablecer asientos aprobados o pendientes."
+        #     )
         
-        # Validaciones adicionales de negocio
-        if journal_entry.status == JournalEntryStatus.POSTED:
-            raise JournalEntryError("No se puede restablecer a borrador un asiento contabilizado")
+        # COMENTADO: Validaciones adicionales de negocio
+        # if journal_entry.status == JournalEntryStatus.POSTED:
+        #     raise JournalEntryError("No se puede restablecer a borrador un asiento contabilizado")
         
-        if journal_entry.status == JournalEntryStatus.CANCELLED:
-            raise JournalEntryError("No se puede restablecer a borrador un asiento cancelado")
+        # if journal_entry.status == JournalEntryStatus.CANCELLED:
+        #     raise JournalEntryError("No se puede restablecer a borrador un asiento cancelado")
         
         # Verificar permisos especiales si es necesario
         # Por ejemplo, si el asiento es de apertura o cierre
@@ -1197,6 +1216,16 @@ class JournalEntryService:
         # Validaciones de integridad del asiento
         # Ensure lines are loaded to avoid lazy loading issues
         _ = len(journal_entry.lines)  # Force load the relationship
+        
+        # Force load account relationships in lines to avoid lazy loading during validation
+        for line in journal_entry.lines:
+            if line.account:
+                _ = line.account.code  # Force load account properties
+                _ = line.account.name
+                _ = line.account.can_receive_movements
+                _ = line.account.requires_third_party
+                _ = line.account.requires_cost_center
+        
         entry_errors = journal_entry.validate_entry()
         if entry_errors:
             errors.extend([f"Error de validación: {error}" for error in entry_errors])

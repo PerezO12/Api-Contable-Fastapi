@@ -61,13 +61,13 @@ CANCELLED ────X (No se puede contabilizar)
 ### 1. Validación Previa de Contabilización Masiva
 
 ```http
-POST /api/v1/journal-entries/bulk/post/validate
+POST /api/v1/journal-entries/bulk-post/validate
 ```
 
 **Request Body:**
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"],
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"],
   "posted_by_id": "user-uuid",
   "force_post": false,
   "reason": "Contabilización masiva del cierre mensual"
@@ -133,13 +133,13 @@ POST /api/v1/journal-entries/bulk/post/validate
 ### 2. Contabilización Masiva
 
 ```http
-POST /api/v1/journal-entries/bulk/post
+POST /api/v1/journal-entries/bulk-post
 ```
 
 **Request Body:**
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"],
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"],
   "posted_by_id": "user-uuid",
   "force_post": false,
   "reason": "Contabilización masiva del cierre mensual",
@@ -311,7 +311,7 @@ La contabilización masiva actualiza automáticamente:
 
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "posted_by_id": "system-uuid",
   "schedule_for": "2024-01-31T23:55:00Z",
   "reason": "Contabilización automática de cierre",
@@ -323,7 +323,7 @@ La contabilización masiva actualiza automáticamente:
 
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "posted_by_id": "supervisor-uuid",
   "conditions": {
     "max_total_amount": 100000,

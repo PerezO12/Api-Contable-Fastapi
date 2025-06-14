@@ -69,7 +69,7 @@ POST /api/v1/journal-entries/bulk/reverse/validate
 **Request Body:**
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"],
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"],
   "reversed_by_id": "user-uuid",
   "reversal_date": "2024-01-31",
   "reason": "Reversión por corrección contable solicitada por auditoría"
@@ -152,7 +152,7 @@ POST /api/v1/journal-entries/bulk/reverse
 **Request Body:**
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"],
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"],
   "reversed_by_id": "user-uuid",
   "reversal_date": "2024-01-31",
   "reason": "Reversión por corrección contable solicitada por auditoría",
@@ -266,7 +266,7 @@ POST /api/v1/journal-entries/bulk/reverse
 
 ### Parámetros Requeridos
 
-- **entry_ids**: Lista de IDs de asientos a revertir
+- **journal_entry_ids**: Lista de IDs de asientos a revertir
 - **reversal_date**: Fecha para los asientos de reversión
 - **reason**: Razón detallada para la reversión
 
@@ -369,7 +369,7 @@ POST /api/v1/journal-entries/bulk/reverse
 
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "reversed_by_id": "system-uuid",
   "reversal_date": "2024-01-31",
   "schedule_for": "2024-01-31T23:55:00Z",
@@ -381,7 +381,7 @@ POST /api/v1/journal-entries/bulk/reverse
 
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "reversed_by_id": "supervisor-uuid",
   "reversal_date": "2024-01-31",
   "conditions": {

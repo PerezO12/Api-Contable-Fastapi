@@ -54,13 +54,13 @@ CANCELLED ────X (No se puede aprobar)
 ### 1. Validación Previa de Aprobación Masiva
 
 ```http
-POST /api/v1/journal-entries/bulk/approve/validate
+POST /api/v1/journal-entries/bulk-approve/validate
 ```
 
 **Request Body:**
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"],
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"],
   "approved_by_id": "user-uuid",
   "force_approve": false,
   "reason": "Aprobación masiva del cierre mensual de enero"
@@ -111,13 +111,13 @@ POST /api/v1/journal-entries/bulk/approve/validate
 ### 2. Aprobación Masiva
 
 ```http
-POST /api/v1/journal-entries/bulk/approve
+POST /api/v1/journal-entries/bulk-approve
 ```
 
 **Request Body:**
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2", "uuid3"],
+  "journal_entry_ids": ["uuid1", "uuid2", "uuid3"],
   "approved_by_id": "user-uuid",
   "force_approve": false,
   "reason": "Aprobación masiva del cierre mensual de enero"
@@ -255,7 +255,7 @@ POST /api/v1/journal-entries/bulk/approve
 
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "approved_by_id": "supervisor-uuid",
   "force_approve": false,
   "conditions": {
@@ -270,7 +270,7 @@ POST /api/v1/journal-entries/bulk/approve
 
 ```json
 {
-  "entry_ids": ["uuid1", "uuid2"],
+  "journal_entry_ids": ["uuid1", "uuid2"],
   "approved_by_id": "system-uuid",
   "schedule_for": "2024-01-31T23:59:59Z",
   "reason": "Aprobación automática de cierre"

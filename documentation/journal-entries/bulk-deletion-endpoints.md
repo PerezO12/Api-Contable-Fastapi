@@ -10,7 +10,7 @@ Valida múltiples asientos contables para eliminación sin realizar la eliminaci
 ### Request
 ```json
 {
-  "entry_ids": [
+  "journal_entry_ids": [
     "12345678-1234-1234-1234-123456789012",
     "87654321-4321-4321-4321-210987654321"
   ]
@@ -57,7 +57,7 @@ Elimina múltiples asientos contables en una sola operación.
 ### Request
 ```json
 {
-  "entry_ids": [
+  "journal_entry_ids": [
     "12345678-1234-1234-1234-123456789012",
     "87654321-4321-4321-4321-210987654321"
   ],
@@ -67,7 +67,7 @@ Elimina múltiples asientos contables en una sola operación.
 ```
 
 ### Parámetros
-- `entry_ids`: Array de UUIDs de asientos a eliminar (requerido, mínimo 1)
+- `journal_entry_ids`: Array de UUIDs de asientos a eliminar (requerido, mínimo 1)
 - `force_delete`: Booleano para forzar eliminación a pesar de advertencias (opcional, default: false)
 - `reason`: Motivo de la eliminación para auditoría (opcional)
 
@@ -124,7 +124,7 @@ Endpoint unificado para operaciones masivas en asientos contables.
 ```json
 {
   "operation": "delete",
-  "entry_ids": [
+  "journal_entry_ids": [
     "12345678-1234-1234-1234-123456789012",
     "87654321-4321-4321-4321-210987654321"
   ],
@@ -139,7 +139,7 @@ Endpoint unificado para operaciones masivas en asientos contables.
 ```json
 {
   "operation": "approve",
-  "entry_ids": [
+  "journal_entry_ids": [
     "12345678-1234-1234-1234-123456789012"
   ],
   "operation_data": {
@@ -152,7 +152,7 @@ Endpoint unificado para operaciones masivas en asientos contables.
 ```json
 {
   "operation": "cancel",
-  "entry_ids": [
+  "journal_entry_ids": [
     "12345678-1234-1234-1234-123456789012"
   ],
   "operation_data": {
@@ -245,7 +245,7 @@ curl -X POST "http://api.ejemplo.com/api/v1/journal-entries/validate-deletion" \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "entry_ids": ["uuid1", "uuid2", "uuid3"]
+    "journal_entry_ids": ["uuid1", "uuid2", "uuid3"]
   }'
 
 # 2. Eliminar solo los asientos válidos
@@ -253,7 +253,7 @@ curl -X POST "http://api.ejemplo.com/api/v1/journal-entries/bulk-delete" \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "entry_ids": ["uuid1", "uuid3"],
+    "journal_entry_ids": ["uuid1", "uuid3"],
     "force_delete": false,
     "reason": "Corrección de errores detectados en revisión"
   }'
@@ -266,7 +266,7 @@ curl -X POST "http://api.ejemplo.com/api/v1/journal-entries/bulk-delete" \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "entry_ids": ["uuid-with-warnings"],
+    "journal_entry_ids": ["uuid-with-warnings"],
     "force_delete": true,
     "reason": "Aprobado por supervisor - eliminación de asiento de cierre erróneo"
   }'
@@ -280,7 +280,7 @@ curl -X POST "http://api.ejemplo.com/api/v1/journal-entries/bulk-operation" \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "delete",
-    "entry_ids": ["uuid1", "uuid2"],
+    "journal_entry_ids": ["uuid1", "uuid2"],
     "operation_data": {
       "force_delete": true,
       "reason": "Operación masiva autorizada"

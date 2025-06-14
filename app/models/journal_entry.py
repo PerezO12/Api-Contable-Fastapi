@@ -169,22 +169,29 @@ class JournalEntry(Base):
         return True
 
     def reset_to_draft(self, reset_by_user_id: uuid.UUID) -> bool:
-        """Restablece el asiento a borrador desde approved o pending"""
-        if self.status not in [JournalEntryStatus.APPROVED, JournalEntryStatus.PENDING]:
-            raise ValueError("Solo se pueden restablecer asientos desde estado aprobado o pendiente")
+        """Restablece el asiento a borrador desde cualquier estado"""
+        # COMENTADO: Permitir restablecer desde cualquier estado
+        # if self.status not in [JournalEntryStatus.APPROVED, JournalEntryStatus.PENDING]:
+        #     raise ValueError("Solo se pueden restablecer asientos desde estado aprobado o pendiente")
         
-        # Verificar que no esté contabilizado
-        if self.status == JournalEntryStatus.POSTED:
-            raise ValueError("No se puede restablecer a borrador un asiento contabilizado")
+        # COMENTADO: Verificar que no esté contabilizado
+        # if self.status == JournalEntryStatus.POSTED:
+        #     raise ValueError("No se puede restablecer a borrador un asiento contabilizado")
         
-        # Verificar que no esté cancelado
-        if self.status == JournalEntryStatus.CANCELLED:
-            raise ValueError("No se puede restablecer a borrador un asiento cancelado")
+        # COMENTADO: Verificar que no esté cancelado
+        # if self.status == JournalEntryStatus.CANCELLED:
+        #     raise ValueError("No se puede restablecer a borrador un asiento cancelado")
         
         # Limpiar campos de aprobación
         self.status = JournalEntryStatus.DRAFT
         self.approved_by_id = None
         self.approved_at = None
+        
+        # Si estaba contabilizado, limpiar también esos campos
+        if hasattr(self, 'posted_by_id'):
+            self.posted_by_id = None
+        if hasattr(self, 'posted_at'):
+            self.posted_at = None
         
         # Agregar nota del restablecimiento
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -232,8 +239,7 @@ class JournalEntryLine(Base):
     journal_entry: Mapped["JournalEntry"] = relationship("JournalEntry", back_populates="lines")
     account: Mapped["Account"] = relationship("Account")
     third_party: Mapped[Optional["ThirdParty"]] = relationship("ThirdParty", lazy="select")
-    cost_center: Mapped[Optional["CostCenter"]] = relationship("CostCenter", lazy="select")
-
+    cost_center: Mapped[Optional["CostCenter"]] = relationship("CostCenter", lazy="select")    
     def __repr__(self) -> str:
         return f"<JournalEntryLine(account='{self.account.code}', debit={self.debit_amount}, credit={self.credit_amount})>"
 
@@ -246,6 +252,36 @@ class JournalEntryLine(Base):
     def movement_type(self) -> str:
         """Retorna el tipo de movimiento (debit/credit)"""
         return "debit" if self.debit_amount > 0 else "credit"
+
+    @property
+    def account_code(self) -> Optional[str]:
+        """Retorna el código de la cuenta"""
+        return self.account.code if self.account else None
+
+    @property
+    def account_name(self) -> Optional[str]:
+        """Retorna el nombre de la cuenta"""
+        return self.account.name if self.account else None
+
+    @property
+    def third_party_code(self) -> Optional[str]:
+        """Retorna el código del tercero"""
+        return self.third_party.code if self.third_party else None
+
+    @property
+    def third_party_name(self) -> Optional[str]:
+        """Retorna el nombre del tercero"""
+        return self.third_party.name if self.third_party else None
+
+    @property
+    def cost_center_code(self) -> Optional[str]:
+        """Retorna el código del centro de costo"""
+        return self.cost_center.code if self.cost_center else None
+
+    @property
+    def cost_center_name(self) -> Optional[str]:
+        """Retorna el nombre del centro de costo"""
+        return self.cost_center.name if self.cost_center else None
 
     @property
     def is_valid(self) -> bool:
