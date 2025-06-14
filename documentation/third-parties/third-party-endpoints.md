@@ -77,6 +77,7 @@ GET /api/v1/third-parties?type=CLIENTE&is_active=true&has_balance=true&limit=50
       "credit_limit": 500000.00,
       "discount_percentage": 5.0,
       "is_active": true,
+      "status": "active",
       "created_at": "2024-01-15T10:30:00Z",
       "updated_at": "2024-01-15T10:30:00Z",
       "current_balance": 150000.00,
@@ -136,6 +137,7 @@ Crear nuevo tercero con validaciones automáticas.
   "credit_limit": 750000.00,
   "discount_percentage": 3.0,
   "is_active": true,
+  "status": "active",
   "created_at": "2024-12-11T10:30:00Z",
   "updated_at": "2024-12-11T10:30:00Z",
   "current_balance": 0.00,
@@ -226,9 +228,22 @@ Actualizar tercero existente.
 ### **DELETE** `/api/v1/third-parties/{id}`
 Desactivar tercero (soft delete).
 
+**⚠️ Restricción:** No se puede eliminar un tercero que tenga asientos contables asociados. El sistema validará esta condición antes de proceder con la eliminación.
+
+#### Parámetros de Ruta
+- `id` (UUID): ID único del tercero a eliminar
+
 #### Respuesta Exitosa (204)
 ```
 No Content
+```
+
+#### Errores Posibles
+```json
+{
+  "detail": "Cannot delete third party with existing journal entries",
+  "error_code": "BUSINESS_LOGIC_ERROR"
+}
 ```
 
 ---
@@ -265,6 +280,7 @@ GET /api/v1/third-parties/search?q=cliente&type=CLIENTE&limit=5
       "business_name": "Empresa Cliente S.A.",
       "commercial_name": "Cliente Corp",
       "email": "contacto@cliente.com",
+      "status": "active",
       "current_balance": 150000.00,
       "match_score": 0.95
     }
@@ -410,7 +426,9 @@ interface BalanceParams {
 ### **POST** `/api/v1/third-parties/bulk-operations`
 Operaciones masivas sobre múltiples terceros.
 
-#### Cuerpo de la Solicitud
+#### Operaciones Disponibles
+
+##### Actualización Masiva (update)
 ```json
 {
   "operation": "update",
@@ -421,6 +439,20 @@ Operaciones masivas sobre múltiples terceros.
   "updates": {
     "discount_percentage": 7.0,
     "payment_terms": 45
+  }
+}
+```
+
+##### Eliminación Masiva (delete)
+**⚠️ Restricción:** Los terceros que tengan asientos contables asociados no serán eliminados y se reportarán como errores.
+
+```json
+{
+  "operation": "delete",
+  "filters": {
+    "type": "PROVEEDOR",
+    "is_active": false,
+    "created_before": "2024-01-01"
   }
 }
 ```
@@ -441,7 +473,7 @@ Operaciones masivas sobre múltiples terceros.
     {
       "third_party_id": "456e7890-e89b-12d3-a456-426614174000",
       "status": "error",
-      "message": "Tercero inactivo, no se puede actualizar"
+      "message": "Cannot delete third party with existing journal entries"
     }
   ],
   "execution_time": "2.5s"
@@ -669,6 +701,25 @@ Reporte consolidado de antigüedad de saldos.
   "detail": "Ya existe un tercero con documento '12345678-9'"
 }
 ```
+
+---
+
+## Notas Importantes
+
+### Campo `status`
+- Todos los endpoints que devuelven información de terceros incluyen el campo `status` calculado basado en `is_active`:
+  - `"active"`: Cuando `is_active = true`
+  - `"inactive"`: Cuando `is_active = false`
+
+### Restricciones de Eliminación
+- **Eliminación Individual**: No se puede eliminar un tercero que tenga asientos contables asociados
+- **Eliminación Masiva**: Los terceros con asientos contables asociados se omitirán y se reportarán como errores
+- En ambos casos se devuelve el mensaje: "Cannot delete third party with existing journal entries"
+
+### Validaciones de Integridad
+- El sistema verifica automáticamente la existencia de asientos contables antes de proceder con cualquier eliminación
+- Esta validación aplica tanto para eliminaciones individuales como masivas
+- Los terceros que no cumplan la validación no serán eliminados y se incluirán en el reporte de errores
 
 ---
 

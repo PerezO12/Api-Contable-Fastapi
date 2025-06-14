@@ -19,7 +19,8 @@ from app.schemas.third_party import (
     ThirdPartyCreate, ThirdPartyUpdate, ThirdPartySummary, ThirdPartyList,
     ThirdPartyFilter, ThirdPartyStatement, ThirdPartyMovement, ThirdPartyBalance,
     ThirdPartyAging, ThirdPartyValidation, BulkThirdPartyOperation, ThirdPartyStats,
-    ThirdPartyImport, ThirdPartyRead
+    ThirdPartyImport, ThirdPartyRead, BulkThirdPartyDelete, BulkThirdPartyDeleteResult,
+    ThirdPartyDeleteValidation
 )
 from app.utils.exceptions import (
     ValidationError, NotFoundError, ConflictError, BusinessLogicError
@@ -595,3 +596,153 @@ class ThirdPartyService:
                 })
         
         return results
+
+    async def validate_third_party_for_deletion(self, third_party_id: uuid.UUID) -> 'ThirdPartyDeleteValidation':
+        """Validar si un tercero puede ser eliminado"""
+        from app.schemas.third_party import ThirdPartyDeleteValidation
+        
+        third_party = await self.get_third_party_by_id(third_party_id)
+        if not third_party:
+            return ThirdPartyDeleteValidation(
+                third_party_id=third_party_id,
+                can_delete=False,
+                blocking_reasons=["Tercero no encontrado"],
+                warnings=[],
+                dependencies={}
+            )
+        
+        blocking_reasons = []
+        warnings = []
+        dependencies = {}
+          # Verificar que no tenga asientos contables
+        journal_entries_result = await self.db.execute(
+            select(func.count(JournalEntryLine.id))
+            .where(JournalEntryLine.third_party_id == third_party_id)
+        )
+        journal_entries_count = journal_entries_result.scalar() or 0
+        
+        if journal_entries_count > 0:
+            blocking_reasons.append(f"El tercero tiene {journal_entries_count} asientos contables asociados")
+            dependencies["journal_entries_count"] = journal_entries_count
+        
+        # Advertencias - Calcular saldo actual
+        balance_query = (
+            select(
+                func.coalesce(func.sum(JournalEntryLine.debit_amount), 0) -
+                func.coalesce(func.sum(JournalEntryLine.credit_amount), 0)
+            )
+            .where(JournalEntryLine.third_party_id == third_party_id)
+        )
+        
+        balance_result = await self.db.execute(balance_query)
+        current_balance = balance_result.scalar() or Decimal('0')
+        
+        if current_balance != 0:
+            warnings.append(f"El tercero tiene un saldo pendiente de {current_balance}")
+            dependencies["current_balance"] = str(current_balance)
+        
+        if not third_party.is_active:
+            warnings.append("El tercero ya está inactivo")
+        
+        # Verificar si tiene transacciones recientes (últimos 30 días)
+        recent_transactions_result = await self.db.execute(
+            select(func.count(JournalEntryLine.id))
+            .where(
+                and_(
+                    JournalEntryLine.third_party_id == third_party_id,
+                    JournalEntryLine.created_at >= datetime.now().date().replace(day=1)  # Este mes
+                )
+            )
+        )
+        recent_transactions_count = recent_transactions_result.scalar() or 0
+        
+        if recent_transactions_count > 0:
+            warnings.append(f"El tercero tiene {recent_transactions_count} transacciones este mes")
+            dependencies["recent_transactions_count"] = recent_transactions_count
+        
+        can_delete = len(blocking_reasons) == 0
+        
+        return ThirdPartyDeleteValidation(
+            third_party_id=third_party_id,
+            can_delete=can_delete,
+            blocking_reasons=blocking_reasons,
+            warnings=warnings,
+            dependencies=dependencies
+        )
+    
+    async def bulk_delete_third_parties(self, delete_request: 'BulkThirdPartyDelete') -> 'BulkThirdPartyDeleteResult':
+        """Borrar múltiples terceros con validaciones exhaustivas"""
+        from app.schemas.third_party import BulkThirdPartyDeleteResult
+        
+        result = BulkThirdPartyDeleteResult(
+            total_requested=len(delete_request.third_party_ids),
+            successfully_deleted=[],
+            failed_to_delete=[],
+            validation_errors=[],
+            warnings=[]
+        )
+        
+        # Validar primero todos los terceros
+        validations = {}
+        for third_party_id in delete_request.third_party_ids:
+            validation = await self.validate_third_party_for_deletion(third_party_id)
+            validations[third_party_id] = validation
+            
+            if not validation.can_delete and not delete_request.force_delete:
+                result.failed_to_delete.append({
+                    "third_party_id": str(third_party_id),
+                    "reason": "; ".join(validation.blocking_reasons),
+                    "details": validation.dependencies
+                })
+            elif validation.warnings:
+                result.warnings.extend([
+                    f"Tercero {third_party_id}: {warning}" for warning in validation.warnings
+                ])
+        
+        # Si force_delete es False y hay errores, no proceder
+        if not delete_request.force_delete and result.failed_to_delete:
+            result.validation_errors.append({
+                "error": "Hay terceros que no pueden eliminarse. Use force_delete=true para intentar forzar la eliminación."
+            })
+            return result
+        
+        # Proceder con la eliminación
+        third_parties_to_delete = []
+        for third_party_id in delete_request.third_party_ids:
+            validation = validations[third_party_id]
+            
+            if validation.can_delete:
+                third_parties_to_delete.append(third_party_id)
+            elif delete_request.force_delete:
+                # Con force_delete, solo proceder si no hay asientos contables críticos
+                has_critical_blocks = any(
+                    "asientos contables" in reason for reason in validation.blocking_reasons
+                )
+                if not has_critical_blocks:
+                    third_parties_to_delete.append(third_party_id)
+                else:
+                    result.failed_to_delete.append({
+                        "third_party_id": str(third_party_id),
+                        "reason": "No se puede forzar la eliminación: " + "; ".join(validation.blocking_reasons),
+                        "details": validation.dependencies
+                    })
+        
+        # Eliminar los terceros validados
+        for third_party_id in third_parties_to_delete:
+            try:
+                await self.delete_third_party(third_party_id)
+                result.successfully_deleted.append(third_party_id)
+                await self.db.commit()
+            except Exception as e:
+                await self.db.rollback()
+                result.failed_to_delete.append({
+                    "third_party_id": str(third_party_id),
+                    "reason": str(e),
+                    "details": {}
+                })
+        
+        # Añadir información sobre la razón de eliminación si se proporcionó
+        if delete_request.delete_reason and result.successfully_deleted:
+            result.warnings.append(f"Razón de eliminación: {delete_request.delete_reason}")
+        
+        return result

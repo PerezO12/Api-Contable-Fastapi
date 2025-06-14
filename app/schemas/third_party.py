@@ -183,8 +183,14 @@ class ThirdPartySummary(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     is_active: bool
+    status: Optional[str] = None  # "active" or "inactive"
     
     model_config = ConfigDict(from_attributes=True)
+    
+    def model_post_init(self, __context):
+        """Set computed status field after initialization"""
+        if hasattr(self, 'is_active'):
+            self.status = "active" if self.is_active else "inactive"
 
 
 class ThirdPartyList(BaseModel):
@@ -343,7 +349,55 @@ class ThirdPartyDetailResponse(ThirdPartyRead):
 
 class ThirdPartyListResponse(BaseModel):
     """Paginated list response"""
-    items: List[ThirdPartyResponse]
+    items: List[ThirdPartySummary]
     total: int
     skip: int
     limit: int
+
+
+# Bulk operations schemas
+class BulkThirdPartyDelete(BaseModel):
+    """Schema específico para borrado múltiple de terceros"""
+    third_party_ids: List[uuid.UUID] = Field(min_length=1, max_length=100, description="Lista de IDs de terceros a eliminar")
+    force_delete: bool = Field(default=False, description="Forzar eliminación aunque tengan restricciones")
+    delete_reason: Optional[str] = Field(default=None, max_length=500, description="Razón para la eliminación")
+    
+    @field_validator('third_party_ids')
+    @classmethod
+    def validate_unique_ids(cls, v):
+        """Validar que no haya IDs duplicados"""
+        if len(v) != len(set(v)):
+            raise ValueError("No se permiten IDs de terceros duplicados")
+        return v
+
+
+class BulkThirdPartyDeleteResult(BaseModel):
+    """Schema para el resultado del borrado múltiple"""
+    total_requested: int = Field(description="Total de terceros solicitados para eliminar")
+    successfully_deleted: List[uuid.UUID] = Field(default_factory=list, description="Terceros eliminados exitosamente")
+    failed_to_delete: List[dict] = Field(default_factory=list, description="Terceros que no pudieron eliminarse")
+    validation_errors: List[dict] = Field(default_factory=list, description="Errores de validación")
+    warnings: List[str] = Field(default_factory=list, description="Advertencias del proceso")
+    
+    @property
+    def success_count(self) -> int:
+        return len(self.successfully_deleted)
+    
+    @property
+    def failure_count(self) -> int:
+        return len(self.failed_to_delete)
+    
+    @property
+    def success_rate(self) -> float:
+        if self.total_requested == 0:
+            return 0.0
+        return (self.success_count / self.total_requested) * 100
+
+
+class ThirdPartyDeleteValidation(BaseModel):
+    """Schema para validación previa al borrado"""
+    third_party_id: uuid.UUID
+    can_delete: bool
+    blocking_reasons: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    dependencies: dict = Field(default_factory=dict)  # Información sobre dependencias

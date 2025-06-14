@@ -14,7 +14,8 @@ from app.models.third_party import ThirdPartyType, DocumentType
 from app.schemas.third_party import (
     ThirdPartyCreate, ThirdPartyUpdate, ThirdPartyResponse, ThirdPartyDetailResponse,
     ThirdPartyListResponse, ThirdPartyList, ThirdPartyFilter, ThirdPartyStatement,
-    ThirdPartyBalance, ThirdPartyValidation, BulkThirdPartyOperation, ThirdPartyStats
+    ThirdPartyBalance, ThirdPartyValidation, BulkThirdPartyOperation, ThirdPartyStats,
+    BulkThirdPartyDelete, BulkThirdPartyDeleteResult, ThirdPartyDeleteValidation
 )
 from app.services.third_party_service import ThirdPartyService
 from app.utils.exceptions import (
@@ -76,8 +77,7 @@ async def get_third_parties(
     filter_params = ThirdPartyFilter(
         search=search,
         third_party_type=third_party_type,
-        document_type=document_type,
-        is_active=is_active,
+        document_type=document_type,        is_active=is_active,
         city=city,
         country=country
     )
@@ -86,7 +86,7 @@ async def get_third_parties(
     third_parties_list = await service.get_third_parties_list(filter_params, skip, limit)
     
     return ThirdPartyListResponse(
-        items=[ThirdPartyResponse.model_validate(tp) for tp in third_parties_list.third_parties],
+        items=third_parties_list.third_parties,
         total=third_parties_list.total,
         skip=skip,
         limit=limit
@@ -331,3 +331,59 @@ async def bulk_third_party_operation(
     service = ThirdPartyService(db)
     results = await service.bulk_operation(operation_data)
     return results
+
+
+@router.post("/bulk-delete", response_model=BulkThirdPartyDeleteResult, status_code=status.HTTP_200_OK)
+async def bulk_delete_third_parties(
+    delete_request: BulkThirdPartyDelete,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> BulkThirdPartyDeleteResult:
+    """
+    Eliminar múltiples terceros con validaciones exhaustivas.
+    
+    Este endpoint realiza validaciones detalladas antes de eliminar cada tercero:
+    - Verifica que no tengan asientos contables asociados
+    - Permite forzar eliminación con force_delete=true (aunque sigue validando reglas críticas)
+    
+    Solo disponible para usuarios con permisos de creación de entradas.
+    """
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    service = ThirdPartyService(db)
+    
+    try:
+        result = await service.bulk_delete_third_parties(delete_request)
+        return result
+    except ValidationError as e:
+        raise_validation_error(str(e))
+
+
+@router.post("/validate-deletion", response_model=List[ThirdPartyDeleteValidation])
+async def validate_third_parties_for_deletion(
+    third_party_ids: List[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> List[ThirdPartyDeleteValidation]:
+    """
+    Validar si múltiples terceros pueden ser eliminados sin proceder con la eliminación.
+    
+    Este endpoint es útil para verificar qué terceros pueden eliminarse antes de 
+    realizar la operación de borrado masivo.
+    
+    Solo disponible para usuarios con permisos de creación de entradas.
+    """
+    # Check permissions
+    if not current_user.can_create_entries:
+        raise_insufficient_permissions()
+    
+    service = ThirdPartyService(db)
+    
+    validations = []
+    for third_party_id in third_party_ids:
+        validation = await service.validate_third_party_for_deletion(third_party_id)
+        validations.append(validation)
+    
+    return validations
