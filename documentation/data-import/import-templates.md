@@ -25,6 +25,7 @@ Las plantillas de cuentas contables facilitan la importación del plan de cuenta
 | Columna               | Descripción                                      | Ejemplo           |
 |-----------------------|--------------------------------------------------|-------------------|
 | category              | Categoría específica según el tipo               | ACTIVO_CORRIENTE  |
+| cash_flow_category    | Categoría flujo efectivo (operating, investing, financing, cash) | operating |
 | parent_code           | Código de cuenta padre para jerarquía            | 1000              |
 | description           | Descripción detallada de la cuenta               | Dinero en efectivo|
 | is_active             | Si la cuenta está activa (true/false)            | true              |
@@ -36,14 +37,31 @@ Las plantillas de cuentas contables facilitan la importación del plan de cuenta
 #### Datos de Ejemplo
 
 ```csv
-code,name,account_type,category,parent_code,description,is_active,allows_movements,requires_third_party,requires_cost_center,notes
-1000,Activo Corriente,ACTIVO,ACTIVO_CORRIENTE,,Grupo de activos corrientes,true,false,false,false,Cuenta padre
-1001,Caja,ACTIVO,ACTIVO_CORRIENTE,1000,Dinero en efectivo,true,true,false,false,
-1100,Bancos,ACTIVO,ACTIVO_CORRIENTE,1000,Depósitos bancarios,true,false,false,false,Cuenta agrupadora
-1101,Banco Nacional,ACTIVO,ACTIVO_CORRIENTE,1100,Cuenta bancaria principal,true,true,true,false,Requiere especificar banco
-2000,Pasivo Corriente,PASIVO,PASIVO_CORRIENTE,,Grupo de pasivos corrientes,true,false,false,false,Cuenta padre
-2100,Proveedores,PASIVO,PASIVO_CORRIENTE,2000,Cuentas por pagar,true,true,true,false,Requiere especificar proveedor
+code,name,account_type,category,cash_flow_category,parent_code,description,is_active,allows_movements,requires_third_party,requires_cost_center,notes
+1105,Caja General,ACTIVO,ACTIVO_CORRIENTE,cash,1100,Dinero en efectivo en caja principal,true,true,false,false,Cuenta para manejo de efectivo - Efectivo y equivalentes para flujo de efectivo
+1110,Bancos Moneda Nacional,ACTIVO,ACTIVO_CORRIENTE,cash,1100,Depósitos en bancos en moneda nacional,true,true,true,false,Requiere especificar el banco como tercero - Efectivo y equivalentes
+1120,Clientes Nacionales,ACTIVO,ACTIVO_CORRIENTE,operating,1100,Cuentas por cobrar a clientes nacionales,true,true,true,false,Requiere especificar el cliente - Actividades operativas
+1201,Equipos de Oficina,ACTIVO,ACTIVO_NO_CORRIENTE,investing,1200,Mobiliario y equipos para oficina,true,true,false,true,Activos fijos - Actividades de inversión
+2105,Proveedores Nacionales,PASIVO,PASIVO_CORRIENTE,operating,2100,Cuentas por pagar a proveedores nacionales,true,true,true,false,Requiere especificar el proveedor - Actividades operativas
+2201,Préstamos Bancarios LP,PASIVO,PASIVO_NO_CORRIENTE,financing,2200,Préstamos bancarios a largo plazo,true,true,true,false,Requiere especificar el banco - Actividades de financiamiento
+3001,Capital Social,PATRIMONIO,CAPITAL,financing,3000,Aportes de capital de los socios,true,true,false,false,Capital inicial de la empresa - Actividades de financiamiento
+4001,Ventas de Productos,INGRESO,INGRESOS_OPERACIONALES,operating,4000,Ingresos por venta de productos,true,true,false,true,Ingresos principales del negocio - Actividades operativas
+5001,Sueldos y Salarios,GASTO,GASTOS_OPERACIONALES,operating,5000,Remuneraciones del personal,true,true,false,true,Gastos de personal - Actividades operativas
+6001,Costo de Mercadería Vendida,COSTOS,COSTO_VENTAS,operating,6000,Costo directo de productos vendidos,true,true,false,true,Costo directo de ventas - Actividades operativas
 ```
+
+#### Categorías de Flujo de Efectivo
+
+El campo `cash_flow_category` es fundamental para la clasificación de las cuentas en los estados de flujo de efectivo. A continuación se detallan las categorías disponibles:
+
+| Categoría    | Descripción                                      | Ejemplos de Cuentas |
+|--------------|--------------------------------------------------|---------------------|
+| **operating**   | Actividades de Operación - Ingresos, gastos, costos y cuentas corrientes relacionadas con la operación principal del negocio | Clientes, Proveedores, Ventas, Gastos operativos, Costos de venta |
+| **investing**   | Actividades de Inversión - Activos fijos, equipos, propiedades y otras inversiones de capital | Equipos, Maquinaria, Propiedades, Inversiones en instrumentos financieros |
+| **financing**   | Actividades de Financiamiento - Préstamos, capital, dividendos y operaciones relacionadas con la estructura financiera | Préstamos bancarios, Capital social, Dividendos, Aportes de socios |
+| **cash**        | Efectivo y Equivalentes - Caja, bancos e inversiones temporales de alta liquidez | Caja, Bancos, Inversiones temporales, Fondos de inversión líquidos |
+
+> **Importante**: La correcta clasificación de las cuentas en estas categorías es esencial para generar estados de flujo de efectivo precisos y cumplir con las normas contables aplicables.
 
 ### Plantillas de Asientos Contables
 
@@ -160,9 +178,10 @@ El CSV es un formato simple y ampliamente soportado para intercambio de datos ta
 #### Formato CSV para Cuentas:
 
 ```
-code,name,account_type,category,parent_code,description,is_active,allows_movements
-1001,Caja,ACTIVO,ACTIVO_CORRIENTE,,Dinero en efectivo,true,true
-2001,Proveedores,PASIVO,PASIVO_CORRIENTE,,Cuentas por pagar,true,true
+code,name,account_type,category,cash_flow_category,parent_code,description,is_active,allows_movements,requires_third_party,requires_cost_center,notes
+1105,Caja General,ACTIVO,ACTIVO_CORRIENTE,cash,1100,Dinero en efectivo en caja principal,true,true,false,false,Cuenta para manejo de efectivo
+1110,Bancos Moneda Nacional,ACTIVO,ACTIVO_CORRIENTE,cash,1100,Depósitos en bancos en moneda nacional,true,true,true,false,Requiere especificar el banco como tercero
+2105,Proveedores Nacionales,PASIVO,PASIVO_CORRIENTE,operating,2100,Cuentas por pagar a proveedores nacionales,true,true,true,false,Requiere especificar el proveedor
 ```
 
 #### Formato CSV para Asientos:
@@ -208,22 +227,32 @@ El formato JSON es ideal para estructuras de datos jerárquicas y complejas.
 ```json
 [
   {
-    "code": "1001",
-    "name": "Caja",
+    "code": "1105",
+    "name": "Caja General",
     "account_type": "ACTIVO",
     "category": "ACTIVO_CORRIENTE",
-    "description": "Dinero en efectivo",
+    "cash_flow_category": "cash",
+    "parent_code": "1100",
+    "description": "Dinero en efectivo en caja principal",
     "is_active": true,
-    "allows_movements": true
+    "allows_movements": true,
+    "requires_third_party": false,
+    "requires_cost_center": false,
+    "notes": "Cuenta para manejo de efectivo - Efectivo y equivalentes"
   },
   {
-    "code": "2001",
-    "name": "Proveedores",
+    "code": "2105",
+    "name": "Proveedores Nacionales",
     "account_type": "PASIVO",
     "category": "PASIVO_CORRIENTE",
-    "description": "Cuentas por pagar",
+    "cash_flow_category": "operating",
+    "parent_code": "2100",
+    "description": "Cuentas por pagar a proveedores nacionales",
     "is_active": true,
-    "allows_movements": true
+    "allows_movements": true,
+    "requires_third_party": true,
+    "requires_cost_center": false,
+    "notes": "Requiere especificar el proveedor - Actividades operativas"
   }
 ]
 ```
@@ -299,6 +328,17 @@ Cada tipo de cuenta tiene categorías específicas aceptadas:
   - `COSTO_VENTAS`: Costos directamente relacionados a las ventas.
   - `COSTOS_PRODUCCION`: Costos directamente relacionados a la producción.
 
+### Categorías de Flujo de Efectivo (cash_flow_category)
+
+Los valores aceptados para el campo `cash_flow_category` son:
+
+- `operating`: Actividades de Operación - Incluye ingresos, gastos, costos y cuentas corrientes relacionadas con la operación principal del negocio.
+- `investing`: Actividades de Inversión - Incluye activos fijos, equipos, propiedades y otras inversiones de capital.
+- `financing`: Actividades de Financiamiento - Incluye préstamos, capital, dividendos y operaciones relacionadas con la estructura financiera.
+- `cash`: Efectivo y Equivalentes - Incluye caja, bancos e inversiones temporales de alta liquidez.
+
+> **Nota**: Esta clasificación es esencial para la generación automática de estados de flujo de efectivo conforme a las normas contables.
+
 ### Tipos de Asiento (entry_type)
 
 Los valores aceptados para el campo `entry_type` son:
@@ -317,8 +357,9 @@ Los valores aceptados para el campo `entry_type` son:
 1. El código de cuenta debe ser único en el sistema.
 2. El tipo de cuenta debe ser uno de los valores aceptados.
 3. La categoría debe corresponder al tipo de cuenta.
-4. Si se especifica un código de cuenta padre, ésta debe existir previamente.
-5. Una cuenta con `allows_movements` = false no puede tener movimientos directamente.
+4. Si se especifica `cash_flow_category`, debe ser uno de los valores válidos: operating, investing, financing, cash.
+5. Si se especifica un código de cuenta padre, ésta debe existir previamente.
+6. Una cuenta con `allows_movements` = false no puede tener movimientos directamente.
 
 ### Validaciones para Asientos
 

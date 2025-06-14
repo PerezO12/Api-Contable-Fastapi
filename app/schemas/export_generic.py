@@ -29,6 +29,7 @@ class TableName(str, Enum):
     SYSTEM_CONFIGURATION = "system_configuration"
     COMPANY_INFO = "company_info"
     NUMBER_SEQUENCES = "number_sequences"
+    COST_CENTERS = "cost_centers"
 
 
 class ExportFilter(BaseModel):

@@ -23,14 +23,14 @@ from app.models.base import Base
 from app.models import (
     User, Account, JournalEntry, JournalEntryLine,
     AuditLog, UserSession, ChangeTracking,
-    SystemConfiguration, CompanyInfo, NumberSequence
+    SystemConfiguration, CompanyInfo, NumberSequence,
+    CostCenter
 )
 
 
 class ExportService:
     """Servicio para exportación genérica de datos de la base de datos"""
-    
-    # Mapeo de nombres de tabla a modelos SQLAlchemy
+      # Mapeo de nombres de tabla a modelos SQLAlchemy
     TABLE_MODEL_MAPPING = {
         TableName.USERS: User,
         TableName.ACCOUNTS: Account,
@@ -42,6 +42,7 @@ class ExportService:
         TableName.SYSTEM_CONFIGURATION: SystemConfiguration,
         TableName.COMPANY_INFO: CompanyInfo,
         TableName.NUMBER_SEQUENCES: NumberSequence,
+        TableName.COST_CENTERS: CostCenter,
     }
     
     # Nombres amigables para las tablas

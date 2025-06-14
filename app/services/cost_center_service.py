@@ -20,7 +20,7 @@ from app.schemas.cost_center import (
     CostCenterFilter, CostCenterReport, CostCenterMovement, CostCenterValidation,
     BulkCostCenterOperation, CostCenterStats, CostCenterImport, CostCenterRead,
     BulkCostCenterDelete, BulkCostCenterDeleteResult, CostCenterDeleteValidation,
-    CostCenterImportResult
+    CostCenterImportResult, CostCenterTree
 )
 from app.utils.exceptions import (
     ValidationError, NotFoundError, ConflictError, BusinessLogicError
@@ -78,22 +78,53 @@ class CostCenterService:
     async def get_cost_center_by_id(self, cost_center_id: uuid.UUID) -> Optional[CostCenter]:
         """Obtener centro de costo por ID"""
         result = await self.db.execute(
-            select(CostCenter).where(CostCenter.id == cost_center_id)
-        )
+            select(CostCenter)
+            .options(
+                selectinload(CostCenter.parent),
+                selectinload(CostCenter.children)
+            )
+            .where(CostCenter.id == cost_center_id)        )
         cost_center = result.scalar_one_or_none()
         
         if cost_center:
-            # Calcular propiedades dinámicas de forma segura
+            # Calcular propiedades dinámicas de forma segura para el objeto principal
             await self._calculate_cost_center_properties_safe(cost_center)
+            
+            # Si tiene padre, también calcular sus propiedades
+            if cost_center.parent:
+                await self._calculate_cost_center_properties_safe(cost_center.parent)
+            
+            # Calcular propiedades para los hijos también
+            for child in cost_center.children:
+                await self._calculate_cost_center_properties_safe(child)
         
         return cost_center
 
     async def get_cost_center_by_code(self, code: str) -> Optional[CostCenter]:
         """Obtener centro de costo por código"""
         result = await self.db.execute(
-            select(CostCenter).where(CostCenter.code == code)
+            select(CostCenter)
+            .options(
+                selectinload(CostCenter.parent),
+                selectinload(CostCenter.children)
+            )
+            .where(CostCenter.code == code)
         )
-        return result.scalar_one_or_none()
+        cost_center = result.scalar_one_or_none()
+        
+        if cost_center:
+            # Calcular propiedades dinámicas de forma segura para el objeto principal
+            await self._calculate_cost_center_properties_safe(cost_center)
+            
+            # Si tiene padre, también calcular sus propiedades
+            if cost_center.parent:
+                await self._calculate_cost_center_properties_safe(cost_center.parent)
+            
+            # Calcular propiedades para los hijos también
+            for child in cost_center.children:
+                await self._calculate_cost_center_properties_safe(child)
+        
+        return cost_center
 
     async def update_cost_center(
         self, 
@@ -182,8 +213,7 @@ class CostCenterService:
             selectinload(CostCenter.parent),
             selectinload(CostCenter.children)
         )
-        
-        # Aplicar filtros
+          # Aplicar filtros
         conditions = []
         
         if filter_params.search:
@@ -207,6 +237,40 @@ class CostCenterService:
                 CostCenter.allows_direct_assignment == filter_params.allows_direct_assignment
             )
         
+        # Filtros de jerarquía
+        if filter_params.level is not None:
+            # Para filtrar por nivel, necesitamos usar subconsultas o calcular el nivel
+            # Por simplicidad, filtraremos los resultados después de la consulta
+            pass  # Se manejará en el post-procesamiento
+        
+        if filter_params.has_children is not None:
+            if filter_params.has_children:
+                # Centros de costo que tienen hijos
+                subquery = select(CostCenter.parent_id).where(CostCenter.parent_id.is_not(None)).distinct()
+                conditions.append(CostCenter.id.in_(subquery))
+            else:
+                # Centros de costo que NO tienen hijos
+                subquery = select(CostCenter.parent_id).where(CostCenter.parent_id.is_not(None)).distinct()
+                conditions.append(~CostCenter.id.in_(subquery))
+        
+        if filter_params.is_leaf is not None:
+            if filter_params.is_leaf:
+                # Nodos hoja (sin hijos)
+                subquery = select(CostCenter.parent_id).where(CostCenter.parent_id.is_not(None)).distinct()
+                conditions.append(~CostCenter.id.in_(subquery))
+            else:
+                # Nodos que NO son hoja (tienen hijos)
+                subquery = select(CostCenter.parent_id).where(CostCenter.parent_id.is_not(None)).distinct()
+                conditions.append(CostCenter.id.in_(subquery))
+        
+        if filter_params.is_root is not None:
+            if filter_params.is_root:
+                # Nodos raíz (sin padre)
+                conditions.append(CostCenter.parent_id.is_(None))
+            else:
+                # Nodos que NO son raíz (tienen padre)
+                conditions.append(CostCenter.parent_id.is_not(None))
+        
         if conditions:
             query = query.where(and_(*conditions))
         
@@ -217,14 +281,24 @@ class CostCenterService:
         
         total_result = await self.db.execute(count_query)
         total = total_result.scalar() or 0
-        
-        # Aplicar paginación y ordenamiento
+          # Aplicar paginación y ordenamiento
         query = query.order_by(CostCenter.code).offset(skip).limit(limit)
         
         result = await self.db.execute(query)
         cost_centers = result.scalars().all()
         
-        # Convertir a summaries
+        # Aplicar filtros post-procesamiento (como level)
+        if filter_params.level is not None:
+            # Calcular propiedades dinámicas para todos los centros de costo
+            for cc in cost_centers:
+                await self._calculate_cost_center_properties_safe(cc)
+            # Filtrar por nivel
+            cost_centers = [cc for cc in cost_centers if cc.level == filter_params.level]
+        else:
+            # Calcular propiedades dinámicas solo si no se filtró por nivel
+            for cc in cost_centers:
+                await self._calculate_cost_center_properties_safe(cc)
+          # Convertir a summaries
         cost_center_summaries = []
         for cc in cost_centers:
             summary = CostCenterSummary(
@@ -234,7 +308,9 @@ class CostCenterService:
                 is_active=cc.is_active,
                 level=cc.level,
                 parent_name=cc.parent.name if cc.parent else None,
-                children_count=len(cc.children)            )
+                children_count=len(cc.children),
+                created_at=cc.created_at
+            )
             cost_center_summaries.append(summary)
         
         # Calcular paginación
@@ -826,9 +902,11 @@ class CostCenterService:
         """Exportar centros de costo a CSV"""
         import csv
         import io
-        
-        # Construir consulta
-        query = select(CostCenter).options(joinedload(CostCenter.parent))
+          # Construir consulta con eager loading para evitar lazy loading
+        query = select(CostCenter).options(
+            selectinload(CostCenter.parent),
+            selectinload(CostCenter.children)
+        )
         
         if is_active is not None:
             query = query.where(CostCenter.is_active == is_active)
@@ -839,7 +917,11 @@ class CostCenterService:
         query = query.order_by(CostCenter.code)
         
         result = await self.db.execute(query)
-        cost_centers = result.scalars().all()
+        cost_centers = list(result.scalars().all())
+        
+        # Calcular propiedades dinámicas para todos los centros de costo
+        for cc in cost_centers:
+            await self._calculate_cost_center_properties_safe(cc)
         
         # Crear CSV
         output = io.StringIO()
@@ -869,10 +951,66 @@ class CostCenterService:
                 cc.notes or '',
                 cc.full_code or '',
                 cc.level or 0,
-                cc.is_leaf,
+                cc.is_leaf,                
                 cc.created_at.isoformat() if cc.created_at else '',
                 cc.updated_at.isoformat() if cc.updated_at else ''
             ]
             writer.writerow(row)
         
         return output.getvalue()
+
+    async def get_cost_center_tree(self, active_only: bool = True) -> List[CostCenterTree]:
+        """Obtener estructura jerárquica de centros de costo como árbol"""
+        
+        # Obtener todos los centros de costo de una vez para evitar lazy loading
+        query = select(CostCenter)
+        
+        if active_only:
+            query = query.where(CostCenter.is_active == True)
+        
+        query = query.order_by(CostCenter.code)
+        
+        result = await self.db.execute(query)
+        all_cost_centers = list(result.scalars().all())
+        
+        # Calcular propiedades dinámicas para todos los centros de costo
+        for cc in all_cost_centers:
+            await self._calculate_cost_center_properties_safe(cc)
+        
+        # Crear un diccionario para acceso rápido por ID
+        cost_centers_dict = {cc.id: cc for cc in all_cost_centers}
+        
+        # Construir la estructura de hijos para cada centro de costo
+        children_dict = {}
+        for cc in all_cost_centers:
+            children_dict[cc.id] = []
+        
+        for cc in all_cost_centers:
+            if cc.parent_id and cc.parent_id in children_dict:
+                children_dict[cc.parent_id].append(cc)
+        
+        def build_tree(cost_center: CostCenter) -> CostCenterTree:
+            # Obtener hijos desde nuestro diccionario en lugar de la relación lazy
+            children_cost_centers = sorted(children_dict.get(cost_center.id, []), key=lambda x: x.code)
+            children = []
+            
+            for child in children_cost_centers:
+                if not active_only or child.is_active:
+                    children.append(build_tree(child))
+            
+            return CostCenterTree(
+                id=cost_center.id,
+                code=cost_center.code,
+                name=cost_center.name,
+                description=cost_center.description,
+                is_active=cost_center.is_active,
+                allows_direct_assignment=cost_center.allows_direct_assignment,
+                manager_name=cost_center.manager_name,
+                level=cost_center.level,
+                is_leaf=cost_center.is_leaf,
+                children=children
+            )
+        
+        # Solo procesar centros de costo raíz (sin parent_id)
+        root_cost_centers = [cc for cc in all_cost_centers if cc.parent_id is None]
+        return [build_tree(cc) for cc in sorted(root_cost_centers, key=lambda x: x.code)]

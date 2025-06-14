@@ -102,6 +102,22 @@ class CostCenterHierarchy(CostCenterRead):
     children: List["CostCenterRead"] = []
 
 
+class CostCenterTree(BaseModel):
+    """Schema para representar la jerarquía de centros de costo como árbol"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: uuid.UUID
+    code: str
+    name: str
+    description: Optional[str] = None
+    is_active: bool
+    allows_direct_assignment: bool
+    manager_name: Optional[str] = None
+    level: int
+    is_leaf: bool
+    children: List['CostCenterTree'] = Field(default_factory=list)
+
+
 class CostCenterSummary(BaseModel):
     """Schema resumido para listados"""
     id: uuid.UUID
@@ -111,6 +127,7 @@ class CostCenterSummary(BaseModel):
     level: Optional[int] = None
     parent_name: Optional[str] = None
     children_count: int = 0
+    created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -132,6 +149,9 @@ class CostCenterFilter(BaseModel):
     parent_id: Optional[uuid.UUID] = None
     allows_direct_assignment: Optional[bool] = None
     level: Optional[int] = None
+    has_children: Optional[bool] = None  # Si tiene centros de costo hijos
+    is_leaf: Optional[bool] = None  # Si es un nodo hoja (sin hijos)
+    is_root: Optional[bool] = None  # Si es un nodo raíz (sin padre)
 
 
 # Schemas para reportes

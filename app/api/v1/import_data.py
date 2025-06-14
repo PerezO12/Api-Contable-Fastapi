@@ -584,39 +584,140 @@ async def export_accounts_template(
             "name": "Caja General",
             "account_type": "ACTIVO",
             "category": "ACTIVO_CORRIENTE",
+            "cash_flow_category": "cash",
             "parent_code": "1100",
             "description": "Dinero en efectivo en caja principal",
             "is_active": True,
             "allows_movements": True,
             "requires_third_party": False,
             "requires_cost_center": False,
-            "notes": "Cuenta para manejo de efectivo"
+            "notes": "Cuenta para manejo de efectivo - Efectivo y equivalentes para flujo de efectivo"
         },
         {
             "code": "1110",
             "name": "Bancos Moneda Nacional",
             "account_type": "ACTIVO",
-            "category": "ACTIVO_CORRIENTE", 
+            "category": "ACTIVO_CORRIENTE",
+            "cash_flow_category": "cash", 
             "parent_code": "1100",
             "description": "Depósitos en bancos en moneda nacional",
             "is_active": True,
             "allows_movements": True,
             "requires_third_party": True,
             "requires_cost_center": False,
-            "notes": "Requiere especificar el banco como tercero"
+            "notes": "Requiere especificar el banco como tercero - Efectivo y equivalentes"
+        },
+        {
+            "code": "1120",
+            "name": "Clientes Nacionales",
+            "account_type": "ACTIVO",
+            "category": "ACTIVO_CORRIENTE",
+            "cash_flow_category": "operating",
+            "parent_code": "1100",
+            "description": "Cuentas por cobrar a clientes nacionales",
+            "is_active": True,
+            "allows_movements": True,
+            "requires_third_party": True,
+            "requires_cost_center": False,
+            "notes": "Requiere especificar el cliente - Actividades operativas"
+        },
+        {
+            "code": "1201",
+            "name": "Equipos de Oficina",
+            "account_type": "ACTIVO",
+            "category": "ACTIVO_NO_CORRIENTE",
+            "cash_flow_category": "investing",
+            "parent_code": "1200",
+            "description": "Mobiliario y equipos para oficina",
+            "is_active": True,
+            "allows_movements": True,
+            "requires_third_party": False,
+            "requires_cost_center": True,
+            "notes": "Activos fijos - Actividades de inversión"
         },
         {
             "code": "2105",
             "name": "Proveedores Nacionales",
             "account_type": "PASIVO",
             "category": "PASIVO_CORRIENTE",
+            "cash_flow_category": "operating",
             "parent_code": "2100",
             "description": "Cuentas por pagar a proveedores nacionales",
             "is_active": True,
             "allows_movements": True,
             "requires_third_party": True,
             "requires_cost_center": False,
-            "notes": "Requiere especificar el proveedor"
+            "notes": "Requiere especificar el proveedor - Actividades operativas"
+        },
+        {
+            "code": "2201",
+            "name": "Préstamos Bancarios LP",
+            "account_type": "PASIVO",
+            "category": "PASIVO_NO_CORRIENTE",
+            "cash_flow_category": "financing",
+            "parent_code": "2200",
+            "description": "Préstamos bancarios a largo plazo",
+            "is_active": True,
+            "allows_movements": True,
+            "requires_third_party": True,
+            "requires_cost_center": False,
+            "notes": "Requiere especificar el banco - Actividades de financiamiento"
+        },
+        {
+            "code": "3001",
+            "name": "Capital Social",
+            "account_type": "PATRIMONIO",
+            "category": "CAPITAL",
+            "cash_flow_category": "financing",
+            "parent_code": "3000",
+            "description": "Aportes de capital de los socios",
+            "is_active": True,
+            "allows_movements": True,
+            "requires_third_party": False,
+            "requires_cost_center": False,
+            "notes": "Capital inicial de la empresa - Actividades de financiamiento"
+        },
+        {
+            "code": "4001",
+            "name": "Ventas de Productos",
+            "account_type": "INGRESO",
+            "category": "INGRESOS_OPERACIONALES",
+            "cash_flow_category": "operating",
+            "parent_code": "4000",
+            "description": "Ingresos por venta de productos",
+            "is_active": True,
+            "allows_movements": True,
+            "requires_third_party": False,
+            "requires_cost_center": True,
+            "notes": "Ingresos principales del negocio - Actividades operativas"
+        },
+        {
+            "code": "5001",
+            "name": "Sueldos y Salarios",
+            "account_type": "GASTO",
+            "category": "GASTOS_OPERACIONALES",
+            "cash_flow_category": "operating",
+            "parent_code": "5000",
+            "description": "Remuneraciones del personal",
+            "is_active": True,
+            "allows_movements": True,
+            "requires_third_party": False,
+            "requires_cost_center": True,
+            "notes": "Gastos de personal - Actividades operativas"
+        },
+        {
+            "code": "6001",
+            "name": "Costo de Mercadería Vendida",
+            "account_type": "COSTOS",
+            "category": "COSTO_VENTAS",
+            "cash_flow_category": "operating",
+            "parent_code": "6000",
+            "description": "Costo directo de productos vendidos",
+            "is_active": True,
+            "allows_movements": True,
+            "requires_third_party": False,
+            "requires_cost_center": True,
+            "notes": "Costo directo de ventas - Actividades operativas"
         }
     ]
     
@@ -626,15 +727,14 @@ async def export_accounts_template(
                 "template_info": {
                     "data_type": "accounts",
                     "format": "json",
-                    "description": "Plantilla de ejemplo para importación de cuentas contables",
-                    "required_fields": ["code", "name", "account_type"],
-                    "optional_fields": ["category", "parent_code", "description", "is_active", "allows_movements", "requires_third_party", "requires_cost_center", "notes"]
-                },
-                "field_descriptions": {
+                    "description": "Plantilla de ejemplo para importación de cuentas contables",                    "required_fields": ["code", "name", "account_type"],
+                    "optional_fields": ["category", "cash_flow_category", "parent_code", "description", "is_active", "allows_movements", "requires_third_party", "requires_cost_center", "notes"]
+                },                "field_descriptions": {
                     "code": "Código único de la cuenta (máximo 20 caracteres)",
                     "name": "Nombre de la cuenta (máximo 200 caracteres)",
                     "account_type": "Tipo de cuenta: ACTIVO, PASIVO, PATRIMONIO, INGRESO, GASTO, COSTOS",
                     "category": "Categoría específica según el tipo de cuenta",
+                    "cash_flow_category": "Categoría flujo efectivo: operating, investing, financing, cash",
                     "parent_code": "Código de la cuenta padre para estructura jerárquica",
                     "description": "Descripción detallada de la cuenta",
                     "is_active": "true/false - Si la cuenta está activa",
@@ -643,8 +743,7 @@ async def export_accounts_template(
                     "requires_cost_center": "true/false - Si requiere centro de costo",
                     "notes": "Notas adicionales sobre la cuenta"
                 },
-                "valid_account_types": ["ACTIVO", "PASIVO", "PATRIMONIO", "INGRESO", "GASTO", "COSTOS"],
-                "valid_categories": {
+                "valid_account_types": ["ACTIVO", "PASIVO", "PATRIMONIO", "INGRESO", "GASTO", "COSTOS"],                "valid_categories": {
                     "ACTIVO": ["ACTIVO_CORRIENTE", "ACTIVO_NO_CORRIENTE"],
                     "PASIVO": ["PASIVO_CORRIENTE", "PASIVO_NO_CORRIENTE"],
                     "PATRIMONIO": ["CAPITAL", "RESERVAS", "RESULTADOS"],
@@ -652,6 +751,12 @@ async def export_accounts_template(
                     "GASTO": ["GASTOS_OPERACIONALES", "GASTOS_NO_OPERACIONALES"],
                     "COSTOS": ["COSTO_VENTAS", "COSTOS_PRODUCCION"]
                 },
+                "valid_cash_flow_categories": ["operating", "investing", "financing", "cash"],
+                "cash_flow_category_descriptions": {
+                    "operating": "Actividades de Operación - Ingresos, gastos, costos, cuentas corrientes",
+                    "investing": "Actividades de Inversión - Activos fijos, equipos, propiedades",
+                    "financing": "Actividades de Financiamiento - Préstamos, capital, dividendos",
+                    "cash": "Efectivo y Equivalentes - Caja, bancos, inversiones temporales"                },
                 "example_data": example_accounts
             },
             headers={"Content-Disposition": "attachment; filename=accounts_template.json"}
@@ -665,8 +770,8 @@ async def export_accounts_template(
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Escribir encabezados
-        headers = ["code", "name", "account_type", "category", "parent_code", 
+        # Escribir encabezados - INCLUYE cash_flow_category
+        headers = ["code", "name", "account_type", "category", "cash_flow_category", "parent_code", 
                   "description", "is_active", "allows_movements", "requires_third_party", 
                   "requires_cost_center", "notes"]
         writer.writerow(headers)
@@ -690,9 +795,8 @@ async def export_accounts_template(
         
         # Crear DataFrame con los datos de ejemplo
         df = pd.DataFrame(example_accounts)
-        
-        # Reordenar columnas en orden lógico
-        column_order = ["code", "name", "account_type", "category", "parent_code", 
+          # Reordenar columnas en orden lógico
+        column_order = ["code", "name", "account_type", "category", "cash_flow_category", "parent_code", 
                        "description", "is_active", "allows_movements", "requires_third_party", 
                        "requires_cost_center", "notes"]
         df = df.reindex(columns=column_order)
@@ -702,23 +806,23 @@ async def export_accounts_template(
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             # Hoja con datos de ejemplo
             df.to_excel(writer, sheet_name='Accounts_Template', index=False)
-            
-            # Hoja con documentación
+              # Hoja con documentación
             doc_data = {
                 'Field': column_order,
-                'Required': ['Yes', 'Yes', 'Yes', 'No', 'No', 'No', 'No', 'No', 'No', 'No'],
+                'Required': ['Yes', 'Yes', 'Yes', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'No'],
                 'Description': [
                     'Código único de la cuenta (máximo 20 caracteres)',
                     'Nombre de la cuenta (máximo 200 caracteres)', 
                     'Tipo: ACTIVO, PASIVO, PATRIMONIO, INGRESO, GASTO, COSTOS',
                     'Categoría específica según el tipo de cuenta',
+                    'Flujo efectivo: operating, investing, financing, cash',
                     'Código de la cuenta padre para jerarquía',
                     'Descripción detallada de la cuenta',
                     'true/false - Si la cuenta está activa',
-                    'true/false - Si permite movimientos',
-                    'true/false - Si requiere tercero',
+                    'true/false - Si permite registrar movimientos',
+                    'true/false - Si requiere especificar tercero',
                     'true/false - Si requiere centro de costo',
-                    'Notas adicionales'
+                    'Notas adicionales sobre la cuenta'
                 ]
             }
             doc_df = pd.DataFrame(doc_data)

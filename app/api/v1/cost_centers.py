@@ -3,9 +3,11 @@ API endpoints for cost center management.
 Provides CRUD operations, hierarchy management and reporting for cost centers.
 """
 import uuid
+import io
 from typing import List, Optional
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, get_current_active_user
@@ -14,7 +16,8 @@ from app.schemas.cost_center import (
     CostCenterCreate, CostCenterUpdate, CostCenterResponse, CostCenterDetailResponse,
     CostCenterListResponse, CostCenterList, CostCenterFilter, CostCenterReport,
     CostCenterValidation, BulkCostCenterOperation, CostCenterStats, BulkCostCenterDelete,
-    BulkCostCenterDeleteResult, CostCenterDeleteValidation, CostCenterImportResult
+    BulkCostCenterDeleteResult, CostCenterDeleteValidation, CostCenterImportResult,
+    CostCenterTree
 )
 from app.services.cost_center_service import CostCenterService
 from app.utils.exceptions import (
@@ -64,6 +67,10 @@ async def get_cost_centers(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     parent_id: Optional[uuid.UUID] = Query(None, description="Filter by parent cost center"),
     allows_direct_assignment: Optional[bool] = Query(None, description="Filter by assignment capability"),
+    level: Optional[int] = Query(None, ge=0, description="Filter by hierarchy level (0=root, 1=first level, etc.)"),
+    has_children: Optional[bool] = Query(None, description="Filter by whether cost center has children"),
+    is_leaf: Optional[bool] = Query(None, description="Filter by leaf nodes (cost centers without children)"),
+    is_root: Optional[bool] = Query(None, description="Filter by root nodes (cost centers without parent)"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
     db: AsyncSession = Depends(get_db),
@@ -75,7 +82,11 @@ async def get_cost_centers(
         search=search,
         is_active=is_active,
         parent_id=parent_id,
-        allows_direct_assignment=allows_direct_assignment
+        allows_direct_assignment=allows_direct_assignment,
+        level=level,
+        has_children=has_children,
+        is_leaf=is_leaf,
+        is_root=is_root
     )
     
     service = CostCenterService(db)
@@ -85,8 +96,24 @@ async def get_cost_centers(
         items=cost_centers_list.cost_centers,
         total=cost_centers_list.total,
         skip=skip,
-        limit=limit
-    )
+        limit=limit    )
+
+
+@router.get(
+    "/tree",
+    response_model=List[CostCenterTree],
+    summary="Get cost center tree",
+    description="Get complete hierarchical tree structure of cost centers"
+)
+async def get_cost_center_tree(
+    active_only: bool = Query(True, description="Include only active cost centers"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> List[CostCenterTree]:
+    """Get cost center tree structure."""
+    
+    service = CostCenterService(db)
+    return await service.get_cost_center_tree(active_only=active_only)
 
 
 @router.get(
@@ -368,10 +395,14 @@ async def import_cost_centers(
     return await service.import_cost_centers_from_csv(file_content, current_user.id)
 
 
-@router.get("/export/csv")
+@router.get(
+    "/export/csv",
+    summary="Export cost centers to CSV",
+    description="Export cost centers data to CSV format for backup or bulk import preparation"
+)
 async def export_cost_centers_csv(
-    is_active: Optional[bool] = None,
-    parent_id: Optional[uuid.UUID] = None,
+    is_active: Optional[bool] = Query(None, description="Filter by active status (null for all)"),
+    parent_id: Optional[uuid.UUID] = Query(None, description="Filter by parent cost center ID (null for all)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -380,7 +411,30 @@ async def export_cost_centers_csv(
     
     Genera un archivo CSV con todos los centros de costo y sus propiedades,
     útil para respaldo o para preparar archivos de importación masiva.
+    
+    Parámetros:
+    - is_active: Filtrar por estado activo (true/false/null para todos)
+    - parent_id: Filtrar por ID del centro de costo padre (null para todos)
+    
+    Retorna:
+    - Archivo CSV descargable con los datos de centros de costo
     """
     service = CostCenterService(db)
-    # En producción retornar StreamingResponse con el CSV
-    return await service.export_cost_centers_to_csv(is_active, parent_id)
+    csv_content = await service.export_cost_centers_to_csv(is_active, parent_id)
+    
+    # Crear un stream del contenido CSV
+    csv_io = io.StringIO(csv_content)
+    
+    # Generar nombre de archivo con timestamp
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"centros_costo_{timestamp}.csv"
+    
+    return StreamingResponse(
+        io.BytesIO(csv_content.encode('utf-8-sig')),  # UTF-8 con BOM para Excel
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Type": "text/csv; charset=utf-8"
+        }
+    )
