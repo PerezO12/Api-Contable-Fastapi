@@ -1,8 +1,8 @@
-"""Initial migration
+"""initial_migration_complete_system
 
-Revision ID: 83d75a0f0b1c
+Revision ID: fccd31fddf68
 Revises: 
-Create Date: 2025-06-12 08:06:27.135453
+Create Date: 2025-06-15 00:32:07.772860
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '83d75a0f0b1c'
+revision: str = 'fccd31fddf68'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -81,6 +81,19 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_number_sequences_id'), 'number_sequences', ['id'], unique=False)
     op.create_index(op.f('ix_number_sequences_sequence_type'), 'number_sequences', ['sequence_type'], unique=True)
+    op.create_table('payment_terms',
+    sa.Column('code', sa.String(length=20), nullable=False),
+    sa.Column('name', sa.String(length=100), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.Column('notes', sa.Text(), nullable=True),
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_payment_terms'))
+    )
+    op.create_index(op.f('ix_payment_terms_code'), 'payment_terms', ['code'], unique=True)
+    op.create_index(op.f('ix_payment_terms_id'), 'payment_terms', ['id'], unique=False)
     op.create_table('third_parties',
     sa.Column('code', sa.String(length=20), nullable=False),
     sa.Column('name', sa.String(length=200), nullable=False),
@@ -234,6 +247,19 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_journal_entries_id'), 'journal_entries', ['id'], unique=False)
     op.create_index(op.f('ix_journal_entries_number'), 'journal_entries', ['number'], unique=True)
+    op.create_table('payment_schedules',
+    sa.Column('payment_terms_id', sa.UUID(), nullable=False),
+    sa.Column('sequence', sa.Integer(), nullable=False),
+    sa.Column('days', sa.Integer(), nullable=False),
+    sa.Column('percentage', sa.Numeric(precision=5, scale=2), nullable=False),
+    sa.Column('description', sa.String(length=200), nullable=True),
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['payment_terms_id'], ['payment_terms.id'], name=op.f('fk_payment_schedules_payment_terms_id_payment_terms')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_payment_schedules'))
+    )
+    op.create_index(op.f('ix_payment_schedules_id'), 'payment_schedules', ['id'], unique=False)
     op.create_table('system_configuration',
     sa.Column('key', sa.String(length=100), nullable=False),
     sa.Column('value', sa.JSON(), nullable=False),
@@ -273,6 +299,9 @@ def upgrade() -> None:
     sa.Column('reference', sa.String(length=100), nullable=True),
     sa.Column('third_party_id', sa.UUID(), nullable=True),
     sa.Column('cost_center_id', sa.UUID(), nullable=True),
+    sa.Column('invoice_date', sa.Date(), nullable=True, comment='Fecha de la factura (diferente a fecha de creación del asiento)'),
+    sa.Column('due_date', sa.Date(), nullable=True, comment='Fecha de vencimiento de la factura'),
+    sa.Column('payment_terms_id', sa.UUID(), nullable=True, comment='Condiciones de pago aplicables a esta línea'),
     sa.Column('line_number', sa.Integer(), nullable=False),
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
@@ -280,6 +309,7 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['account_id'], ['accounts.id'], name=op.f('fk_journal_entry_lines_account_id_accounts')),
     sa.ForeignKeyConstraint(['cost_center_id'], ['cost_centers.id'], name=op.f('fk_journal_entry_lines_cost_center_id_cost_centers')),
     sa.ForeignKeyConstraint(['journal_entry_id'], ['journal_entries.id'], name=op.f('fk_journal_entry_lines_journal_entry_id_journal_entries')),
+    sa.ForeignKeyConstraint(['payment_terms_id'], ['payment_terms.id'], name=op.f('fk_journal_entry_lines_payment_terms_id_payment_terms')),
     sa.ForeignKeyConstraint(['third_party_id'], ['third_parties.id'], name=op.f('fk_journal_entry_lines_third_party_id_third_parties')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_journal_entry_lines'))
     )
@@ -298,6 +328,8 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_system_configuration_id'), table_name='system_configuration')
     op.drop_index(op.f('ix_system_configuration_category'), table_name='system_configuration')
     op.drop_table('system_configuration')
+    op.drop_index(op.f('ix_payment_schedules_id'), table_name='payment_schedules')
+    op.drop_table('payment_schedules')
     op.drop_index(op.f('ix_journal_entries_number'), table_name='journal_entries')
     op.drop_index(op.f('ix_journal_entries_id'), table_name='journal_entries')
     op.drop_table('journal_entries')
@@ -320,6 +352,9 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_third_parties_document_number'), table_name='third_parties')
     op.drop_index(op.f('ix_third_parties_code'), table_name='third_parties')
     op.drop_table('third_parties')
+    op.drop_index(op.f('ix_payment_terms_id'), table_name='payment_terms')
+    op.drop_index(op.f('ix_payment_terms_code'), table_name='payment_terms')
+    op.drop_table('payment_terms')
     op.drop_index(op.f('ix_number_sequences_sequence_type'), table_name='number_sequences')
     op.drop_index(op.f('ix_number_sequences_id'), table_name='number_sequences')
     op.drop_table('number_sequences')

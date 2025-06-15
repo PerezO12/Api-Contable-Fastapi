@@ -1,747 +1,641 @@
-# Endpoints de Asientos Contables
+# API de Asientos Contables - Documentación Actualizada
 
-Este documento detalla todos los endpoints disponibles para la gestión de asientos contables en el API Contable.
+## Descripción General
 
-## 📋 Resumen de Endpoints
+La API de asientos contables proporciona funcionalidades completas para la gestión de asientos contables con validaciones empresariales, flujo de estados, operaciones masivas y seguimiento de auditoría.
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/journal-entries/` | Crear nuevo asiento contable |
-| GET | `/journal-entries/` | Listar asientos contables con filtros |
-| GET | `/journal-entries/{id}` | Obtener asiento por ID |
-| PUT | `/journal-entries/{id}` | Actualizar asiento (solo borradores) |
-| DELETE | `/journal-entries/{id}` | Eliminar asiento (solo borradores) |
-| POST | `/journal-entries/{id}/approve` | Aprobar asiento |
-| POST | `/journal-entries/{id}/post` | Contabilizar asiento |
-| POST | `/journal-entries/{id}/cancel` | Cancelar asiento |
-| POST | `/journal-entries/{id}/reverse` | Crear asiento de reversión |
-| GET | `/journal-entries/statistics/summary` | Obtener estadísticas |
-| GET | `/journal-entries/search` | Búsqueda avanzada |
-| POST | `/journal-entries/bulk-create` | Crear múltiples asientos |
-| POST | `/journal-entries/validate-deletion` | Validar asientos para eliminación |
-| POST | `/journal-entries/bulk-delete` | Eliminar múltiples asientos |
-| POST | `/journal-entries/bulk-operation` | Operaciones masivas en asientos |
-| GET | `/journal-entries/by-number/{number}` | Obtener asiento por número |
+### Características Principales
 
-## 📝 Detalle de Endpoints
+- **CRUD completo** de asientos contables
+- **Flujo de estados**: Borrador → Aprobado → Contabilizado → Cancelado
+- **Operaciones masivas** con validación previa
+- **Líneas de detalle** con cuentas, terceros y centros de costo
+- **Validaciones de balance** automáticas
+- **Auditoría completa** de cambios
+- **Reversión de asientos** contabilizados
+- **Búsqueda avanzada** y filtros
 
-### 📄 POST /journal-entries/
+## Autenticación
 
-Crea un nuevo asiento contable.
+Todos los endpoints requieren autenticación Bearer Token:
 
-#### Permisos Requeridos
-- El usuario debe tener el permiso `can_create_entries`
+```
+Authorization: Bearer <jwt_token>
+```
 
-#### Request
+## Permisos Requeridos
+
+- **can_create_entries**: Requerido para crear, actualizar, aprobar, contabilizar y cancelar asientos
+
+## Estados de Asientos Contables
+
+| Estado | Descripción | Operaciones Permitidas |
+|--------|-------------|----------------------|
+| `DRAFT` | Borrador | Editar, Eliminar, Aprobar |
+| `APPROVED` | Aprobado | Contabilizar, Reset a Borrador |
+| `POSTED` | Contabilizado | Cancelar, Revertir |
+| `CANCELLED` | Cancelado | Solo consulta |
+
+## Endpoints
+
+### 1. Crear Asiento Contable
+
+**POST** `/journal-entries/`
+
+Crea un nuevo asiento contable en estado borrador.
+
+**Request Body:**
 ```json
 {
-  "entry_date": "2025-06-15",
-  "reference": "FAC-12345",
-  "description": "Registro de venta a cliente XYZ",
-  "entry_type": "manual",
-  "notes": "Venta al contado",
+  "entry_date": "2024-12-01",
+  "reference": "DOC-001",
+  "description": "Compra de mercancía",
+  "entry_type": "STANDARD",
   "lines": [
     {
-      "account_id": "12345678-1234-1234-1234-123456789012",
-      "description": "Ingreso por venta de mercancía",
-      "debit_amount": 0,
-      "credit_amount": 1000.00,
-      "reference": "Factura 12345"
+      "account_id": "550e8400-e29b-41d4-a716-446655440000",
+      "debit_amount": 100.00,
+      "credit_amount": 0.00,
+      "description": "Inventario",
+      "third_party_id": "660e8400-e29b-41d4-a716-446655440001",
+      "cost_center_id": "770e8400-e29b-41d4-a716-446655440002"
     },
     {
-      "account_id": "87654321-4321-4321-4321-987654321098",
-      "description": "Cobro por venta de mercancía",
-      "debit_amount": 1000.00,
-      "credit_amount": 0,
-      "reference": "Factura 12345"
+      "account_id": "880e8400-e29b-41d4-a716-446655440003",
+      "debit_amount": 0.00,
+      "credit_amount": 100.00,
+      "description": "Cuentas por pagar"
     }
   ]
 }
 ```
 
-#### Schema de Request
-```python
-class JournalEntryCreate(JournalEntryBase):
-    """Schema para crear asientos contables"""
-    lines: List[JournalEntryLineCreate] = Field(..., min_length=2, description="Líneas del asiento (mínimo 2)")
-```
-
-#### Response Exitosa (201)
+**Response (201):**
 ```json
 {
-  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "number": "JE-2025-000001",
-  "entry_date": "2025-06-15",
-  "reference": "FAC-12345",
-  "description": "Registro de venta a cliente XYZ",
-  "entry_type": "manual",
-  "status": "draft",
-  "total_debit": 1000.00,
-  "total_credit": 1000.00,
-  "created_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "created_at": "2025-06-15T10:30:00Z",
-  "updated_at": "2025-06-15T10:30:00Z",
-  "is_balanced": true,
-  "can_be_posted": false,
-  "can_be_edited": true,
-  "created_by_name": "Juan Pérez",
-  "notes": "Venta al contado"
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "entry_number": "JE-2024-00001",
+  "entry_date": "2024-12-01",
+  "reference": "DOC-001",
+  "description": "Compra de mercancía",
+  "entry_type": "STANDARD",
+  "status": "DRAFT",
+  "total_debit": 100.00,
+  "total_credit": 100.00,
+  "created_by_id": "user-id",
+  "created_at": "2024-12-01T10:00:00Z",
+  "lines": [
+    {
+      "id": "line-id-1",
+      "account": {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "code": "1435",
+        "name": "Inventarios"
+      },
+      "debit_amount": 100.00,
+      "credit_amount": 0.00,
+      "description": "Inventario",
+      "third_party": {
+        "id": "660e8400-e29b-41d4-a716-446655440001",
+        "code": "PROV001",
+        "name": "Proveedor ABC"
+      },
+      "cost_center": {
+        "id": "770e8400-e29b-41d4-a716-446655440002",
+        "code": "CC01",
+        "name": "Ventas"
+      }
+    }
+  ]
 }
 ```
 
-#### Códigos de Error
-- `400 Bad Request`: Validación fallida (desbalance, montos negativos, etc.)
-- `403 Forbidden`: Usuario sin permisos
-- `404 Not Found`: Cuenta no encontrada
-- `422 Unprocessable Entity`: Error de validación de datos
+### 2. Listar Asientos Contables
 
----
+**GET** `/journal-entries/`
 
-### 📋 GET /journal-entries/
+Obtiene una lista paginada de asientos contables con filtros opcionales.
 
-Obtiene una lista paginada de asientos contables con opciones de filtrado.
+**Query Parameters:**
+- `skip` (int): Registros a omitir (default: 0)
+- `limit` (int): Registros por página (default: 100, max: 1000)
+- `status` (JournalEntryStatus): Filtrar por estado
+- `account_id` (UUID): Filtrar por cuenta
+- `date_from` (date): Fecha desde
+- `date_to` (date): Fecha hasta
+- `reference` (string): Filtrar por referencia
 
-#### Parámetros de Query
-- `skip` (int, opcional): Número de registros a saltar (default: 0)
-- `limit` (int, opcional): Número máximo de registros a retornar (default: 100)
-- `status` (string, opcional): Filtrar por estado (`draft`, `pending`, `approved`, `posted`, `cancelled`)
-- `account_id` (UUID, opcional): Filtrar por cuenta
-- `date_from` (date, opcional): Filtrar desde fecha
-- `date_to` (date, opcional): Filtrar hasta fecha
-- `reference` (string, opcional): Filtrar por referencia
-
-#### Response Exitosa (200)
+**Response (200):**
 ```json
 {
   "items": [
     {
-      "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-      "number": "JE-2025-000001",
-      "entry_date": "2025-06-15",
-      "reference": "FAC-12345",
-      "description": "Registro de venta a cliente XYZ",
-      "status": "draft",
-      "entry_type": "manual",
-      "total_debit": 1000.00,
-      "created_by_name": "Juan Pérez",
-      "created_at": "2025-06-15T10:30:00Z"
-    },
-    {
-      "id": "d47ac10b-58cc-4372-a567-0e02b2c3d123",
-      "number": "JE-2025-000002",
-      "entry_date": "2025-06-16",
-      "reference": "FAC-12346",
-      "description": "Registro de compra a proveedor ABC",
-      "status": "posted",
-      "entry_type": "manual",
-      "total_debit": 500.00,
-      "created_by_name": "María Rodríguez",
-      "created_at": "2025-06-16T09:15:00Z"
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "entry_number": "JE-2024-00001",
+      "entry_date": "2024-12-01",
+      "status": "DRAFT",
+      "total_debit": 100.00,
+      "total_credit": 100.00,
+      "lines": [...]
     }
   ],
-  "total": 2,
+  "total": 150,
   "skip": 0,
   "limit": 100
 }
 ```
 
----
+### 3. Obtener Asiento por ID
 
-### 🔍 GET /journal-entries/{journal_entry_id}
+**GET** `/journal-entries/{journal_entry_id}`
 
-Obtiene un asiento contable por su ID, incluyendo todas las líneas de detalle.
+Obtiene los detalles completos de un asiento contable.
 
-#### Parámetros de Path
-- `journal_entry_id` (UUID): ID del asiento contable
-
-#### Response Exitosa (200)
+**Response (200):**
 ```json
 {
-  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "number": "JE-2025-000001",
-  "entry_date": "2025-06-15",
-  "reference": "FAC-12345",
-  "description": "Registro de venta a cliente XYZ",
-  "entry_type": "manual",
-  "status": "draft",
-  "total_debit": 1000.00,
-  "total_credit": 1000.00,
-  "created_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "created_at": "2025-06-15T10:30:00Z",
-  "updated_at": "2025-06-15T10:30:00Z",
-  "is_balanced": true,
-  "can_be_posted": false,
-  "can_be_edited": true,
-  "created_by_name": "Juan Pérez",
-  "notes": "Venta al contado",
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "entry_number": "JE-2024-00001",
+  "entry_date": "2024-12-01",
+  "reference": "DOC-001",
+  "description": "Compra de mercancía",
+  "status": "DRAFT",
+  "total_debit": 100.00,
+  "total_credit": 100.00,
+  "created_by_id": "user-id",
+  "created_at": "2024-12-01T10:00:00Z",
   "lines": [
     {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "journal_entry_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-      "account_id": "12345678-1234-1234-1234-123456789012",
-      "description": "Ingreso por venta de mercancía",
-      "debit_amount": 0,
-      "credit_amount": 1000.00,
-      "line_number": 1,
-      "created_at": "2025-06-15T10:30:00Z",
-      "updated_at": "2025-06-15T10:30:00Z",
-      "account_code": "4.1.01",
-      "account_name": "Ingresos por Ventas",
-      "amount": 1000.00,
-      "movement_type": "credit",
-      "reference": "Factura 12345"
-    },
-    {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f1234567890a",
-      "journal_entry_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-      "account_id": "87654321-4321-4321-4321-987654321098",
-      "description": "Cobro por venta de mercancía",
-      "debit_amount": 1000.00,
-      "credit_amount": 0,
-      "line_number": 2,
-      "created_at": "2025-06-15T10:30:00Z",
-      "updated_at": "2025-06-15T10:30:00Z",
-      "account_code": "1.1.01",
-      "account_name": "Caja General",
-      "amount": 1000.00,
-      "movement_type": "debit",
-      "reference": "Factura 12345"
+      "id": "line-id-1",
+      "account": {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "code": "1435",
+        "name": "Inventarios"
+      },
+      "debit_amount": 100.00,
+      "credit_amount": 0.00,
+      "description": "Inventario",
+      "third_party": {
+        "id": "660e8400-e29b-41d4-a716-446655440001",
+        "code": "PROV001",
+        "name": "Proveedor ABC",
+        "document_type": "NIT",
+        "document_number": "123456789"
+      },
+      "cost_center": {
+        "id": "770e8400-e29b-41d4-a716-446655440002",
+        "code": "CC01",
+        "name": "Ventas"
+      }
     }
   ]
 }
 ```
 
-#### Códigos de Error
-- `404 Not Found`: Asiento no encontrado
+### 4. Actualizar Asiento Contable
 
----
+**PUT** `/journal-entries/{journal_entry_id}`
 
-### ✏️ PUT /journal-entries/{journal_entry_id}
+Actualiza un asiento contable (solo en estado borrador).
 
-Actualiza un asiento contable existente (solo si está en estado borrador).
-
-#### Parámetros de Path
-- `journal_entry_id` (UUID): ID del asiento contable
-
-#### Permisos Requeridos
-- El usuario debe tener el permiso `can_create_entries`
-
-#### Request
+**Request Body:**
 ```json
 {
-  "entry_date": "2025-06-16",
-  "reference": "FAC-12345-CORREGIDO",
-  "description": "Registro de venta a cliente XYZ (corregido)",
-  "notes": "Venta al contado - corregido"
+  "description": "Compra de mercancía - Actualizada",
+  "lines": [
+    {
+      "id": "line-id-1",
+      "account_id": "550e8400-e29b-41d4-a716-446655440000",
+      "debit_amount": 150.00,
+      "credit_amount": 0.00,
+      "description": "Inventario actualizado"
+    },
+    {
+      "account_id": "880e8400-e29b-41d4-a716-446655440003",
+      "debit_amount": 0.00,
+      "credit_amount": 150.00,
+      "description": "Cuentas por pagar"
+    }
+  ]
 }
 ```
 
-#### Schema de Request
-```python
-class JournalEntryUpdate(BaseModel):
-    """Schema para actualizar asientos contables (solo borradores)"""
-    entry_date: Optional[date] = None
-    reference: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = Field(None, min_length=1, max_length=1000)
-    notes: Optional[str] = Field(None, max_length=1000)
-```
+### 5. Eliminar Asiento Contable
 
-#### Response Exitosa (200)
+**DELETE** `/journal-entries/{journal_entry_id}`
+
+Elimina un asiento contable (solo en estado borrador).
+
+**Response (204):** Sin contenido
+
+### 6. Aprobar Asiento Contable
+
+**POST** `/journal-entries/{journal_entry_id}/approve`
+
+Cambia el estado del asiento de borrador a aprobado.
+
+**Response (200):**
 ```json
 {
-  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "number": "JE-2025-000001",
-  "entry_date": "2025-06-16",
-  "reference": "FAC-12345-CORREGIDO",
-  "description": "Registro de venta a cliente XYZ (corregido)",
-  "entry_type": "manual",
-  "status": "draft",
-  "total_debit": 1000.00,
-  "total_credit": 1000.00,
-  "created_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "created_at": "2025-06-15T10:30:00Z",
-  "updated_at": "2025-06-15T11:45:00Z",
-  "is_balanced": true,
-  "can_be_posted": false,
-  "can_be_edited": true,
-  "created_by_name": "Juan Pérez",
-  "notes": "Venta al contado - corregido"
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "APPROVED",
+  "approved_by_id": "user-id",
+  "approved_at": "2024-12-01T11:00:00Z"
 }
 ```
 
-#### Códigos de Error
-- `403 Forbidden`: Usuario sin permisos
-- `404 Not Found`: Asiento no encontrado
-- `422 Unprocessable Entity`: Error de validación o asiento no editable
+### 7. Contabilizar Asiento
 
----
+**POST** `/journal-entries/{journal_entry_id}/post`
 
-### 🗑️ DELETE /journal-entries/{journal_entry_id}
+Contabiliza un asiento aprobado, afectando los saldos de las cuentas.
 
-Elimina un asiento contable (solo si está en estado borrador).
-
-#### Parámetros de Path
-- `journal_entry_id` (UUID): ID del asiento contable
-
-#### Permisos Requeridos
-- El usuario debe tener el permiso `can_create_entries`
-
-#### Response Exitosa (204)
-Sin contenido
-
-#### Códigos de Error
-- `403 Forbidden`: Usuario sin permisos
-- `404 Not Found`: Asiento no encontrado
-- `422 Unprocessable Entity`: Asiento no eliminable (no está en borrador)
-
----
-
-### ✅ POST /journal-entries/{journal_entry_id}/approve
-
-Aprueba un asiento contable para su posterior contabilización.
-
-#### Parámetros de Path
-- `journal_entry_id` (UUID): ID del asiento contable
-
-#### Permisos Requeridos
-- El usuario debe tener el permiso `can_create_entries`
-
-#### Response Exitosa (200)
+**Request Body (opcional):**
 ```json
 {
-  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "number": "JE-2025-000001",
-  "entry_date": "2025-06-16",
-  "reference": "FAC-12345",
-  "description": "Registro de venta a cliente XYZ",
-  "entry_type": "manual",
-  "status": "approved",
-  "total_debit": 1000.00,
-  "total_credit": 1000.00,
-  "created_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "approved_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "created_at": "2025-06-15T10:30:00Z",
-  "updated_at": "2025-06-15T11:45:00Z",
-  "is_balanced": true,
-  "can_be_posted": true,
-  "can_be_edited": false,
-  "created_by_name": "Juan Pérez",
-  "notes": "Venta al contado"
+  "post_date": "2024-12-01",
+  "reason": "Contabilización automática"
 }
 ```
 
-#### Códigos de Error
-- `403 Forbidden`: Usuario sin permisos
-- `404 Not Found`: Asiento no encontrado
-- `422 Unprocessable Entity`: Errores de validación o asiento no aprobable
-
----
-
-### 📊 POST /journal-entries/{journal_entry_id}/post
-
-Contabiliza un asiento aprobado, afectando los saldos de las cuentas involucradas.
-
-#### Parámetros de Path
-- `journal_entry_id` (UUID): ID del asiento contable
-
-#### Permisos Requeridos
-- El usuario debe tener el permiso `can_create_entries`
-
-#### Request
+**Response (200):**
 ```json
 {
-  "reason": "Contabilizado después de verificar documentación"
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "POSTED",
+  "posted_by_id": "user-id",
+  "posted_at": "2024-12-01T12:00:00Z"
 }
 ```
 
-#### Schema de Request
-```python
-class JournalEntryPost(BaseModel):
-    """Schema para contabilizar asiento"""
-    reason: Optional[str] = Field(None, max_length=500, description="Razón para contabilizar")
-```
+### 8. Cancelar Asiento
 
-#### Response Exitosa (200)
+**POST** `/journal-entries/{journal_entry_id}/cancel`
+
+Cancela un asiento contable. Para asientos contabilizados, crea un asiento de reversión.
+
+**Request Body:**
 ```json
 {
-  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "number": "JE-2025-000001",
-  "entry_date": "2025-06-16",
-  "reference": "FAC-12345",
-  "description": "Registro de venta a cliente XYZ",
-  "entry_type": "manual",
-  "status": "posted",
-  "total_debit": 1000.00,
-  "total_credit": 1000.00,
-  "created_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "approved_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "posted_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "created_at": "2025-06-15T10:30:00Z",
-  "updated_at": "2025-06-15T11:45:00Z",
-  "posted_at": "2025-06-15T12:00:00Z",
-  "is_balanced": true,
-  "can_be_posted": false,
-  "can_be_edited": false,
-  "created_by_name": "Juan Pérez",
-  "posted_by_name": "Juan Pérez",
-  "notes": "Venta al contado\n\nContabilizado: Contabilizado después de verificar documentación"
+  "reason": "Error en los datos",
+  "cancel_date": "2024-12-01"
 }
 ```
 
-#### Códigos de Error
-- `403 Forbidden`: Usuario sin permisos
-- `404 Not Found`: Asiento no encontrado
-- `422 Unprocessable Entity`: Asiento no contabilizable o desbalanceado
+### 9. Revertir Asiento
 
----
+**POST** `/journal-entries/{journal_entry_id}/reverse`
 
-### ❌ POST /journal-entries/{journal_entry_id}/cancel
+Crea un asiento de reversión para un asiento contabilizado.
 
-Cancela un asiento contable (con o sin reversión automática).
+**Query Parameters:**
+- `reason` (string, required): Razón de la reversión
 
-#### Parámetros de Path
-- `journal_entry_id` (UUID): ID del asiento contable
-
-#### Permisos Requeridos
-- El usuario debe tener el permiso `can_create_entries`
-
-#### Request
+**Response (200):**
 ```json
 {
-  "reason": "Cancelado por error en factura"
+  "id": "new-reversal-entry-id",
+  "entry_number": "JE-2024-00002",
+  "description": "Reversión de JE-2024-00001 - Error en los datos",
+  "status": "DRAFT",
+  "original_entry_id": "123e4567-e89b-12d3-a456-426614174000"
 }
 ```
 
-#### Schema de Request
-```python
-class JournalEntryCancel(BaseModel):
-    """Schema para cancelar asiento"""
-    reason: str = Field(..., min_length=1, max_length=500, description="Razón para cancelar")
-```
+### 10. Obtener Estadísticas
 
-#### Response Exitosa (200)
+**GET** `/journal-entries/statistics/summary`
+
+Obtiene estadísticas de asientos contables.
+
+**Query Parameters:**
+- `date_from` (date): Fecha desde
+- `date_to` (date): Fecha hasta
+
+**Response (200):**
 ```json
 {
-  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "number": "JE-2025-000001",
-  "entry_date": "2025-06-16",
-  "reference": "FAC-12345",
-  "description": "Registro de venta a cliente XYZ",
-  "entry_type": "manual",
-  "status": "cancelled",
-  "total_debit": 1000.00,
-  "total_credit": 1000.00,
-  "created_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "approved_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "posted_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "cancelled_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "created_at": "2025-06-15T10:30:00Z",
-  "updated_at": "2025-06-15T11:45:00Z",
-  "posted_at": "2025-06-15T12:00:00Z",
-  "cancelled_at": "2025-06-15T14:30:00Z",
-  "is_balanced": true,
-  "can_be_posted": false,
-  "can_be_edited": false,
-  "created_by_name": "Juan Pérez",
-  "posted_by_name": "Juan Pérez",
-  "notes": "Venta al contado\n\nCancelado: Cancelado por error en factura"
+  "total_entries": 1250,
+  "draft_entries": 45,
+  "approved_entries": 12,
+  "posted_entries": 1180,
+  "cancelled_entries": 13,
+  "total_debit_amount": 2500000.00,
+  "total_credit_amount": 2500000.00,
+  "average_entry_amount": 2000.00,
+  "entries_by_month": [
+    {
+      "month": "2024-12",
+      "count": 85,
+      "total_amount": 170000.00
+    }
+  ]
 }
 ```
 
-#### Códigos de Error
-- `403 Forbidden`: Usuario sin permisos
-- `404 Not Found`: Asiento no encontrado
-- `422 Unprocessable Entity`: Error en proceso de cancelación o asiento ya cancelado
+### 11. Búsqueda Avanzada
 
----
+**GET** `/journal-entries/search`
 
-### ↩️ POST /journal-entries/{journal_entry_id}/reverse
+Búsqueda avanzada de asientos contables con filtros múltiples.
 
-Crea un asiento de reversión a partir de un asiento existente.
+**Query Parameters:**
+- Filtros de `JournalEntryFilter` como query parameters
 
-#### Parámetros de Path
-- `journal_entry_id` (UUID): ID del asiento contable a revertir
-
-#### Parámetros de Query
-- `reason` (string): Razón para la reversión (obligatorio)
-
-#### Permisos Requeridos
-- El usuario debe tener el permiso `can_create_entries`
-
-#### Response Exitosa (200)
-```json
-{
-  "id": "g58bd21c-69dd-5483-b678-1f13c3d4580",
-  "number": "JE-2025-000003",
-  "entry_date": "2025-06-16",
-  "reference": "REV-JE-2025-000001",
-  "description": "Reversión de asiento JE-2025-000001",
-  "entry_type": "reversal",
-  "status": "posted",
-  "total_debit": 1000.00,
-  "total_credit": 1000.00,
-  "created_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "approved_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "posted_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-  "created_at": "2025-06-16T09:30:00Z",
-  "updated_at": "2025-06-16T09:30:00Z",
-  "posted_at": "2025-06-16T09:30:00Z",
-  "is_balanced": true,
-  "can_be_posted": false,
-  "can_be_edited": false,
-  "created_by_name": "Juan Pérez",
-  "posted_by_name": "Juan Pérez",
-  "notes": "Cancelado por error en factura"
-}
-```
-
-#### Códigos de Error
-- `403 Forbidden`: Usuario sin permisos
-- `404 Not Found`: Asiento original no encontrado
-- `422 Unprocessable Entity`: Error en proceso de reversión
-
----
-
-### 📊 GET /journal-entries/statistics/summary
-
-Obtiene estadísticas resumidas de asientos contables.
-
-#### Parámetros de Query
-- `date_from` (date, opcional): Estadísticas desde fecha
-- `date_to` (date, opcional): Estadísticas hasta fecha
-
-#### Response Exitosa (200)
-```json
-{
-  "total_entries": 125,
-  "draft_entries": 15,
-  "approved_entries": 10,
-  "posted_entries": 95,
-  "cancelled_entries": 5,
-  "total_debit_amount": "240500.00",
-  "total_credit_amount": "240500.00",
-  "entries_this_month": 45,
-  "entries_this_year": 125
-}
-```
-
----
-
-### 🔍 GET /journal-entries/search
-
-Búsqueda avanzada de asientos contables con múltiples filtros.
-
-#### Parámetros de Query
-Cualquier combinación de los siguientes:
-- `start_date` (date): Desde fecha
-- `end_date` (date): Hasta fecha
-- `status` (string): Estado del asiento
-- `entry_type` (string): Tipo de asiento
-- `account_id` (UUID): Filtrar por cuenta específica
-- `created_by_id` (UUID): Filtrar por creador
-- `search` (string): Texto libre para buscar en descripción/referencia
-
-#### Response Exitosa (200)
+**Response (200):**
 ```json
 [
   {
-    "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-    "number": "JE-2025-000001",
-    "entry_date": "2025-06-15",
-    "reference": "FAC-12345",
-    "description": "Registro de venta a cliente XYZ",
-    "status": "posted",
-    "entry_type": "manual",
-    "total_debit": 1000.00,
-    "created_by_name": "Juan Pérez",
-    "created_at": "2025-06-15T10:30:00Z"
-  },
-  {
-    "id": "d47ac10b-58cc-4372-a567-0e02b2c3d123",
-    "number": "JE-2025-000002",
-    "entry_date": "2025-06-16",
-    "reference": "FAC-12346",
-    "description": "Registro de compra a proveedor ABC",
-    "status": "posted",
-    "entry_type": "manual",
-    "total_debit": 500.00,
-    "created_by_name": "María Rodríguez",
-    "created_at": "2025-06-16T09:15:00Z"
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "entry_number": "JE-2024-00001",
+    "status": "POSTED",
+    "lines": [...]
   }
 ]
 ```
 
----
+### 12. Creación Masiva
 
-### 📦 POST /journal-entries/bulk-create
+**POST** `/journal-entries/bulk-create`
 
 Crea múltiples asientos contables en una sola operación.
 
-#### Permisos Requeridos
-- El usuario debe tener el permiso `can_create_entries`
-
-#### Request
+**Request Body:**
 ```json
 [
   {
-    "entry_date": "2025-06-15",
-    "reference": "FAC-12345",
-    "description": "Registro de venta a cliente XYZ",
-    "entry_type": "manual",
-    "notes": "Venta al contado",
-    "lines": [
-      {
-        "account_id": "12345678-1234-1234-1234-123456789012",
-        "description": "Ingreso por venta de mercancía",
-        "debit_amount": 0,
-        "credit_amount": 1000.00,
-        "reference": "Factura 12345"
-      },
-      {
-        "account_id": "87654321-4321-4321-4321-987654321098",
-        "description": "Cobro por venta de mercancía",
-        "debit_amount": 1000.00,
-        "credit_amount": 0,
-        "reference": "Factura 12345"
-      }
-    ]
+    "entry_date": "2024-12-01",
+    "reference": "DOC-001",
+    "description": "Asiento 1",
+    "lines": [...]
   },
   {
-    "entry_date": "2025-06-16",
-    "reference": "FAC-12346",
-    "description": "Registro de compra a proveedor ABC",
-    "entry_type": "manual",
-    "notes": "Compra a crédito",
-    "lines": [
-      {
-        "account_id": "23456789-2345-2345-2345-234567890123",
-        "description": "Compra de inventario",
-        "debit_amount": 500.00,
-        "credit_amount": 0,
-        "reference": "Factura Prov-987"
-      },
-      {
-        "account_id": "34567890-3456-3456-3456-345678901234",
-        "description": "Cuenta por pagar",
-        "debit_amount": 0,
-        "credit_amount": 500.00,
-        "reference": "Factura Prov-987"
-      }
-    ]
+    "entry_date": "2024-12-01",
+    "reference": "DOC-002",
+    "description": "Asiento 2",
+    "lines": [...]
   }
 ]
 ```
 
-#### Response Exitosa (200)
+### 13. Obtener por Número
+
+**GET** `/journal-entries/by-number/{entry_number}`
+
+Obtiene un asiento contable por su número único.
+
+## Operaciones Masivas
+
+### Validación Previa
+
+Todos los endpoints de operaciones masivas incluyen endpoints de validación correspondientes:
+
+- `POST /journal-entries/validate-deletion` - Validar eliminación
+- `POST /journal-entries/validate-approve` - Validar aprobación
+- `POST /journal-entries/validate-post` - Validar contabilización
+- `POST /journal-entries/validate-cancel` - Validar cancelación
+- `POST /journal-entries/validate-reverse` - Validar reversión
+- `POST /journal-entries/validate-reset-to-draft` - Validar reset a borrador
+
+### Operaciones Masivas Disponibles
+
+#### 1. Eliminación Masiva
+
+**POST** `/journal-entries/bulk-delete`
+
 ```json
-[
-  {
-    "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-    "number": "JE-2025-000001",
-    "entry_date": "2025-06-15",
-    "reference": "FAC-12345",
-    "description": "Registro de venta a cliente XYZ",
-    "entry_type": "manual",
-    "status": "draft",
-    "total_debit": 1000.00,
-    "total_credit": 1000.00,
-    "created_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-    "created_at": "2025-06-15T10:30:00Z",
-    "updated_at": "2025-06-15T10:30:00Z",
-    "is_balanced": true,
-    "can_be_posted": false,
-    "can_be_edited": true,
-    "created_by_name": "Juan Pérez",
-    "notes": "Venta al contado"
-  },
-  {
-    "id": "d47ac10b-58cc-4372-a567-0e02b2c3d123",
-    "number": "JE-2025-000002",
-    "entry_date": "2025-06-16",
-    "reference": "FAC-12346",
-    "description": "Registro de compra a proveedor ABC",
-    "entry_type": "manual",
-    "status": "draft",
-    "total_debit": 500.00,
-    "total_credit": 500.00,
-    "created_by_id": "abcdef12-3456-7890-abcd-ef1234567890",
-    "created_at": "2025-06-15T10:30:00Z",
-    "updated_at": "2025-06-15T10:30:00Z",
-    "is_balanced": true,
-    "can_be_posted": false,
-    "can_be_edited": true,
-    "created_by_name": "Juan Pérez",
-    "notes": "Compra a crédito"
-  }
-]
+{
+  "journal_entry_ids": ["id1", "id2", "id3"],
+  "force_delete": false,
+  "reason": "Corrección de datos"
+}
 ```
 
-#### Códigos de Error
-- `400 Bad Request`: Validación fallida en algún asiento
-- `403 Forbidden`: Usuario sin permisos
-- `422 Unprocessable Entity`: Error en la validación de algún asiento
+#### 2. Aprobación Masiva
 
----
+**POST** `/journal-entries/bulk-approve`
 
-### 🔢 GET /journal-entries/by-number/{entry_number}
+```json
+{
+  "journal_entry_ids": ["id1", "id2", "id3"],
+  "force_approve": false,
+  "reason": "Aprobación en lote"
+}
+```
 
-Obtiene un asiento contable por su número.
+#### 3. Contabilización Masiva
 
-#### Parámetros de Path
-- `entry_number` (string): Número del asiento contable (ej. "JE-2025-000001")
+**POST** `/journal-entries/bulk-post`
 
-#### Response Exitosa (200)
-Igual que GET /journal-entries/{id} pero con búsqueda por número.
+```json
+{
+  "journal_entry_ids": ["id1", "id2", "id3"],
+  "force_post": false,
+  "reason": "Contabilización mensual"
+}
+```
 
-#### Códigos de Error
-- `404 Not Found`: Asiento no encontrado
+#### 4. Cancelación Masiva
 
----
+**POST** `/journal-entries/bulk-cancel`
 
-## 🔄 Flujos de Trabajo Comunes
+```json
+{
+  "journal_entry_ids": ["id1", "id2", "id3"],
+  "force_cancel": false,
+  "reason": "Cancelación por error"
+}
+```
 
-### Ciclo Completo de un Asiento
+#### 5. Reversión Masiva
 
-1. **Creación**:
-   - `POST /journal-entries/` para crear el asiento en borrador
+**POST** `/journal-entries/bulk-reverse`
 
-2. **Revisión y Aprobación**:
-   - `PUT /journal-entries/{id}` para ajustes si es necesario
-   - `POST /journal-entries/{id}/approve` para aprobar el asiento
+```json
+{
+  "journal_entry_ids": ["id1", "id2", "id3"],
+  "force_reverse": false,
+  "reason": "Reversión de cierre"
+}
+```
 
-3. **Contabilización**:
-   - `POST /journal-entries/{id}/post` para contabilizar el asiento
+#### 6. Reset a Borrador Masivo
 
-4. **En caso de error**:
-   - `POST /journal-entries/{id}/cancel` para cancelar el asiento
-   - `POST /journal-entries/{id}/reverse` para crear una reversión
+**POST** `/journal-entries/bulk-reset-to-draft`
 
-### Importación Masiva
+```json
+{
+  "journal_entry_ids": ["id1", "id2", "id3"],
+  "force_reset": false,
+  "reason": "Corrección requerida"
+}
+```
 
-1. **Carga Inicial**:
-   - `POST /journal-entries/bulk-create` con múltiples asientos
+### Respuesta de Operaciones Masivas
 
-2. **Procesamiento por Lotes**:
-   - Aprobación y contabilización individual o usar scripts de backend
+Todas las operaciones masivas retornan una respuesta similar:
 
-## 🔐 Seguridad y Permisos
+```json
+{
+  "total_requested": 5,
+  "total_processed": 3,
+  "total_succeeded": 2,
+  "total_failed": 1,
+  "succeeded_entries": [
+    {
+      "journal_entry_id": "id1",
+      "journal_entry_number": "JE-2024-00001",
+      "status": "POSTED"
+    }
+  ],
+  "failed_entries": [
+    {
+      "journal_entry_id": "id2",
+      "journal_entry_number": "JE-2024-00002",
+      "errors": ["El asiento ya está contabilizado"],
+      "warnings": []
+    }
+  ]
+}
+```
 
-Los endpoints de asientos contables requieren diferentes niveles de permiso:
+### Reset a Borrador Individual
 
-- **Lectura/Consulta**: Todos los usuarios con acceso al módulo contable
-- **Creación/Edición**: Usuarios con permiso `can_create_entries`
-- **Cancelación/Reversión**: Usuarios con permiso `can_create_entries` (generalmente restringido a administradores)
+**POST** `/journal-entries/{journal_entry_id}/reset-to-draft`
 
-## 🛠️ Consideraciones Técnicas
+Regresa un asiento individual al estado borrador.
 
-- Todas las operaciones son transaccionales para mantener integridad de datos
-- Las respuestas incluyen campos calculados como `is_balanced`, `can_be_posted`, etc.
-- El sistema mantiene registro detallado de auditoría en cada operación
-- Se aplican validaciones estrictas para garantizar la integridad contable
+**Request Body:**
+```json
+{
+  "reason": "Corrección requerida",
+  "force_reset": false
+}
+```
 
-## 🔄 Integración con Otros Módulos
+## Reglas de Negocio
 
-- Los asientos contables están vinculados con **cuentas contables** y afectan sus saldos
-- Las operaciones de contabilización actualizan los **movimientos de cuentas**
-- Los **reportes financieros** consultan la información de asientos contabilizados
-- El sistema de **usuarios** valida permisos y registra la auditoría
+### Validaciones de Balance
+
+- La suma de débitos debe ser igual a la suma de créditos
+- Cada línea debe tener exactamente un valor: débito O crédito, no ambos
+- Los montos deben ser positivos
+
+### Flujo de Estados
+
+1. **DRAFT**: Estado inicial, permite todas las modificaciones
+2. **APPROVED**: Asiento validado, listo para contabilización
+3. **POSTED**: Asiento contabilizado, afecta balances
+4. **CANCELLED**: Asiento cancelado, no afecta balances
+
+### Restricciones por Estado
+
+- **DRAFT**: Se puede editar, eliminar, aprobar
+- **APPROVED**: Se puede contabilizar, reset a borrador
+- **POSTED**: Se puede cancelar (crea reversión), revertir
+- **CANCELLED**: Solo lectura
+
+### Auditoría
+
+Todos los cambios de estado quedan registrados con:
+- Usuario que realizó el cambio
+- Fecha y hora del cambio
+- Razón del cambio (cuando aplica)
+
+## Códigos de Error Comunes
+
+| Código | Descripción |
+|--------|-------------|
+| 400 | Validación de balance fallida |
+| 403 | Sin permisos para crear/modificar asientos |
+| 404 | Asiento contable no encontrado |
+| 422 | Error de validación de datos |
+| 500 | Error interno del servidor |
+
+## Ejemplos de Integración
+
+### Crear Asiento Completo
+
+```python
+import requests
+
+# Crear asiento
+response = requests.post(
+    "https://api.contable.com/v1/journal-entries/",
+    headers={"Authorization": "Bearer <token>"},
+    json={
+        "entry_date": "2024-12-01",
+        "reference": "FACT-001",
+        "description": "Venta a crédito",
+        "lines": [
+            {
+                "account_id": "deudores-id",
+                "debit_amount": 119.00,
+                "description": "Cliente ABC"
+            },
+            {
+                "account_id": "ventas-id",
+                "credit_amount": 100.00,
+                "description": "Venta productos"
+            },
+            {
+                "account_id": "iva-id",
+                "credit_amount": 19.00,
+                "description": "IVA ventas"
+            }
+        ]
+    }
+)
+
+asiento = response.json()
+print(f"Asiento creado: {asiento['entry_number']}")
+
+# Aprobar asiento
+response = requests.post(
+    f"https://api.contable.com/v1/journal-entries/{asiento['id']}/approve",
+    headers={"Authorization": "Bearer <token>"}
+)
+
+# Contabilizar asiento
+response = requests.post(
+    f"https://api.contable.com/v1/journal-entries/{asiento['id']}/post",
+    headers={"Authorization": "Bearer <token>"}
+)
+```
+
+### Operación Masiva con Validación
+
+```python
+entry_ids = ["id1", "id2", "id3"]
+
+# Validar antes de aprobar
+validation_response = requests.post(
+    "https://api.contable.com/v1/journal-entries/validate-approve",
+    headers={"Authorization": "Bearer <token>"},
+    json=entry_ids
+)
+
+validations = validation_response.json()
+valid_ids = [v["journal_entry_id"] for v in validations if v["can_approve"]]
+
+# Aprobar solo los válidos
+if valid_ids:
+    response = requests.post(
+        "https://api.contable.com/v1/journal-entries/bulk-approve",
+        headers={"Authorization": "Bearer <token>"},
+        json={
+            "journal_entry_ids": valid_ids,
+            "reason": "Aprobación masiva validada"
+        }
+    )
+```
+
+## Mejores Prácticas
+
+1. **Validar antes de operaciones masivas** usando los endpoints de validación
+2. **Usar transacciones** para operaciones críticas
+3. **Verificar permisos** antes de realizar cambios
+4. **Incluir razones** en operaciones de cambio de estado
+5. **Manejar errores** de balance y validación apropiadamente
+6. **Usar paginación** para listas grandes de asientos
+7. **Filtrar por fechas** para mejorar rendimiento en consultas

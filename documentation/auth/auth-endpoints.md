@@ -1,4 +1,4 @@
-# Endpoints de Autenticación
+# Endpoints de Autenticación - ACTUALIZADO
 
 ## Descripción General
 
@@ -22,15 +22,51 @@ Content-Type: application/json
 
 {
   "email": "usuario@empresa.com",
-  "password": "mi_contraseña_segura"
+  "password": "mi_password_seguro"
 }
 ```
 
 #### Schema de Request
 ```python
 class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
+    email: str  # Email del usuario
+    password: str  # Contraseña del usuario
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_in": 1800,
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "email": "usuario@empresa.com",
+    "first_name": "Juan",
+    "last_name": "Pérez",
+    "role": "CONTADOR",
+    "is_active": true
+  }
+}
+```
+
+#### Códigos de Error
+- **401 Unauthorized**: Credenciales inválidas
+- **404 Not Found**: Usuario no encontrado
+- **422 Unprocessable Entity**: Formato de datos inválido
+
+---
+
+### 🔐 POST /login/form
+Autenticación compatible con OAuth2PasswordRequestForm (para compatibilidad).
+
+#### Request
+```http
+POST /api/v1/auth/login/form
+Content-Type: application/x-www-form-urlencoded
+
+username=usuario@empresa.com&password=mi_password_seguro
 ```
 
 #### Response Exitosa (200)
@@ -41,83 +77,6 @@ class UserLogin(BaseModel):
   "expires_in": 1800,
   "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
-```
-
-#### Schema de Response
-```python
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    refresh_token: str
-```
-
-#### Códigos de Error
-- **400 Bad Request**: Datos de entrada inválidos
-- **401 Unauthorized**: Credenciales incorrectas
-- **423 Locked**: Cuenta bloqueada por intentos fallidos
-- **422 Unprocessable Entity**: Formato de email inválido
-
-#### Ejemplo de Error
-```json
-{
-  "detail": "Credenciales inválidas"
-}
-```
-
-#### Ejemplo de Uso
-```python
-import httpx
-
-async def login_user(email: str, password: str):
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "http://localhost:8000/api/v1/auth/login",
-            json={"email": email, "password": password}
-        )
-        
-        if response.status_code == 200:
-            tokens = response.json()
-            return tokens
-        else:
-            raise Exception(f"Login failed: {response.text}")
-
-# Uso
-tokens = await login_user("admin@contable.com", "Admin123!")
-access_token = tokens["access_token"]
-```
-
----
-
-### 🔐 POST /login/form
-Autenticación compatible con OAuth2PasswordRequestForm.
-
-#### Request
-```http
-POST /api/v1/auth/login/form
-Content-Type: application/x-www-form-urlencoded
-
-username=usuario@empresa.com&password=mi_contraseña_segura
-```
-
-#### Parámetros Form
-- `username`: Email del usuario (OAuth2 estándar usa 'username')
-- `password`: Contraseña del usuario
-
-#### Response
-Misma estructura que `/login`
-
-#### Ejemplo de Uso con FastAPI TestClient
-```python
-from fastapi.testclient import TestClient
-
-def test_login_form():
-    response = client.post(
-        "/api/v1/auth/login/form",
-        data={"username": "admin@contable.com", "password": "Admin123!"}
-    )
-    assert response.status_code == 200
-    assert "access_token" in response.json()
 ```
 
 ---
@@ -155,23 +114,6 @@ class RefreshTokenRequest(BaseModel):
 - **401 Unauthorized**: Refresh token inválido o expirado
 - **422 Unprocessable Entity**: Formato de request inválido
 
-#### Ejemplo de Uso
-```python
-async def refresh_access_token(refresh_token: str):
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "http://localhost:8000/api/v1/auth/refresh",
-            json={"refresh_token": refresh_token}
-        )
-        
-        if response.status_code == 200:
-            new_tokens = response.json()
-            return new_tokens["access_token"]
-        else:
-            # Refresh token inválido, requerir login
-            raise Exception("Please login again")
-```
-
 ---
 
 ### 🚪 POST /logout
@@ -182,9 +124,6 @@ Cierre de sesión del usuario autenticado.
 POST /api/v1/auth/logout
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
-
-#### Headers Requeridos
-- `Authorization`: Bearer token del usuario autenticado
 
 #### Response Exitosa (200)
 ```json
@@ -197,172 +136,58 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - **401 Unauthorized**: Token inválido o expirado
 - **500 Internal Server Error**: Error durante el logout
 
-#### Ejemplo de Uso
-```python
-async def logout_user(access_token: str):
-    headers = {"Authorization": f"Bearer {access_token}"}
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "http://localhost:8000/api/v1/auth/logout",
-            headers=headers
-        )
-        
-        if response.status_code == 200:
-            print("Logout successful")
-            # Eliminar tokens del almacenamiento local
-            clear_stored_tokens()
-        else:
-            print(f"Logout failed: {response.text}")
-```
-
 ---
 
 ### 👤 POST /setup-admin
-Endpoint especial para crear el primer usuario administrador.
+Endpoint especial para crear el primer usuario administrador del sistema.
+
+**NOTA IMPORTANTE**: Este endpoint solo funciona si no existe ningún administrador en el sistema. Es útil para la configuración inicial.
 
 #### Request
 ```http
 POST /api/v1/auth/setup-admin
+Content-Type: application/json
 ```
-
-#### Sin Parámetros
-Este endpoint utiliza configuraciones predefinidas del sistema.
 
 #### Response Exitosa (200)
 ```json
 {
-  "id": "uuid-del-admin",
-  "email": "admin@contable.com",
-  "full_name": "Administrador del Sistema",
+  "id": "admin-uuid-here",
+  "email": "admin@sistema.com",
+  "first_name": "Administrador",
+  "last_name": "Sistema",
   "role": "ADMIN",
   "is_active": true,
-  "created_at": "2025-06-10T10:30:00Z"
+  "must_change_password": true,
+  "created_at": "2024-06-15T14:30:00Z",
+  "updated_at": "2024-06-15T14:30:00Z"
 }
-```
-
-#### Schema de Response
-```python
-class UserRead(BaseModel):
-    id: UUID
-    email: EmailStr
-    full_name: str
-    role: UserRole
-    is_active: bool
-    # ... otros campos
 ```
 
 #### Códigos de Error
-- **409 Conflict**: Ya existe un administrador en el sistema
+- **409 Conflict**: Ya existe un usuario administrador en el sistema
 - **500 Internal Server Error**: Error creando el administrador
 
-#### Ejemplo de Error
-```json
-{
-  "detail": "Ya existe un usuario administrador en el sistema"
-}
-```
-
-#### Ejemplo de Uso
-```python
-async def setup_initial_admin():
-    """Se ejecuta durante la configuración inicial del sistema"""
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "http://localhost:8000/api/v1/auth/setup-admin"
-        )
-        
-        if response.status_code == 200:
-            admin_user = response.json()
-            print(f"Admin created: {admin_user['email']}")
-            return admin_user
-        elif response.status_code == 409:
-            print("Admin already exists")
-            return None
-        else:
-            raise Exception(f"Failed to create admin: {response.text}")
-```
-
-## Configuración de Headers
-
-### Headers de Request Comunes
-```http
-Content-Type: application/json
-Accept: application/json
-User-Agent: MyApp/1.0
-```
-
-### Headers de Autenticación
-```http
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
-## Manejo de Errores
-
-### Estructura de Error Estándar
-```json
-{
-  "detail": "Descripción del error",
-  "error_code": "CODIGO_ERROR_OPCIONAL",
-  "context": {
-    "campo_adicional": "valor_adicional"
-  }
-}
-```
-
-### Códigos de Error Comunes
-
-#### 400 Bad Request
-```json
-{
-  "detail": "Invalid request format",
-  "error_code": "VALIDATION_ERROR"
-}
-```
-
-#### 401 Unauthorized
-```json
-{
-  "detail": "Credenciales inválidas",
-  "error_code": "AUTHENTICATION_ERROR"
-}
-```
-
-#### 423 Locked
-```json
-{
-  "detail": "Cuenta bloqueada hasta 2025-06-10 11:00:00",
-  "error_code": "ACCOUNT_LOCKED",
-  "context": {
-    "locked_until": "2025-06-10T11:00:00Z",
-    "attempts": 5
-  }
-}
-```
-
-#### 429 Too Many Requests
-```json
-{
-  "detail": "Too many requests. Try again later.",
-  "error_code": "RATE_LIMIT_EXCEEDED",
-  "context": {
-    "retry_after": 60
-  }
-}
-```
+---
 
 ## Flujos de Integración
 
 ### Flujo Completo de Autenticación
+
 ```python
-class AuthClient:
+import httpx
+import asyncio
+from datetime import datetime, timedelta
+
+class ApiClient:
     def __init__(self, base_url: str):
         self.base_url = base_url
         self.access_token = None
         self.refresh_token = None
+        self.token_expires_at = None
     
     async def login(self, email: str, password: str):
-        """Autentica usuario y almacena tokens"""
+        """Autenticar usuario"""
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{self.base_url}/auth/login",
@@ -370,15 +195,16 @@ class AuthClient:
             )
             
             if response.status_code == 200:
-                tokens = response.json()
-                self.access_token = tokens["access_token"]
-                self.refresh_token = tokens["refresh_token"]
-                return True
+                data = response.json()
+                self.access_token = data["access_token"]
+                self.refresh_token = data["refresh_token"]
+                self.token_expires_at = datetime.now() + timedelta(seconds=data["expires_in"])
+                return data["user"]
             else:
                 raise Exception(f"Login failed: {response.json()}")
     
     async def make_authenticated_request(self, method: str, url: str, **kwargs):
-        """Hace request autenticado con manejo de renovación"""
+        """Hacer request autenticado con renovación automática de token"""
         headers = kwargs.get("headers", {})
         headers["Authorization"] = f"Bearer {self.access_token}"
         kwargs["headers"] = headers
@@ -405,17 +231,13 @@ class AuthClient:
             if response.status_code == 200:
                 tokens = response.json()
                 self.access_token = tokens["access_token"]
-                # Opcionalmente actualizar refresh token
-                if "refresh_token" in tokens:
-                    self.refresh_token = tokens["refresh_token"]
+                self.refresh_token = tokens["refresh_token"]
+                self.token_expires_at = datetime.now() + timedelta(seconds=tokens["expires_in"])
             else:
-                # Refresh token inválido, requerir login
-                self.access_token = None
-                self.refresh_token = None
-                raise Exception("Please login again")
+                raise Exception("Token refresh failed")
     
     async def logout(self):
-        """Cierra sesión del usuario"""
+        """Cerrar sesión"""
         if self.access_token:
             async with httpx.AsyncClient() as client:
                 await client.post(
@@ -425,18 +247,28 @@ class AuthClient:
         
         self.access_token = None
         self.refresh_token = None
+        self.token_expires_at = None
 
-# Uso del cliente
-auth_client = AuthClient("http://localhost:8000/api/v1")
-await auth_client.login("admin@contable.com", "Admin123!")
-
-# Hacer requests autenticados
-response = await auth_client.make_authenticated_request(
-    "GET", "http://localhost:8000/api/v1/users/me"
-)
+# Ejemplo de uso
+async def main():
+    api = ApiClient("http://localhost:8000/api/v1")
+    
+    # Login
+    user = await api.login("usuario@empresa.com", "password")
+    print(f"Logged in as: {user['email']}")
+    
+    # Hacer request autenticado
+    response = await api.make_authenticated_request(
+        "GET", "http://localhost:8000/api/v1/users/me"
+    )
+    print(f"User info: {response.json()}")
+    
+    # Logout
+    await api.logout()
 ```
 
 ### Integración con Frontend (JavaScript)
+
 ```javascript
 class ApiClient {
   constructor(baseUrl) {
@@ -461,7 +293,7 @@ class ApiClient {
       localStorage.setItem('access_token', this.accessToken);
       localStorage.setItem('refresh_token', this.refreshToken);
       
-      return true;
+      return tokens.user;
     } else {
       const error = await response.json();
       throw new Error(error.detail);
@@ -531,6 +363,11 @@ const userData = await response.json();
 
 ## Seguridad y Mejores Prácticas
 
+### Configuración de Tokens
+- **Access Token**: Válido por 30 minutos
+- **Refresh Token**: Válido por 7 días
+- **Algoritmo**: HS256 (HMAC SHA-256)
+
 ### Rate Limiting
 ```python
 # Implementar rate limiting en endpoints sensibles
@@ -556,174 +393,97 @@ async def login(
     # Email formato válido, password presente, etc.
 ```
 
-### Headers de Seguridad
+### Headers de Seguridad Recomendados
 ```python
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-
-# Configurar CORS apropiadamente
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://myapp.com"],  # No usar * en producción
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Authorization", "Content-Type"],
-)
-
-# Headers de seguridad adicionales
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    return response
+# En middleware o responses
+headers = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-XSS-Protection": "1; mode=block",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains"
+}
 ```
 
-### Logging y Auditoría
-```python
-import logging
+## Códigos de Error Comunes
 
-logger = logging.getLogger(__name__)
+### 400 Bad Request
+- Formato de JSON inválido
+- Campos requeridos faltantes
 
-@router.post("/login")
-async def login(
-    login_data: UserLogin,
-    request: Request,
-    db: AsyncSession = Depends(get_db)
-):
-    client_ip = request.client.host
-    user_agent = request.headers.get("User-Agent")
-    
-    try:
-        # Intentar autenticación
-        result = await auth_service.login_user(
-            login_data.email, 
-            login_data.password
-        )
-        
-        # Log exitoso
-        logger.info(
-            f"Successful login: {login_data.email} from {client_ip}",
-            extra={
-                "event": "login_success",
-                "email": login_data.email,
-                "ip": client_ip,
-                "user_agent": user_agent
-            }
-        )
-        
-        return result
-        
-    except AuthenticationError:
-        # Log fallido
-        logger.warning(
-            f"Failed login attempt: {login_data.email} from {client_ip}",
-            extra={
-                "event": "login_failed",
-                "email": login_data.email,
-                "ip": client_ip,
-                "user_agent": user_agent
-            }
-        )
-        raise_authentication_error("Credenciales inválidas")
-```
+### 401 Unauthorized
+- Credenciales inválidas
+- Token expirado o inválido
+
+### 403 Forbidden
+- Usuario inactivo
+- Permisos insuficientes
+
+### 404 Not Found
+- Usuario no encontrado
+- Endpoint no existe
+
+### 409 Conflict
+- Admin ya existe (en setup-admin)
+
+### 422 Unprocessable Entity
+- Validación de datos falló
+- Formato de email inválido
+
+### 429 Too Many Requests
+- Rate limit excedido
+- Demasiados intentos de login
+
+### 500 Internal Server Error
+- Error del servidor
+- Error en base de datos
 
 ## Testing de Endpoints
 
-### Tests Unitarios
+### Ejemplo con pytest
 ```python
 import pytest
-from fastapi.testclient import TestClient
+from httpx import AsyncClient
 
-def test_login_success(client: TestClient):
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"email": "test@test.com", "password": "Test123!"}
-    )
-    
+@pytest.mark.asyncio
+async def test_login_success(client: AsyncClient):
+    response = await client.post("/api/v1/auth/login", json={
+        "email": "test@example.com",
+        "password": "testpassword"
+    })
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data
     assert "refresh_token" in data
-    assert data["token_type"] == "bearer"
 
-def test_login_invalid_credentials(client: TestClient):
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"email": "test@test.com", "password": "wrong_password"}
-    )
-    
+@pytest.mark.asyncio
+async def test_login_invalid_credentials(client: AsyncClient):
+    response = await client.post("/api/v1/auth/login", json={
+        "email": "wrong@example.com",
+        "password": "wrongpassword"
+    })
     assert response.status_code == 401
-    assert "detail" in response.json()
-
-def test_refresh_token(client: TestClient):
-    # Primero hacer login
-    login_response = client.post(
-        "/api/v1/auth/login",
-        json={"email": "test@test.com", "password": "Test123!"}
-    )
-    refresh_token = login_response.json()["refresh_token"]
-    
-    # Probar refresh
-    response = client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": refresh_token}
-    )
-    
-    assert response.status_code == 200
-    assert "access_token" in response.json()
-
-def test_logout(client: TestClient, authenticated_user):
-    """Test con usuario autenticado via fixture"""
-    response = client.post(
-        "/api/v1/auth/logout",
-        headers={"Authorization": f"Bearer {authenticated_user.access_token}"}
-    )
-    
-    assert response.status_code == 200
-    assert response.json()["message"] == "Logged out successfully"
 ```
 
-### Tests de Integración
-```python
-@pytest.mark.asyncio
-async def test_complete_auth_flow():
-    """Test del flujo completo de autenticación"""
-    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
-        # 1. Login
-        login_response = await client.post(
-            "/api/v1/auth/login",
-            json={"email": "test@test.com", "password": "Test123!"}
-        )
-        assert login_response.status_code == 200
-        tokens = login_response.json()
-        
-        # 2. Usar access token
-        user_response = await client.get(
-            "/api/v1/users/me",
-            headers={"Authorization": f"Bearer {tokens['access_token']}"}
-        )
-        assert user_response.status_code == 200
-        
-        # 3. Refresh token
-        refresh_response = await client.post(
-            "/api/v1/auth/refresh",
-            json={"refresh_token": tokens["refresh_token"]}
-        )
-        assert refresh_response.status_code == 200
-        
-        # 4. Logout
-        logout_response = await client.post(
-            "/api/v1/auth/logout",
-            headers={"Authorization": f"Bearer {tokens['access_token']}"}
-        )
-        assert logout_response.status_code == 200
+### Ejemplo con curl
+```bash
+# Login
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "usuario@empresa.com", "password": "password"}'
+
+# Refresh token
+curl -X POST http://localhost:8000/api/v1/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "your_refresh_token_here"}'
+
+# Logout
+curl -X POST http://localhost:8000/api/v1/auth/logout \
+  -H "Authorization: Bearer your_access_token_here"
 ```
 
 ## Referencias
 
-- [Autenticación y Seguridad](./authentication.md)
-- [Sesiones y Tokens](./sessions-tokens.md)
-- [Endpoints de Usuarios](./user-endpoints.md)
-- [Roles y Permisos](./roles-permissions.md)
+- [Endpoints de Usuarios](./user-endpoints-updated.md)
+- [Esquemas JWT](../schemas/auth-schemas.md)
+- [Configuración de Seguridad](../security/jwt-config.md)
+- [Manejo de Errores](../errors/auth-errors.md)

@@ -1,166 +1,56 @@
-# Endpoints de Terceros
+# Endpoints de Terceros - ACTUALIZADO
 
-Este documento describe todos los endpoints disponibles para la gestión de terceros (clientes, proveedores, empleados), incluyendo operaciones CRUD, estados de cuenta y análisis de balances.
+## Descripción General
+
+Los endpoints de terceros proporcionan funcionalidades completas para la gestión de clientes, proveedores, empleados y otros terceros comerciales. Incluyen operaciones CRUD, estados de cuenta, balances, validaciones y operaciones masivas. Estos endpoints son esenciales para el manejo de relaciones comerciales en el sistema contable.
 
 ## Base URL
+
 ```
-/api/v1/third-parties
+Base URL: /api/v1/third-parties
 ```
 
 ## Autenticación
-Todos los endpoints requieren autenticación JWT válida:
+
+Todos los endpoints requieren autenticación mediante Bearer Token:
+
 ```http
-Authorization: Bearer <jwt_token>
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
----
+## Endpoints Disponibles
 
-## Endpoints CRUD
+### ➕ POST /
+Crear un nuevo tercero con validaciones automáticas.
 
-### **GET** `/api/v1/third-parties`
-Listar terceros con filtros avanzados y paginación.
+#### Permisos Requeridos
+- **ADMIN** o **CONTADOR**
 
-#### Parámetros de Query
-```typescript
-interface ThirdPartyFilters {
-  type?: 'CLIENTE' | 'PROVEEDOR' | 'EMPLEADO'; // Tipo de tercero
-  document_type?: string;    // Tipo de documento (RUT, CI, etc.)
-  document_number?: string;  // Número de documento (búsqueda parcial)
-  business_name?: string;    // Razón social (búsqueda parcial)
-  commercial_name?: string;  // Nombre comercial (búsqueda parcial)
-  email?: string;           // Email (búsqueda parcial)
-  is_active?: boolean;      // Estado activo
-  has_balance?: boolean;    // Tiene saldo pendiente
-  
-  // Filtros de fecha
-  created_after?: date;     // Creados después de fecha
-  created_before?: date;    // Creados antes de fecha
-  
-  // Filtros financieros
-  credit_limit_min?: number; // Límite de crédito mínimo
-  credit_limit_max?: number; // Límite de crédito máximo
-  
-  // Ordenamiento
-  order_by?: 'document_number' | 'business_name' | 'created_at' | 'credit_limit';
-  order_desc?: boolean;
-  
-  // Paginación
-  skip?: number;            // Elementos a omitir (default: 0)
-  limit?: number;           // Elementos por página (default: 100, max: 1000)
-}
-```
-
-#### Ejemplo de Solicitud
+#### Request
 ```http
-GET /api/v1/third-parties?type=CLIENTE&is_active=true&has_balance=true&limit=50
-```
+POST /api/v1/third-parties/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
 
-#### Respuesta Exitosa
-```json
-{
-  "data": [
-    {
-      "id": "123e4567-e89b-12d3-a456-426614174000",
-      "type": "CLIENTE",
-      "document_type": "RUT",
-      "document_number": "12345678-9",
-      "business_name": "Empresa Cliente S.A.",
-      "commercial_name": "Cliente Corp",
-      "first_name": null,
-      "last_name": null,
-      "email": "contacto@cliente.com",
-      "phone": "+56912345678",
-      "address": "Av. Principal 123",
-      "city": "Santiago",
-      "country": "Chile",
-      "payment_terms": 30,
-      "credit_limit": 500000.00,
-      "discount_percentage": 5.0,
-      "is_active": true,
-      "status": "active",
-      "created_at": "2024-01-15T10:30:00Z",
-      "updated_at": "2024-01-15T10:30:00Z",
-      "current_balance": 150000.00,
-      "overdue_balance": 45000.00,
-      "last_transaction_date": "2024-12-10"
-    }
-  ],
-  "total": 125,
-  "skip": 0,
-  "limit": 50
-}
-```
-
-### **POST** `/api/v1/third-parties`
-Crear nuevo tercero con validaciones automáticas.
-
-#### Cuerpo de la Solicitud
-```json
 {
   "type": "CLIENTE",
   "document_type": "RUT",
   "document_number": "12345678-9",
-  "business_name": "Nueva Empresa S.A.",
-  "commercial_name": "Nueva Empresa",
-  "email": "contacto@nuevaempresa.com",
-  "phone": "+56987654321",
-  "address": "Calle Nueva 456",
-  "city": "Valparaíso",
+  "business_name": "Empresa Cliente S.A.",
+  "commercial_name": "Cliente Corp",
+  "email": "contacto@cliente.com",
+  "phone": "+56912345678",
+  "address": "Av. Principal 123",
+  "city": "Santiago",
   "country": "Chile",
-  "payment_terms": 45,
-  "credit_limit": 750000.00,
-  "discount_percentage": 3.0,
-  "is_active": true,
-  "contact_person": "Juan Pérez",
-  "tax_id": "12345678-9",
-  "website": "https://nuevaempresa.com"
+  "payment_terms": 30,
+  "credit_limit": 500000.00,
+  "discount_percentage": 5.0,
+  "is_active": true
 }
 ```
 
-#### Respuesta Exitosa (201)
-```json
-{
-  "id": "789e0123-e89b-12d3-a456-426614174000",
-  "type": "CLIENTE",
-  "document_type": "RUT",
-  "document_number": "12345678-9",
-  "business_name": "Nueva Empresa S.A.",
-  "commercial_name": "Nueva Empresa",
-  "first_name": null,
-  "last_name": null,
-  "email": "contacto@nuevaempresa.com",
-  "phone": "+56987654321",
-  "address": "Calle Nueva 456",
-  "city": "Valparaíso",
-  "country": "Chile",
-  "payment_terms": 45,
-  "credit_limit": 750000.00,
-  "discount_percentage": 3.0,
-  "is_active": true,
-  "status": "active",
-  "created_at": "2024-12-11T10:30:00Z",
-  "updated_at": "2024-12-11T10:30:00Z",
-  "current_balance": 0.00,
-  "overdue_balance": 0.00,
-  "last_transaction_date": null
-}
-```
-
-### **GET** `/api/v1/third-parties/{id}`
-Obtener tercero específico por ID.
-
-#### Parámetros de Ruta
-- `id`: UUID del tercero
-
-#### Parámetros de Query
-```typescript
-interface DetailParams {
-  include_balance?: boolean;     // Incluir balance actual
-  include_statistics?: boolean;  // Incluir estadísticas
-}
-```
-
-#### Respuesta Exitosa
+#### Response Exitosa (201)
 ```json
 {
   "id": "123e4567-e89b-12d3-a456-426614174000",
@@ -180,25 +70,178 @@ interface DetailParams {
   "credit_limit": 500000.00,
   "discount_percentage": 5.0,
   "is_active": true,
-  "created_at": "2024-01-15T10:30:00Z",
-  "updated_at": "2024-01-15T10:30:00Z",
-  "current_balance": 150000.00,
-  "overdue_balance": 45000.00,
-  "last_transaction_date": "2024-12-10",
-  "statistics": {
-    "total_transactions": 45,
-    "average_payment_days": 28,
-    "credit_utilization": 30.0,
-    "payment_score": 85
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-06-15T10:30:00Z"
+}
+```
+
+---
+
+### 📋 GET /
+Listar terceros con filtros avanzados y paginación.
+
+#### Parámetros de Query
+- `search`: Optional[str] - Búsqueda en código, nombre, número de documento
+- `third_party_type`: Optional[ThirdPartyType] - Filtrar por tipo de tercero
+- `document_type`: Optional[DocumentType] - Filtrar por tipo de documento
+- `is_active`: Optional[bool] - Filtrar por estado activo
+- `city`: Optional[str] - Filtrar por ciudad
+- `country`: Optional[str] - Filtrar por país
+- `skip`: int = 0 - Registros a omitir
+- `limit`: int = 100 - Máximo registros a retornar (máx. 1000)
+
+#### Request
+```http
+GET /api/v1/third-parties/?third_party_type=CLIENTE&is_active=true&city=Santiago&limit=50
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "items": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "type": "CLIENTE",
+      "document_type": "RUT",
+      "document_number": "12345678-9",
+      "business_name": "Empresa Cliente S.A.",
+      "commercial_name": "Cliente Corp",
+      "first_name": null,
+      "last_name": null,
+      "email": "contacto@cliente.com",
+      "phone": "+56912345678",
+      "address": "Av. Principal 123",
+      "city": "Santiago",
+      "country": "Chile",
+      "payment_terms": 30,
+      "credit_limit": 500000.00,
+      "discount_percentage": 5.0,
+      "is_active": true,
+      "created_at": "2024-06-15T10:30:00Z",
+      "updated_at": "2024-06-15T10:30:00Z"
+    }
+  ],
+  "total": 125,
+  "skip": 0,
+  "limit": 50
+}
+```
+
+---
+
+### 🔍 GET /{third_party_id}
+Obtener tercero específico por ID con información detallada.
+
+#### Request
+```http
+GET /api/v1/third-parties/123e4567-e89b-12d3-a456-426614174000
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "type": "CLIENTE",
+  "document_type": "RUT",
+  "document_number": "12345678-9",
+  "business_name": "Empresa Cliente S.A.",
+  "commercial_name": "Cliente Corp",
+  "first_name": null,
+  "last_name": null,
+  "email": "contacto@cliente.com",
+  "phone": "+56912345678",
+  "address": "Av. Principal 123",
+  "city": "Santiago",
+  "country": "Chile",
+  "payment_terms": 30,
+  "credit_limit": 500000.00,
+  "discount_percentage": 5.0,
+  "is_active": true,
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-06-15T10:30:00Z",
+  "additional_info": {
+    "current_balance": 150000.00,
+    "overdue_balance": 45000.00,
+    "last_transaction_date": "2024-06-14",
+    "transaction_count": 25,
+    "credit_utilization": 30.0
   }
 }
 ```
 
-### **PUT** `/api/v1/third-parties/{id}`
+---
+
+### 🔍 GET /code/{code}
+Obtener tercero por código único.
+
+#### Request
+```http
+GET /api/v1/third-parties/code/CLI001
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "type": "CLIENTE",
+  "document_type": "RUT",
+  "document_number": "12345678-9",
+  "business_name": "Empresa Cliente S.A.",
+  "commercial_name": "Cliente Corp",
+  "code": "CLI001",
+  "email": "contacto@cliente.com",
+  "phone": "+56912345678",
+  "is_active": true,
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-06-15T10:30:00Z"
+}
+```
+
+---
+
+### 📄 GET /document/{document_type}/{document_number}
+Obtener tercero por tipo y número de documento.
+
+#### Request
+```http
+GET /api/v1/third-parties/document/RUT/12345678-9
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "type": "CLIENTE",
+  "document_type": "RUT",
+  "document_number": "12345678-9",
+  "business_name": "Empresa Cliente S.A.",
+  "commercial_name": "Cliente Corp",
+  "email": "contacto@cliente.com",
+  "phone": "+56912345678",
+  "is_active": true,
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-06-15T10:30:00Z"
+}
+```
+
+---
+
+### ✏️ PUT /{third_party_id}
 Actualizar tercero existente.
 
-#### Cuerpo de la Solicitud
-```json
+#### Permisos Requeridos
+- **ADMIN** o **CONTADOR**
+
+#### Request
+```http
+PUT /api/v1/third-parties/123e4567-e89b-12d3-a456-426614174000
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
 {
   "business_name": "Empresa Cliente S.A. - Actualizada",
   "email": "nuevo@cliente.com",
@@ -209,7 +252,7 @@ Actualizar tercero existente.
 }
 ```
 
-#### Respuesta Exitosa
+#### Response Exitosa (200)
 ```json
 {
   "id": "123e4567-e89b-12d3-a456-426614174000",
@@ -221,518 +264,365 @@ Actualizar tercero existente.
   "phone": "+56999888777",
   "credit_limit": 750000.00,
   "payment_terms": 45,
-  "updated_at": "2024-12-11T14:30:00Z"
-}
-```
-
-### **DELETE** `/api/v1/third-parties/{id}`
-Desactivar tercero (soft delete).
-
-**⚠️ Restricción:** No se puede eliminar un tercero que tenga asientos contables asociados. El sistema validará esta condición antes de proceder con la eliminación.
-
-#### Parámetros de Ruta
-- `id` (UUID): ID único del tercero a eliminar
-
-#### Respuesta Exitosa (204)
-```
-No Content
-```
-
-#### Errores Posibles
-```json
-{
-  "detail": "Cannot delete third party with existing journal entries",
-  "error_code": "BUSINESS_LOGIC_ERROR"
+  "is_active": true,
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-06-15T15:45:00Z"
 }
 ```
 
 ---
 
-## Endpoints de Consulta
+### 🗑️ DELETE /{third_party_id}
+Eliminar tercero si no tiene movimientos.
 
-### **GET** `/api/v1/third-parties/search`
-Búsqueda avanzada multi-criterio.
+#### Permisos Requeridos
+- **ADMIN** o **CONTADOR**
 
-#### Parámetros de Query
-```typescript
-interface SearchParams {
-  q: string;               // Término de búsqueda (requerido)
-  type?: ThirdPartyType;   // Filtrar por tipo
-  limit?: number;          // Límite de resultados (default: 10)
-  include_inactive?: boolean; // Incluir terceros inactivos
-  search_fields?: string[]; // Campos a buscar: document_number, business_name, email
-}
-```
-
-#### Ejemplo de Solicitud
+#### Request
 ```http
-GET /api/v1/third-parties/search?q=cliente&type=CLIENTE&limit=5
+DELETE /api/v1/third-parties/123e4567-e89b-12d3-a456-426614174000
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-#### Respuesta Exitosa
-```json
-{
-  "results": [
-    {
-      "id": "123e4567-e89b-12d3-a456-426614174000",
-      "type": "CLIENTE",
-      "document_number": "12345678-9",
-      "business_name": "Empresa Cliente S.A.",
-      "commercial_name": "Cliente Corp",
-      "email": "contacto@cliente.com",
-      "status": "active",
-      "current_balance": 150000.00,
-      "match_score": 0.95
-    }
-  ],
-  "total": 8,
-  "search_term": "cliente"
-}
+#### Response Exitosa (204)
+```
+No Content
 ```
 
-### **GET** `/api/v1/third-parties/{id}/statement`
-Estado de cuenta detallado del tercero.
+#### Códigos de Error
+- **400 Bad Request**: Tercero tiene transacciones asociadas
+- **404 Not Found**: Tercero no encontrado
 
-#### Parámetros de Query
-```typescript
-interface StatementParams {
-  start_date?: date;       // Fecha inicio (default: inicio del año)
-  end_date?: date;         // Fecha fin (default: hoy)
-  include_details?: boolean; // Incluir detalle de movimientos
-  format?: 'json' | 'pdf'; // Formato de respuesta
-  currency?: string;       // Moneda (default: sistema)
-}
-```
+---
 
-#### Ejemplo de Solicitud
+### 🏷️ GET /type/{third_party_type}
+Obtener todos los terceros activos de un tipo específico.
+
+#### Request
 ```http
-GET /api/v1/third-parties/123e4567-e89b-12d3-a456-426614174000/statement?start_date=2024-01-01&end_date=2024-12-31&include_details=true
+GET /api/v1/third-parties/type/CLIENTE
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-#### Respuesta Exitosa
+#### Response Exitosa (200)
 ```json
-{
-  "third_party": {
+[
+  {
     "id": "123e4567-e89b-12d3-a456-426614174000",
+    "type": "CLIENTE",
+    "document_type": "RUT",
     "document_number": "12345678-9",
     "business_name": "Empresa Cliente S.A.",
     "commercial_name": "Cliente Corp",
-    "type": "CLIENTE"
-  },
-  "statement_date": "2024-12-11",
-  "period": {
-    "start_date": "2024-01-01",
-    "end_date": "2024-12-31"
-  },
-  "opening_balance": 0.00,
-  "movements": [
-    {
-      "date": "2024-01-15",
-      "journal_entry_id": "JE001",
-      "reference": "FAC-001",
-      "description": "Venta de productos",
-      "document_type": "Factura",
-      "debit_amount": 150000.00,
-      "credit_amount": 0.00,
-      "running_balance": 150000.00,
-      "due_date": "2024-02-14",
-      "days_overdue": 0
-    },
-    {
-      "date": "2024-02-10",
-      "journal_entry_id": "JE015",
-      "reference": "PAG-001",
-      "description": "Pago recibido",
-      "document_type": "Pago",
-      "debit_amount": 0.00,
-      "credit_amount": 100000.00,
-      "running_balance": 50000.00,
-      "due_date": null,
-      "days_overdue": 0
-    }
-  ],
-  "closing_balance": 150000.00,
-  "summary": {
-    "total_debits": 800000.00,
-    "total_credits": 650000.00,
-    "net_movement": 150000.00,
-    "transaction_count": 25
-  },
-  "aging_analysis": {
-    "current": 105000.00,
-    "30_days": 25000.00,
-    "60_days": 15000.00,
-    "90_days": 5000.00,
-    "over_120": 0.00
-  },
-  "generated_at": "2024-12-11T15:30:00Z"
-}
+    "email": "contacto@cliente.com",
+    "is_active": true,
+    "created_at": "2024-06-15T10:30:00Z"
+  }
+]
 ```
 
-### **GET** `/api/v1/third-parties/{id}/balance`
-Balance actual y análisis de antigüedad.
+---
+
+### 📊 GET /{third_party_id}/statement
+Generar estado de cuenta del tercero para un período.
 
 #### Parámetros de Query
-```typescript
-interface BalanceParams {
-  as_of_date?: date;       // Fecha de corte (default: hoy)
-  include_aging?: boolean; // Incluir análisis de antigüedad
-  currency?: string;       // Moneda
+- `start_date`: date (requerido) - Fecha de inicio del estado
+- `end_date`: date (requerido) - Fecha de fin del estado
+
+#### Request
+```http
+GET /api/v1/third-parties/123e4567-e89b-12d3-a456-426614174000/statement?start_date=2024-06-01&end_date=2024-06-30
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "third_party_id": "123e4567-e89b-12d3-a456-426614174000",
+  "third_party_name": "Empresa Cliente S.A.",
+  "document_number": "12345678-9",
+  "period": {
+    "start_date": "2024-06-01",
+    "end_date": "2024-06-30"
+  },
+  "opening_balance": 100000.00,
+  "closing_balance": 150000.00,
+  "total_debits": 250000.00,
+  "total_credits": 200000.00,
+  "transactions": [
+    {
+      "date": "2024-06-15T10:30:00Z",
+      "reference": "FAC-001",
+      "description": "Venta de productos",
+      "debit_amount": 100000.00,
+      "credit_amount": 0.00,
+      "balance": 150000.00,
+      "journal_entry_id": "je-uuid-here"
+    }
+  ],
+  "summary": {
+    "transaction_count": 15,
+    "average_payment_days": 28,
+    "largest_transaction": 100000.00,
+    "payment_behavior": "GOOD"
+  }
 }
 ```
 
-#### Respuesta Exitosa
+---
+
+### 💰 GET /{third_party_id}/balance
+Obtener balance actual e información de crédito del tercero.
+
+#### Request
+```http
+GET /api/v1/third-parties/123e4567-e89b-12d3-a456-426614174000/balance
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
 ```json
 {
-  "third_party": {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "document_number": "12345678-9",
-    "business_name": "Empresa Cliente S.A.",
-    "type": "CLIENTE"
-  },
-  "as_of_date": "2024-12-11",
+  "third_party_id": "123e4567-e89b-12d3-a456-426614174000",
+  "third_party_name": "Empresa Cliente S.A.",
   "current_balance": 150000.00,
   "credit_limit": 500000.00,
   "available_credit": 350000.00,
   "credit_utilization": 30.0,
   "overdue_balance": 45000.00,
-  "overdue_percentage": 30.0,
-  "aging_buckets": {
-    "current": 105000.00,     // 0-30 días
-    "30_days": 25000.00,      // 31-60 días
-    "60_days": 15000.00,      // 61-90 días
-    "90_days": 5000.00,       // 91-120 días
-    "over_120": 0.00          // Más de 120 días
+  "current_balance_detail": {
+    "0_30_days": 105000.00,
+    "31_60_days": 25000.00,
+    "61_90_days": 15000.00,
+    "over_90_days": 5000.00
   },
-  "oldest_transaction": {
-    "date": "2024-10-15",
-    "amount": 25000.00,
-    "days_old": 57,
-    "reference": "FAC-087"
-  },
-  "payment_behavior": {
-    "average_payment_days": 28,
-    "payment_score": 85,
-    "last_payment_date": "2024-12-05",
-    "payment_frequency": "regular"
+  "last_payment_date": "2024-06-10T14:30:00Z",
+  "last_payment_amount": 50000.00,
+  "payment_score": 85,
+  "risk_level": "LOW"
+}
+```
+
+---
+
+### ✅ GET /{third_party_id}/validate
+Validar datos del tercero y restricciones de unicidad.
+
+#### Request
+```http
+GET /api/v1/third-parties/123e4567-e89b-12d3-a456-426614174000/validate
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "third_party_id": "123e4567-e89b-12d3-a456-426614174000",
+  "is_valid": true,
+  "can_be_deleted": false,
+  "has_transactions": true,
+  "transaction_count": 25,
+  "duplicate_document": false,
+  "duplicate_email": false,
+  "credit_limit_exceeded": false,
+  "warnings": [
+    "Tercero tiene saldo vencido mayor a 90 días"
+  ],
+  "restrictions": [
+    "No se puede eliminar tercero con transacciones asociadas"
+  ],
+  "validation_details": {
+    "document_format_valid": true,
+    "email_format_valid": true,
+    "phone_format_valid": true,
+    "required_fields_complete": true
   }
 }
 ```
 
 ---
 
-## Endpoints de Operaciones
+### 📈 GET /statistics/summary
+Obtener estadísticas generales de terceros.
 
-### **POST** `/api/v1/third-parties/bulk-operations`
+#### Request
+```http
+GET /api/v1/third-parties/statistics/summary
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "total_third_parties": 450,
+  "active_third_parties": 425,
+  "inactive_third_parties": 25,
+  "by_type": {
+    "CLIENTE": 200,
+    "PROVEEDOR": 180,
+    "EMPLEADO": 45,
+    "OTRO": 25
+  },
+  "by_country": {
+    "Chile": 350,
+    "Argentina": 50,
+    "Perú": 30,
+    "Colombia": 20
+  },
+  "with_transactions": 320,
+  "with_overdue_balance": 45,
+  "total_credit_limit": 25000000.00,
+  "total_current_balance": 8500000.00,
+  "average_payment_days": 32,
+  "top_customers_by_balance": [
+    {
+      "id": "top-customer-uuid",
+      "name": "Cliente Principal S.A.",
+      "balance": 500000.00
+    }
+  ]
+}
+```
+
+---
+
+### 🔄 POST /bulk-operation
 Operaciones masivas sobre múltiples terceros.
 
-#### Operaciones Disponibles
+#### Permisos Requeridos
+- **ADMIN** únicamente
 
-##### Actualización Masiva (update)
-```json
+#### Request
+```http
+POST /api/v1/third-parties/bulk-operation
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
 {
-  "operation": "update",
-  "filters": {
-    "type": "CLIENTE",
-    "city": "Santiago"
-  },
-  "updates": {
-    "discount_percentage": 7.0,
-    "payment_terms": 45
+  "operation": "toggle_active",
+  "third_party_ids": [
+    "123e4567-e89b-12d3-a456-426614174000",
+    "456e7890-e89b-12d3-a456-426614174000"
+  ],
+  "parameters": {
+    "reason": "Revisión anual de clientes"
   }
 }
 ```
 
-##### Eliminación Masiva (delete)
-**⚠️ Restricción:** Los terceros que tengan asientos contables asociados no serán eliminados y se reportarán como errores.
-
+#### Response Exitosa (200)
 ```json
 {
-  "operation": "delete",
-  "filters": {
-    "type": "PROVEEDOR",
-    "is_active": false,
-    "created_before": "2024-01-01"
-  }
-}
-```
-
-#### Respuesta Exitosa
-```json
-{
-  "operation": "update",
-  "affected_count": 15,
-  "success_count": 14,
-  "error_count": 1,
+  "operation": "toggle_active",
+  "total_third_parties": 2,
+  "successful": 2,
+  "failed": 0,
   "results": [
     {
       "third_party_id": "123e4567-e89b-12d3-a456-426614174000",
-      "status": "success",
-      "message": "Actualizado correctamente"
+      "success": true,
+      "message": "Estado actualizado correctamente"
+    }
+  ]
+}
+```
+
+---
+
+### 🗑️ POST /bulk-delete
+Eliminación masiva de terceros con validaciones.
+
+#### Permisos Requeridos
+- **ADMIN** únicamente
+
+#### Request
+```http
+POST /api/v1/third-parties/bulk-delete
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "third_party_ids": [
+    "123e4567-e89b-12d3-a456-426614174000",
+    "456e7890-e89b-12d3-a456-426614174000"
+  ],
+  "force": false
+}
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "total_requested": 2,
+  "successful_deletions": 1,
+  "failed_deletions": 1,
+  "results": [
+    {
+      "third_party_id": "123e4567-e89b-12d3-a456-426614174000",
+      "success": false,
+      "error": "Tercero tiene transacciones asociadas"
     },
     {
       "third_party_id": "456e7890-e89b-12d3-a456-426614174000",
-      "status": "error",
-      "message": "Cannot delete third party with existing journal entries"
-    }
-  ],
-  "execution_time": "2.5s"
-}
-```
-
-### **POST** `/api/v1/third-parties/import`
-Importación masiva desde archivos.
-
-#### Parámetros de Form
-- `file`: Archivo CSV, XLSX o JSON
-- `format`: Formato del archivo
-- `dry_run`: true/false - Solo validar sin importar
-
-#### Respuesta Exitosa
-```json
-{
-  "import_id": "imp_123456",
-  "status": "completed",
-  "summary": {
-    "total_records": 100,
-    "successful_imports": 95,
-    "failed_imports": 5,
-    "duplicates_found": 3,
-    "validation_errors": 2
-  },
-  "errors": [
-    {
-      "row": 15,
-      "field": "document_number",
-      "error": "Formato de RUT inválido",
-      "value": "12345678"
-    }
-  ],
-  "warnings": [
-    {
-      "row": 23,
-      "message": "Tercero ya existe, se actualizaron los datos"
+      "success": true,
+      "message": "Tercero eliminado correctamente"
     }
   ]
 }
 ```
 
-### **GET** `/api/v1/third-parties/export`
-Exportación de datos de terceros.
-
-#### Parámetros de Query
-```typescript
-interface ExportParams {
-  format: 'csv' | 'xlsx' | 'json'; // Formato de exportación
-  filters?: ThirdPartyFilters;     // Filtros a aplicar
-  fields?: string[];               // Campos específicos a exportar
-  include_balance?: boolean;       // Incluir saldos actuales
-}
-```
-
-#### Respuesta Exitosa
-```json
-{
-  "export_id": "exp_789012",
-  "status": "ready",
-  "download_url": "/api/v1/downloads/exp_789012.xlsx",
-  "file_size": "2.5MB",
-  "record_count": 500,
-  "expires_at": "2024-12-12T15:30:00Z"
-}
-```
-
 ---
 
-## Endpoints de Análisis
+### ⚠️ POST /validate-deletion
+Validar eliminación de terceros antes de ejecutar.
 
-### **GET** `/api/v1/third-parties/analytics/summary`
-Resumen analítico de terceros.
+#### Request
+```http
+POST /api/v1/third-parties/validate-deletion
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
 
-#### Parámetros de Query
-```typescript
-interface AnalyticsParams {
-  type?: ThirdPartyType;   // Filtrar por tipo
-  period?: string;         // Período de análisis
-  group_by?: string;       // Agrupar por: type, city, country
+{
+  "third_party_ids": [
+    "123e4567-e89b-12d3-a456-426614174000",
+    "456e7890-e89b-12d3-a456-426614174000"
+  ]
 }
 ```
 
-#### Respuesta Exitosa
+#### Response Exitosa (200)
 ```json
-{
-  "summary": {
-    "total_third_parties": 450,
-    "active_third_parties": 425,
-    "by_type": {
-      "CLIENTE": 300,
-      "PROVEEDOR": 120,
-      "EMPLEADO": 30
-    },
-    "by_country": {
-      "Chile": 380,
-      "Argentina": 45,
-      "Colombia": 25
-    }
-  },
-  "financial_summary": {
-    "total_receivables": 2500000.00,
-    "total_payables": 850000.00,
-    "overdue_receivables": 380000.00,
-    "overdue_payables": 125000.00,
-    "average_credit_limit": 650000.00,
-    "credit_utilization": 35.2
-  },
-  "top_customers": [
-    {
-      "id": "123e4567-e89b-12d3-a456-426614174000",
-      "business_name": "Cliente Principal S.A.",
-      "current_balance": 450000.00,
-      "credit_limit": 1000000.00
-    }
-  ],
-  "aging_summary": {
-    "current": 1750000.00,
-    "30_days": 450000.00,
-    "60_days": 200000.00,
-    "90_days": 75000.00,
-    "over_120": 25000.00
+[
+  {
+    "third_party_id": "123e4567-e89b-12d3-a456-426614174000",
+    "third_party_name": "Empresa Cliente S.A.",
+    "document_number": "12345678-9",
+    "can_delete": false,
+    "blocking_reasons": [
+      "Tercero tiene 25 transacciones asociadas",
+      "Tercero tiene saldo pendiente de $150,000"
+    ],
+    "warnings": [
+      "Eliminar este tercero afectará reportes históricos"
+    ],
+    "requires_confirmation": true
   }
-}
-```
-
-### **GET** `/api/v1/third-parties/analytics/aging-report`
-Reporte consolidado de antigüedad de saldos.
-
-#### Respuesta Exitosa
-```json
-{
-  "report_date": "2024-12-11",
-  "currency": "CLP",
-  "aging_buckets": {
-    "current": {
-      "amount": 1750000.00,
-      "count": 120,
-      "percentage": 70.0
-    },
-    "30_days": {
-      "amount": 450000.00,
-      "count": 35,
-      "percentage": 18.0
-    },
-    "60_days": {
-      "amount": 200000.00,
-      "count": 15,
-      "percentage": 8.0
-    },
-    "90_days": {
-      "amount": 75000.00,
-      "count": 8,
-      "percentage": 3.0
-    },
-    "over_120": {
-      "amount": 25000.00,
-      "count": 3,
-      "percentage": 1.0
-    }
-  },
-  "total_outstanding": 2500000.00,
-  "total_customers": 181,
-  "overdue_amount": 750000.00,
-  "overdue_percentage": 30.0,
-  "by_customer": [
-    {
-      "third_party": {
-        "id": "123e4567-e89b-12d3-a456-426614174000",
-        "business_name": "Cliente Moroso S.A.",
-        "document_number": "87654321-0"
-      },
-      "total_balance": 125000.00,
-      "overdue_balance": 95000.00,
-      "aging": {
-        "current": 30000.00,
-        "30_days": 45000.00,
-        "60_days": 35000.00,
-        "90_days": 15000.00,
-        "over_120": 0.00
-      },
-      "oldest_invoice_days": 75
-    }
-  ]
-}
+]
 ```
 
 ---
 
-## Códigos de Error
+## Flujos de Integración
 
-### Errores Comunes
-
-| Código | Descripción | Solución |
-|--------|-------------|----------|
-| 400 | Datos de entrada inválidos | Verificar formato de campos |
-| 404 | Tercero no encontrado | Verificar ID existe |
-| 409 | Documento duplicado | Usar documento único |
-| 422 | Error de validación | Revisar reglas de negocio |
-
-### Ejemplos de Respuestas de Error
-
-#### Error de Validación (422)
-```json
-{
-  "detail": [
-    {
-      "loc": ["body", "document_number"],
-      "msg": "Formato de RUT inválido",
-      "type": "value_error"
-    },
-    {
-      "loc": ["body", "email"],
-      "msg": "Formato de email inválido",
-      "type": "value_error"
-    }
-  ]
-}
-```
-
-#### Error de Documento Duplicado (409)
-```json
-{
-  "detail": "Ya existe un tercero con documento '12345678-9'"
-}
-```
-
----
-
-## Notas Importantes
-
-### Campo `status`
-- Todos los endpoints que devuelven información de terceros incluyen el campo `status` calculado basado en `is_active`:
-  - `"active"`: Cuando `is_active = true`
-  - `"inactive"`: Cuando `is_active = false`
-
-### Restricciones de Eliminación
-- **Eliminación Individual**: No se puede eliminar un tercero que tenga asientos contables asociados
-- **Eliminación Masiva**: Los terceros con asientos contables asociados se omitirán y se reportarán como errores
-- En ambos casos se devuelve el mensaje: "Cannot delete third party with existing journal entries"
-
-### Validaciones de Integridad
-- El sistema verifica automáticamente la existencia de asientos contables antes de proceder con cualquier eliminación
-- Esta validación aplica tanto para eliminaciones individuales como masivas
-- Los terceros que no cumplan la validación no serán eliminados y se incluirán en el reporte de errores
-
----
-
-## Ejemplos de Uso
-
-### Flujo Completo de Gestión de Cliente
+### Creación y Gestión de Cliente Completa
 
 ```javascript
 // 1. Crear nuevo cliente
-const clientResponse = await fetch('/api/v1/third-parties', {
+const clientResponse = await fetch('/api/v1/third-parties/', {
   method: 'POST',
   headers: {
-    'Authorization': 'Bearer ' + token,
+    'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
@@ -746,97 +636,143 @@ const clientResponse = await fetch('/api/v1/third-parties', {
   })
 });
 
+const client = await clientResponse.json();
+
 // 2. Obtener estado de cuenta
 const statementResponse = await fetch(
-  `/api/v1/third-parties/${clientResponse.data.id}/statement?start_date=2024-01-01&end_date=2024-12-31`,
-  {
-    headers: { 'Authorization': 'Bearer ' + token }
-  }
+  `/api/v1/third-parties/${client.id}/statement?start_date=2024-01-01&end_date=2024-12-31`,
+  { headers: { 'Authorization': `Bearer ${token}` } }
 );
 
 // 3. Verificar balance actual
 const balanceResponse = await fetch(
-  `/api/v1/third-parties/${clientResponse.data.id}/balance?include_aging=true`,
-  {
-    headers: { 'Authorization': 'Bearer ' + token }
-  }
-);
-
-// 4. Búsqueda de clientes
-const searchResponse = await fetch(
-  '/api/v1/third-parties/search?q=cliente&type=CLIENTE&limit=10',
-  {
-    headers: { 'Authorization': 'Bearer ' + token }
-  }
+  `/api/v1/third-parties/${client.id}/balance`,
+  { headers: { 'Authorization': `Bearer ${token}` } }
 );
 ```
 
-### Operaciones Masivas
+### Búsqueda y Filtrado de Terceros
 
 ```javascript
-// Actualización masiva de términos de pago
-const bulkUpdateResponse = await fetch('/api/v1/third-parties/bulk-operations', {
-  method: 'POST',
-  headers: {
-    'Authorization': 'Bearer ' + token,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    operation: 'update',
-    filters: {
-      type: 'CLIENTE',
-      city: 'Santiago'
-    },
-    updates: {
-      payment_terms: 45,
-      discount_percentage: 5.0
-    }
-  })
-});
+// Buscar clientes activos en Santiago
+const clientsResponse = await fetch(
+  '/api/v1/third-parties/?third_party_type=CLIENTE&is_active=true&city=Santiago&limit=100',
+  { headers: { 'Authorization': `Bearer ${token}` } }
+);
 
-// Importación desde archivo
-const formData = new FormData();
-formData.append('file', csvFile);
-formData.append('format', 'csv');
-formData.append('dry_run', 'false');
+// Buscar por documento específico
+const thirdPartyResponse = await fetch(
+  '/api/v1/third-parties/document/RUT/12345678-9',
+  { headers: { 'Authorization': `Bearer ${token}` } }
+);
 
-const importResponse = await fetch('/api/v1/third-parties/import', {
-  method: 'POST',
-  headers: {
-    'Authorization': 'Bearer ' + token
-  },
-  body: formData
-});
+// Obtener todos los proveedores
+const suppliersResponse = await fetch(
+  '/api/v1/third-parties/type/PROVEEDOR',
+  { headers: { 'Authorization': `Bearer ${token}` } }
+);
 ```
 
----
+## Validaciones y Reglas de Negocio
 
-## Rate Limiting
+### Tipos de Terceros
+- **CLIENTE**: Personas o empresas que compran productos/servicios
+- **PROVEEDOR**: Personas o empresas que suministran productos/servicios
+- **EMPLEADO**: Personal de la empresa
+- **OTRO**: Otros terceros (entidades gubernamentales, bancos, etc.)
 
-- **Endpoints de Consulta**: 1000 requests/hour
-- **Endpoints de Modificación**: 200 requests/hour
-- **Endpoints de Operaciones Masivas**: 10 requests/hour
-- **Endpoints de Reportes**: 50 requests/hour
+### Tipos de Documento
+- **RUT**: Rol Único Tributario (Chile)
+- **CI**: Cédula de Identidad
+- **PASSPORT**: Pasaporte
+- **FOREIGN_ID**: Identificación extranjera
 
----
+### Validaciones de Datos
+- **Documento único**: No pueden existir dos terceros con el mismo documento
+- **Email único**: Solo un tercero puede tener un email específico
+- **Formato de documento**: Validación según tipo de documento
+- **Límite de crédito**: Debe ser mayor a 0 si se especifica
 
-## Webhooks
+### Restricciones de Eliminación
+- No se puede eliminar tercero con transacciones asociadas
+- No se puede eliminar tercero con saldo pendiente
+- Solo administradores y contadores pueden eliminar terceros
 
-### Eventos Disponibles
-- `third_party.created` - Tercero creado
-- `third_party.updated` - Tercero actualizado
-- `third_party.balance_changed` - Cambio de saldo
-- `third_party.overdue_detected` - Saldo vencido detectado
+## Códigos de Error Comunes
 
-### Configuración de Webhook
-```json
-{
-  "url": "https://mi-sistema.com/webhooks/third-parties",
-  "events": ["third_party.balance_changed", "third_party.overdue_detected"],
-  "secret": "webhook_secret_key"
-}
+### 400 Bad Request
+- Formato de documento inválido
+- Tipo de tercero incompatible
+- Datos de entrada malformados
+
+### 401 Unauthorized
+- Token de autenticación inválido
+- Token expirado
+
+### 403 Forbidden
+- Permisos insuficientes para la operación
+- Usuario no puede modificar terceros
+
+### 404 Not Found
+- Tercero no encontrado
+- Documento no existe
+
+### 409 Conflict
+- Documento ya existe en el sistema
+- Email ya está en uso
+- Tercero tiene transacciones (al eliminar)
+
+### 422 Unprocessable Entity
+- Validación de datos falló
+- Formato de email inválido
+- Tipo de documento no válido
+
+## Testing de Endpoints
+
+### Casos de Prueba Críticos
+1. **Unicidad**: Verificar documentos y emails únicos
+2. **Validaciones**: Probar formatos de documento
+3. **Estados de cuenta**: Validar cálculos de balances
+4. **Restricciones**: Probar eliminación con restricciones
+5. **Búsquedas**: Verificar filtros y paginación
+6. **Permisos**: Verificar control de acceso por roles
+
+### Ejemplo con pytest
+```python
+@pytest.mark.asyncio
+async def test_create_third_party_unique_document(client: AsyncClient, admin_token: str):
+    # Crear primer tercero
+    response1 = await client.post(
+        "/api/v1/third-parties/",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "type": "CLIENTE",
+            "document_type": "RUT",
+            "document_number": "12345678-9",
+            "business_name": "Cliente Test S.A.",
+            "email": "test@cliente.com"
+        }
+    )
+    assert response1.status_code == 201
+    
+    # Intentar crear segundo tercero con mismo documento
+    response2 = await client.post(
+        "/api/v1/third-parties/",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "type": "PROVEEDOR",
+            "document_type": "RUT",
+            "document_number": "12345678-9",
+            "business_name": "Proveedor Test S.A.",
+            "email": "test@proveedor.com"
+        }
+    )
+    assert response2.status_code == 409  # Conflict
 ```
 
----
-**Última actualización**: Diciembre 2024  
-**Versión API**: 1.0.0
+## Referencias
+
+- [Esquemas de Terceros](../schemas/third-party-schemas.md)
+- [Asientos Contables](../journal-entries/journal-entry-endpoints.md)
+- [Reportes de Terceros](../reports/third-party-reports.md)
+- [Gestión de Pagos](../payments/payment-endpoints.md)

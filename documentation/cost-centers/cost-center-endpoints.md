@@ -1,74 +1,105 @@
-# Endpoints de Centros de Costo
+# Endpoints de Centros de Costo - ACTUALIZADO
 
-Este documento describe todos los endpoints disponibles para la gestión de centros de costo, incluyendo operaciones CRUD, consultas especializadas y reportes avanzados.
+## Descripción General
+
+Los endpoints de centros de costo proporcionan funcionalidades completas para la gestión de centros de costo, incluyendo operaciones CRUD, manejo jerárquico, reportes, validaciones y operaciones masivas. Los centros de costo permiten una distribución y seguimiento detallado de costos por departamentos, proyectos o actividades.
 
 ## Base URL
+
 ```
-/api/v1/cost-centers
-/api/v1/cost-center-reports
+Base URL: /api/v1/cost-centers
 ```
 
 ## Autenticación
-Todos los endpoints requieren autenticación JWT válida:
+
+Todos los endpoints requieren autenticación mediante Bearer Token:
+
 ```http
-Authorization: Bearer <jwt_token>
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+## Endpoints Disponibles
+
+### ➕ POST /
+Crear un nuevo centro de costo con soporte jerárquico.
+
+#### Permisos Requeridos
+- **ADMIN** o **CONTADOR**
+
+#### Request
+```http
+POST /api/v1/cost-centers/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "code": "CC001",
+  "name": "Administración General",
+  "description": "Centro de costo para gastos administrativos generales",
+  "parent_id": null,
+  "allows_direct_assignment": true,
+  "is_active": true
+}
+```
+
+#### Response Exitosa (201)
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "code": "CC001",
+  "name": "Administración General",
+  "description": "Centro de costo para gastos administrativos generales",
+  "parent_id": null,
+  "allows_direct_assignment": true,
+  "is_active": true,
+  "level": 0,
+  "full_code": "CC001",
+  "full_name": "CC001 - Administración General",
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-06-15T10:30:00Z"
+}
 ```
 
 ---
 
-## Endpoints CRUD
-
-### **GET** `/api/v1/cost-centers`
-Listar centros de costo con filtros y paginación.
+### 📋 GET /
+Obtener lista paginada de centros de costo con filtros.
 
 #### Parámetros de Query
-```typescript
-interface CostCenterFilters {
-  code?: string;           // Filtrar por código (búsqueda parcial)
-  name?: string;           // Filtrar por nombre (búsqueda parcial)
-  parent_id?: UUID;        // Filtrar por centro padre
-  is_active?: boolean;     // Filtrar por estado activo
-  level?: number;          // Filtrar por nivel jerárquico
-  has_children?: boolean;  // Filtrar si tiene centros hijos
-  
-  // Filtros de fecha
-  created_after?: date;    // Creados después de fecha
-  created_before?: date;   // Creados antes de fecha
-  
-  // Ordenamiento
-  order_by?: 'code' | 'name' | 'created_at' | 'level';
-  order_desc?: boolean;
-  
-  // Paginación
-  skip?: number;           // Elementos a omitir (default: 0)
-  limit?: number;          // Elementos por página (default: 100, max: 1000)
-}
-```
+- `search`: Optional[str] - Búsqueda en código, nombre o descripción
+- `is_active`: Optional[bool] - Filtrar por estado activo
+- `parent_id`: Optional[UUID] - Filtrar por centro de costo padre
+- `allows_direct_assignment`: Optional[bool] - Filtrar por capacidad de asignación
+- `level`: Optional[int] - Filtrar por nivel jerárquico (0=raíz, 1=primer nivel, etc.)
+- `has_children`: Optional[bool] - Filtrar si tiene centros hijos
+- `is_leaf`: Optional[bool] - Filtrar nodos hoja (sin hijos)
+- `is_root`: Optional[bool] - Filtrar nodos raíz (sin padre)
+- `skip`: int = 0 - Registros a omitir
+- `limit`: int = 100 - Máximo registros a retornar
 
-#### Ejemplo de Solicitud
+#### Request
 ```http
-GET /api/v1/cost-centers?is_active=true&order_by=code&limit=50
+GET /api/v1/cost-centers/?search=admin&is_active=true&level=0&limit=50
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-#### Respuesta Exitosa
+#### Response Exitosa (200)
 ```json
 {
-  "data": [
+  "items": [
     {
       "id": "123e4567-e89b-12d3-a456-426614174000",
       "code": "CC001",
-      "name": "Ventas Nacional",
-      "description": "Centro de costo para ventas nacionales",
+      "name": "Administración General",
+      "description": "Centro de costo para gastos administrativos generales",
       "parent_id": null,
+      "allows_direct_assignment": true,
       "is_active": true,
-      "created_at": "2024-01-15T10:30:00Z",
-      "updated_at": "2024-01-15T10:30:00Z",
       "level": 0,
       "full_code": "CC001",
-      "is_leaf": false,
-      "parent_name": null,
-      "children_count": 3,
-      "movements_count": 156
+      "full_name": "CC001 - Administración General",
+      "created_at": "2024-06-15T10:30:00Z",
+      "updated_at": "2024-06-15T10:30:00Z"
     }
   ],
   "total": 25,
@@ -77,633 +108,676 @@ GET /api/v1/cost-centers?is_active=true&order_by=code&limit=50
 }
 ```
 
-### **POST** `/api/v1/cost-centers`
-Crear nuevo centro de costo.
+---
 
-#### Cuerpo de la Solicitud
+### 🌳 GET /tree
+Obtener estructura jerárquica completa de centros de costo como árbol.
+
+#### Parámetros de Query
+- `active_only`: bool = true - Incluir solo centros de costo activos
+
+#### Request
+```http
+GET /api/v1/cost-centers/tree?active_only=true
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+[
+  {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "code": "CC001",
+    "name": "Administración General",
+    "level": 0,
+    "allows_direct_assignment": false,
+    "children": [
+      {
+        "id": "456e7890-e89b-12d3-a456-426614174000",
+        "code": "CC001001",
+        "name": "Recursos Humanos",
+        "level": 1,
+        "allows_direct_assignment": true,
+        "children": []
+      },
+      {
+        "id": "789e0123-e89b-12d3-a456-426614174000",
+        "code": "CC001002",
+        "name": "Contabilidad",
+        "level": 1,
+        "allows_direct_assignment": true,
+        "children": []
+      }
+    ]
+  }
+]
+```
+
+---
+
+### 🔍 GET /{cost_center_id}
+Obtener centro de costo específico por ID con información de jerarquía.
+
+#### Request
+```http
+GET /api/v1/cost-centers/123e4567-e89b-12d3-a456-426614174000
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
 ```json
 {
+  "id": "123e4567-e89b-12d3-a456-426614174000",
   "code": "CC001",
-  "name": "Ventas Nacional",
-  "description": "Centro de costo para ventas nacionales",
+  "name": "Administración General",
+  "description": "Centro de costo para gastos administrativos generales",
   "parent_id": null,
+  "allows_direct_assignment": true,
+  "is_active": true,
+  "level": 0,
+  "full_code": "CC001",
+  "full_name": "CC001 - Administración General",
+  "hierarchy_info": {
+    "has_children": true,
+    "children_count": 2,
+    "is_root": true,
+    "depth": 2
+  },
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-06-15T10:30:00Z"
+}
+```
+
+---
+
+### 🔍 GET /code/{code}
+Obtener centro de costo por código único.
+
+#### Request
+```http
+GET /api/v1/cost-centers/code/CC001
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "code": "CC001",
+  "name": "Administración General",
+  "description": "Centro de costo para gastos administrativos generales",
+  "parent_id": null,
+  "allows_direct_assignment": true,
+  "is_active": true,
+  "level": 0,
+  "full_code": "CC001",
+  "full_name": "CC001 - Administración General",
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-06-15T10:30:00Z"
+}
+```
+
+---
+
+### ✏️ PUT /{cost_center_id}
+Actualizar información de centro de costo.
+
+#### Permisos Requeridos
+- **ADMIN** o **CONTADOR**
+
+#### Request
+```http
+PUT /api/v1/cost-centers/123e4567-e89b-12d3-a456-426614174000
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "name": "Administración General Actualizada",
+  "description": "Descripción actualizada del centro de costo",
+  "allows_direct_assignment": false,
   "is_active": true
 }
 ```
 
-#### Respuesta Exitosa (201)
+#### Response Exitosa (200)
 ```json
 {
   "id": "123e4567-e89b-12d3-a456-426614174000",
   "code": "CC001",
-  "name": "Ventas Nacional",
-  "description": "Centro de costo para ventas nacionales",
+  "name": "Administración General Actualizada",
+  "description": "Descripción actualizada del centro de costo",
   "parent_id": null,
+  "allows_direct_assignment": false,
   "is_active": true,
-  "created_at": "2024-12-11T10:30:00Z",
-  "updated_at": "2024-12-11T10:30:00Z",
   "level": 0,
   "full_code": "CC001",
-  "is_leaf": true,
-  "parent_name": null,
-  "children_count": 0,
-  "movements_count": 0
+  "full_name": "CC001 - Administración General Actualizada",
+  "created_at": "2024-06-15T10:30:00Z",
+  "updated_at": "2024-06-15T15:45:00Z"
 }
 ```
 
-### **GET** `/api/v1/cost-centers/{id}`
-Obtener centro de costo específico por ID.
+---
 
-#### Parámetros de Ruta
-- `id`: UUID del centro de costo
+### 🗑️ DELETE /{cost_center_id}
+Eliminar centro de costo si no tiene movimientos.
 
-#### Respuesta Exitosa
-```json
-{
-  "id": "123e4567-e89b-12d3-a456-426614174000",
-  "code": "CC001",
-  "name": "Ventas Nacional",
-  "description": "Centro de costo para ventas nacionales",
-  "parent_id": null,
-  "is_active": true,
-  "created_at": "2024-01-15T10:30:00Z",
-  "updated_at": "2024-01-15T10:30:00Z",
-  "level": 0,
-  "full_code": "CC001",
-  "is_leaf": false,
-  "parent_name": null,
-  "children_count": 3,
-  "movements_count": 156
-}
+#### Permisos Requeridos
+- **ADMIN** o **CONTADOR**
+
+#### Request
+```http
+DELETE /api/v1/cost-centers/123e4567-e89b-12d3-a456-426614174000
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-### **PUT** `/api/v1/cost-centers/{id}`
-Actualizar centro de costo existente.
-
-#### Cuerpo de la Solicitud
-```json
-{
-  "name": "Ventas Nacional Actualizado",
-  "description": "Descripción actualizada",
-  "parent_id": "456e7890-e89b-12d3-a456-426614174000",
-  "is_active": true
-}
-```
-
-#### Respuesta Exitosa
-```json
-{
-  "id": "123e4567-e89b-12d3-a456-426614174000",
-  "code": "CC001",
-  "name": "Ventas Nacional Actualizado",
-  "description": "Descripción actualizada",
-  "parent_id": "456e7890-e89b-12d3-a456-426614174000",
-  "is_active": true,
-  "created_at": "2024-01-15T10:30:00Z",
-  "updated_at": "2024-12-11T14:30:00Z",
-  "level": 1,
-  "full_code": "PARENT.CC001",
-  "is_leaf": false,
-  "parent_name": "Centro Padre",
-  "children_count": 3,
-  "movements_count": 156
-}
-```
-
-### **DELETE** `/api/v1/cost-centers/{id}`
-Desactivar centro de costo (soft delete).
-
-#### Respuesta Exitosa (204)
+#### Response Exitosa (204)
 ```
 No Content
 ```
 
+#### Códigos de Error
+- **400 Bad Request**: Centro de costo tiene movimientos asociados
+- **409 Conflict**: Centro de costo tiene centros hijos
+
 ---
 
-## Endpoints de Consulta
-
-### **GET** `/api/v1/cost-centers/hierarchy`
-Obtener estructura jerárquica completa.
+### 🏗️ GET /hierarchy/tree
+Obtener jerarquía de centros de costo.
 
 #### Parámetros de Query
-```typescript
-interface HierarchyParams {
-  root_id?: UUID;          // ID del centro raíz (opcional)
-  include_inactive?: boolean; // Incluir centros inactivos
-  max_depth?: number;      // Profundidad máxima (default: 10)
-  include_metrics?: boolean; // Incluir métricas básicas
-}
-```
+- `parent_id`: Optional[UUID] - ID del centro de costo padre (null para raíz)
 
-#### Ejemplo de Solicitud
+#### Request
 ```http
-GET /api/v1/cost-centers/hierarchy?include_metrics=true
+GET /api/v1/cost-centers/hierarchy/tree?parent_id=null
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-#### Respuesta Exitosa
+#### Response Exitosa (200)
+```json
+[
+  {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "code": "CC001",
+    "name": "Administración General",
+    "description": "Centro de costo para gastos administrativos generales",
+    "parent_id": null,
+    "allows_direct_assignment": true,
+    "is_active": true,
+    "level": 0,
+    "full_code": "CC001",
+    "full_name": "CC001 - Administración General",
+    "hierarchy_info": {
+      "has_children": true,
+      "children_count": 2,
+      "is_root": true,
+      "depth": 2
+    },
+    "created_at": "2024-06-15T10:30:00Z",
+    "updated_at": "2024-06-15T10:30:00Z"
+  }
+]
+```
+
+---
+
+### 📊 GET /{cost_center_id}/report
+Generar reporte de actividad del centro de costo para un período.
+
+#### Parámetros de Query
+- `start_date`: date (requerido) - Fecha de inicio del reporte
+- `end_date`: date (requerido) - Fecha de fin del reporte
+
+#### Request
+```http
+GET /api/v1/cost-centers/123e4567-e89b-12d3-a456-426614174000/report?start_date=2024-06-01&end_date=2024-06-30
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
 ```json
 {
-  "hierarchy": [
+  "cost_center_id": "123e4567-e89b-12d3-a456-426614174000",
+  "cost_center_code": "CC001",
+  "cost_center_name": "Administración General",
+  "period": {
+    "start_date": "2024-06-01",
+    "end_date": "2024-06-30"
+  },
+  "summary": {
+    "total_movements": 45,
+    "total_amount": 2500000.00,
+    "debits": 1800000.00,
+    "credits": 700000.00,
+    "net_amount": 1100000.00
+  },
+  "movements_by_account": [
     {
-      "id": "123e4567-e89b-12d3-a456-426614174000",
-      "code": "CC001",
-      "name": "Ventas",
-      "level": 0,
-      "is_active": true,
-      "children": [
-        {
-          "id": "456e7890-e89b-12d3-a456-426614174000",
-          "code": "CC001.001",
-          "name": "Ventas Norte",
-          "level": 1,
-          "is_active": true,
-          "children": [],
-          "total_revenue": 500000.00,
-          "total_costs": 350000.00,
-          "net_margin": 30.0
-        }
-      ],
-      "total_revenue": 1200000.00,
-      "total_costs": 840000.00,
-      "net_margin": 30.0
+      "account_code": "5101001",
+      "account_name": "Sueldos y Salarios",
+      "total_amount": 1500000.00,
+      "movement_count": 15
     }
   ],
-  "total_centers": 15,
-  "max_depth": 3
+  "movements_by_month": [
+    {
+      "month": "2024-06",
+      "total_amount": 2500000.00,
+      "movement_count": 45
+    }
+  ]
 }
 ```
 
-### **GET** `/api/v1/cost-centers/search`
-Búsqueda avanzada de centros de costo.
+---
 
-#### Parámetros de Query
-```typescript
-interface SearchParams {
-  q: string;               // Término de búsqueda (requerido)
-  limit?: number;          // Límite de resultados (default: 10)
-  include_inactive?: boolean; // Incluir centros inactivos
-  search_fields?: string[]; // Campos a buscar: code, name, description
-}
-```
+### ✅ GET /{cost_center_id}/validate
+Validar datos del centro de costo y jerarquía.
 
-#### Ejemplo de Solicitud
+#### Request
 ```http
-GET /api/v1/cost-centers/search?q=ventas&limit=5
+GET /api/v1/cost-centers/123e4567-e89b-12d3-a456-426614174000/validate
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-#### Respuesta Exitosa
+#### Response Exitosa (200)
 ```json
 {
+  "cost_center_id": "123e4567-e89b-12d3-a456-426614174000",
+  "is_valid": true,
+  "can_be_deleted": false,
+  "can_modify_hierarchy": true,
+  "has_movements": true,
+  "has_children": true,
+  "movement_count": 125,
+  "children_count": 3,
+  "warnings": [
+    "Centro de costo tiene movimientos, considere cuidadosamente antes de eliminar"
+  ],
+  "restrictions": [
+    "No se puede eliminar centro de costo con movimientos asociados",
+    "No se puede eliminar centro de costo con centros hijos"
+  ]
+}
+```
+
+---
+
+### 📈 GET /statistics/summary
+Obtener estadísticas de uso y distribución de centros de costo.
+
+#### Request
+```http
+GET /api/v1/cost-centers/statistics/summary
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "total_cost_centers": 50,
+  "active_cost_centers": 45,
+  "inactive_cost_centers": 5,
+  "root_cost_centers": 8,
+  "cost_centers_with_children": 15,
+  "cost_centers_allowing_assignment": 35,
+  "cost_centers_with_movements": 28,
+  "average_depth": 2.5,
+  "max_depth": 4,
+  "distribution_by_level": {
+    "0": 8,
+    "1": 20,
+    "2": 15,
+    "3": 7
+  }
+}
+```
+
+---
+
+### 🔄 POST /bulk-operation
+Operaciones masivas en múltiples centros de costo.
+
+#### Permisos Requeridos
+- **ADMIN** únicamente
+
+#### Request
+```http
+POST /api/v1/cost-centers/bulk-operation
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "operation": "toggle_active",
+  "cost_center_ids": [
+    "123e4567-e89b-12d3-a456-426614174000",
+    "456e7890-e89b-12d3-a456-426614174000"
+  ],
+  "parameters": {
+    "reason": "Reorganización departamental"
+  }
+}
+```
+
+#### Response Exitosa (200)
+```json
+{
+  "operation": "toggle_active",
+  "total_cost_centers": 2,
+  "successful": 2,
+  "failed": 0,
   "results": [
     {
-      "id": "123e4567-e89b-12d3-a456-426614174000",
-      "code": "CC001",
-      "name": "Ventas Nacional",
-      "full_code": "CC001",
-      "level": 0,
-      "is_active": true,
-      "match_score": 0.95
+      "cost_center_id": "123e4567-e89b-12d3-a456-426614174000",
+      "success": true,
+      "message": "Estado actualizado correctamente"
     }
-  ],
-  "total": 3,
-  "search_term": "ventas"
-}
-```
-
-### **GET** `/api/v1/cost-centers/{id}/children`
-Obtener centros de costo hijos.
-
-#### Parámetros de Query
-```typescript
-interface ChildrenParams {
-  include_inactive?: boolean; // Incluir hijos inactivos
-  recursive?: boolean;        // Incluir todos los descendientes
-}
-```
-
-#### Respuesta Exitosa
-```json
-{
-  "children": [
-    {
-      "id": "456e7890-e89b-12d3-a456-426614174000",
-      "code": "CC001.001",
-      "name": "Ventas Norte",
-      "level": 1,
-      "is_active": true,
-      "children_count": 2
-    }
-  ],
-  "total": 3
-}
-```
-
-### **GET** `/api/v1/cost-centers/{id}/movements`
-Obtener movimientos contables del centro de costo.
-
-#### Parámetros de Query
-```typescript
-interface MovementsParams {
-  start_date?: date;       // Fecha inicio (default: inicio del mes)
-  end_date?: date;         // Fecha fin (default: hoy)
-  account_type?: AccountType; // Filtrar por tipo de cuenta
-  skip?: number;
-  limit?: number;
-}
-```
-
-#### Respuesta Exitosa
-```json
-{
-  "movements": [
-    {
-      "id": "789e0123-e89b-12d3-a456-426614174000",
-      "journal_entry_id": "abc123def456",
-      "date": "2024-12-10",
-      "account_code": "4101",
-      "account_name": "Ventas",
-      "description": "Venta de productos",
-      "debit_amount": 0.00,
-      "credit_amount": 150000.00,
-      "reference": "FAC-001"
-    }
-  ],
-  "summary": {
-    "total_debits": 350000.00,
-    "total_credits": 500000.00,
-    "net_amount": 150000.00,
-    "movement_count": 25
-  }
+  ]
 }
 ```
 
 ---
 
-## Endpoints de Reportes
+### 🗑️ POST /bulk-delete
+Eliminación masiva de centros de costo con validaciones.
 
-### **GET** `/api/v1/cost-center-reports/{id}/profitability`
-Análisis de rentabilidad del centro de costo.
+#### Permisos Requeridos
+- **ADMIN** únicamente
 
-#### Parámetros de Query
-```typescript
-interface ProfitabilityParams {
-  start_date: date;        // Fecha inicio (requerido)
-  end_date: date;          // Fecha fin (requerido)
-  include_indirect_costs?: boolean; // Incluir costos indirectos
-  comparison_period?: boolean; // Incluir período de comparación
-}
-```
-
-#### Ejemplo de Solicitud
+#### Request
 ```http
-GET /api/v1/cost-center-reports/123e4567-e89b-12d3-a456-426614174000/profitability?start_date=2024-01-01&end_date=2024-12-31&comparison_period=true
+POST /api/v1/cost-centers/bulk-delete
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "cost_center_ids": [
+    "123e4567-e89b-12d3-a456-426614174000",
+    "456e7890-e89b-12d3-a456-426614174000"
+  ],
+  "force": false
+}
 ```
 
-#### Respuesta Exitosa
+#### Response Exitosa (200)
 ```json
 {
-  "cost_center": {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "code": "CC001",
-    "name": "Ventas Nacional"
-  },
-  "period_start": "2024-01-01T00:00:00Z",
-  "period_end": "2024-12-31T23:59:59Z",
-  "metrics": {
-    "revenue": 1500000.00,
-    "direct_costs": 900000.00,
-    "indirect_costs": 135000.00,
-    "total_costs": 1035000.00,
-    "gross_profit": 600000.00,
-    "net_profit": 465000.00,
-    "gross_margin": 40.0,
-    "net_margin": 31.0,
-    "cost_efficiency": 1.45
-  },
-  "comparison_metrics": {
-    "revenue": 1200000.00,
-    "net_profit": 300000.00,
-    "net_margin": 25.0
-  },
-  "revenue_breakdown": [
+  "total_requested": 2,
+  "successful_deletions": 1,
+  "failed_deletions": 1,
+  "results": [
     {
-      "account_code": "4101",
-      "account_name": "Ventas Productos",
-      "amount": 1200000.00,
-      "percentage": 80.0
-    }
-  ],
-  "cost_breakdown": [
+      "cost_center_id": "123e4567-e89b-12d3-a456-426614174000",
+      "success": false,
+      "error": "Centro de costo tiene movimientos asociados"
+    },
     {
-      "account_code": "5101",
-      "account_name": "Costo de Ventas",
-      "amount": 720000.00,
-      "type": "direct"
+      "cost_center_id": "456e7890-e89b-12d3-a456-426614174000",
+      "success": true,
+      "message": "Centro de costo eliminado correctamente"
     }
-  ],
-  "insights": [
-    "Excelente margen de rentabilidad, superior al 30%",
-    "Mejora significativa vs período anterior: +6.0%"
-  ],
-  "recommendations": [
-    "Mantener estrategia actual de rentabilidad",
-    "Considerar expansión de mercado"
   ]
 }
 ```
 
-### **GET** `/api/v1/cost-center-reports/comparison`
-Comparación entre múltiples centros de costo.
+---
 
-#### Parámetros de Query
-```typescript
-interface ComparisonParams {
-  cost_center_ids: UUID[]; // IDs de centros a comparar (requerido)
-  start_date: date;        // Fecha inicio (requerido)
-  end_date: date;          // Fecha fin (requerido)
-  metrics?: string[];      // Métricas a comparar
-}
-```
+### ⚠️ POST /validate-deletion
+Validar eliminación de centros de costo antes de ejecutar.
 
-#### Ejemplo de Solicitud
+#### Request
 ```http
-GET /api/v1/cost-center-reports/comparison?cost_center_ids=123e4567-e89b-12d3-a456-426614174000,456e7890-e89b-12d3-a456-426614174000&start_date=2024-01-01&end_date=2024-12-31
+POST /api/v1/cost-centers/validate-deletion
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "cost_center_ids": [
+    "123e4567-e89b-12d3-a456-426614174000",
+    "456e7890-e89b-12d3-a456-426614174000"
+  ]
+}
 ```
 
-#### Respuesta Exitosa
+#### Response Exitosa (200)
 ```json
-{
-  "period_start": "2024-01-01T00:00:00Z",
-  "period_end": "2024-12-31T23:59:59Z",
-  "comparison_metrics": ["profit", "margin", "efficiency"],
-  "cost_centers": [
-    {
-      "cost_center": {
-        "id": "123e4567-e89b-12d3-a456-426614174000",
-        "code": "CC001",
-        "name": "Ventas Nacional"
-      },
-      "metrics": {
-        "revenue": 1500000.00,
-        "net_profit": 465000.00,
-        "net_margin": 31.0,
-        "cost_efficiency": 1.45
-      },
-      "ranking": 1,
-      "variance_from_best": 0.0
-    }
-  ],
-  "summary_statistics": {
-    "avg_margin": 28.5,
-    "avg_revenue": 1200000.00,
-    "margin_std": 5.2,
-    "revenue_std": 300000.00
-  },
-  "insights": [
-    "Brecha de rentabilidad: 8.5% entre mejor y peor centro"
-  ],
-  "best_performer": {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "name": "Ventas Nacional"
-  },
-  "worst_performer": {
-    "id": "456e7890-e89b-12d3-a456-426614174000",
-    "name": "Ventas Sur"
+[
+  {
+    "cost_center_id": "123e4567-e89b-12d3-a456-426614174000",
+    "cost_center_code": "CC001",
+    "cost_center_name": "Administración General",
+    "can_delete": false,
+    "blocking_reasons": [
+      "Centro de costo tiene 125 movimientos asociados",
+      "Centro de costo tiene 3 centros hijos"
+    ],
+    "warnings": [
+      "Eliminar este centro afectará la jerarquía existente"
+    ],
+    "requires_confirmation": true
   }
-}
+]
 ```
 
-### **GET** `/api/v1/cost-center-reports/{id}/budget-tracking`
-Seguimiento presupuestario del centro de costo.
+---
 
-#### Parámetros de Query
-```typescript
-interface BudgetTrackingParams {
-  budget_year: number;     // Año presupuestario (requerido)
-  month?: number;          // Mes específico (opcional)
-  include_forecast?: boolean; // Incluir proyecciones
-}
+### 📥 POST /import
+Importar centros de costo masivamente desde archivo.
+
+#### Permisos Requeridos
+- **ADMIN** únicamente
+
+#### Request
+```http
+POST /api/v1/cost-centers/import
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: multipart/form-data
+
+file: [archivo CSV/Excel con centros de costo]
+validate_only: false
 ```
 
-#### Respuesta Exitosa
+#### Response Exitosa (201)
 ```json
 {
-  "cost_center": {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "code": "CC001",
-    "name": "Ventas Nacional"
-  },
-  "budget_year": 2024,
-  "month": null,
-  "revenue_variance": {
-    "budget_amount": 1650000.00,
-    "actual_amount": 1500000.00,
-    "variance_amount": -150000.00,
-    "variance_percentage": -9.09,
-    "status": "unfavorable"
-  },
-  "cost_variance": {
-    "budget_amount": 1089000.00,
-    "actual_amount": 1035000.00,
-    "variance_amount": -54000.00,
-    "variance_percentage": -4.96,
-    "status": "favorable"
-  },
-  "profit_variance": {
-    "budget_amount": 561000.00,
-    "actual_amount": 465000.00,
-    "variance_amount": -96000.00,
-    "variance_percentage": -17.11,
-    "status": "unfavorable"
-  },
-  "alerts": [
-    "Variación significativa en ingresos: -9.1%"
-  ],
-  "recommendations": [
-    "Revisar estrategias de generación de ingresos"
-  ]
-}
-```
-
-### **GET** `/api/v1/cost-center-reports/ranking`
-Ranking de centros de costo por métricas.
-
-#### Parámetros de Query
-```typescript
-interface RankingParams {
-  ranking_metric: 'profit' | 'margin' | 'efficiency' | 'revenue'; // Métrica para ranking
-  start_date: date;        // Fecha inicio
-  end_date: date;          // Fecha fin
-  limit?: number;          // Límite de resultados (default: 10)
-  include_inactive?: boolean; // Incluir centros inactivos
-}
-```
-
-#### Respuesta Exitosa
-```json
-{
-  "ranking_metric": "profit",
-  "period_start": "2024-01-01T00:00:00Z",
-  "period_end": "2024-12-31T23:59:59Z",
-  "rankings": [
-    {
-      "position": 1,
-      "cost_center": {
-        "id": "123e4567-e89b-12d3-a456-426614174000",
-        "code": "CC001",
-        "name": "Ventas Nacional"
-      },
-      "metric_value": 465000.00,
-      "metric_description": "Utilidad neta",
-      "performance_score": 92.5,
-      "trend": "stable"
-    }
-  ],
-  "metric_statistics": {
-    "average": 285000.00,
-    "median": 250000.00,
-    "max": 465000.00,
-    "min": 85000.00
-  },
-  "insights": [
-    "Mejor rendimiento: Ventas Nacional con 465000.00"
-  ]
-}
-```
-
-### **GET** `/api/v1/cost-center-reports/executive-dashboard`
-Dashboard ejecutivo consolidado.
-
-#### Parámetros de Query
-```typescript
-interface DashboardParams {
-  period?: 'current_month' | 'current_quarter' | 'current_year'; // Período de análisis
-  top_performers_count?: number; // Número de top performers
-  include_alerts?: boolean;     // Incluir alertas
-}
-```
-
-#### Respuesta Exitosa
-```json
-{
-  "period": "current_month",
-  "start_date": "2024-12-01",
-  "end_date": "2024-12-11",
-  "consolidated_metrics": {
-    "total_revenue": 5500000.00,
-    "total_costs": 3850000.00,
-    "total_profit": 1650000.00,
-    "total_margin": 30.0,
-    "active_cost_centers": 15
-  },
-  "top_performers": [
-    {
-      "position": 1,
-      "cost_center": {
-        "id": "123e4567-e89b-12d3-a456-426614174000",
-        "code": "CC001",
-        "name": "Ventas Nacional"
-      },
-      "metric_value": 465000.00,
-      "performance_score": 92.5
-    }
-  ],
-  "alerts": [],
-  "summary_insights": [
-    "Rentabilidad consolidada excelente",
-    "Mejor centro de costo: Ventas Nacional"
-  ],
-  "generated_at": "2024-12-11T15:30:00Z"
+  "import_id": "import-uuid-here",
+  "status": "processing",
+  "total_rows": 50,
+  "processed_rows": 0,
+  "successful_imports": 0,
+  "failed_imports": 0,
+  "validation_errors": [],
+  "estimated_completion": "2024-06-15T10:35:00Z",
+  "started_at": "2024-06-15T10:30:00Z"
 }
 ```
 
 ---
 
-## Códigos de Error
+### 📤 GET /export/csv
+Exportar centros de costo a archivo CSV.
 
-### Errores Comunes
-
-| Código | Descripción | Solución |
-|--------|-------------|----------|
-| 400 | Datos de entrada inválidos | Verificar formato de campos |
-| 404 | Centro de costo no encontrado | Verificar ID existe |
-| 409 | Código duplicado | Usar código único en nivel |
-| 422 | Error de validación | Revisar reglas de negocio |
-
-### Ejemplos de Respuestas de Error
-
-#### Error de Validación (422)
-```json
-{
-  "detail": [
-    {
-      "loc": ["body", "code"],
-      "msg": "Código debe contener solo letras, números, guiones y guiones bajos",
-      "type": "value_error"
-    }
-  ]
-}
+#### Request
+```http
+GET /api/v1/cost-centers/export/csv
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-#### Error de Conflicto (409)
-```json
-{
-  "detail": "Ya existe un centro de costo con código 'CC001' en este nivel"
-}
+#### Response Exitosa (200)
+```
+Content-Type: text/csv
+Content-Disposition: attachment; filename="cost_centers_export_2024-06-15.csv"
+
+code,name,description,parent_code,allows_direct_assignment,is_active,level
+CC001,Administración General,Centro de gastos administrativos,,false,true,0
+CC001001,Recursos Humanos,Departamento de RRHH,CC001,true,true,1
+CC001002,Contabilidad,Departamento contable,CC001,true,true,1
+...
 ```
 
 ---
 
-## Ejemplos de Uso
+## Flujos de Integración
 
-### Flujo Completo de Gestión
+### Creación de Jerarquía de Centros de Costo
 
 ```javascript
 // 1. Crear centro de costo padre
-const parentResponse = await fetch('/api/v1/cost-centers', {
+const parentCenter = await fetch('/api/v1/cost-centers/', {
   method: 'POST',
   headers: {
-    'Authorization': 'Bearer ' + token,
+    'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    code: 'VEN',
-    name: 'Ventas',
-    description: 'División de Ventas'
+    code: 'CC001',
+    name: 'Administración General',
+    description: 'Centro de gastos administrativos',
+    allows_direct_assignment: false,
+    is_active: true
   })
 });
 
-// 2. Crear centro hijo
-const childResponse = await fetch('/api/v1/cost-centers', {
+// 2. Crear centros de costo hijos
+const childCenter = await fetch('/api/v1/cost-centers/', {
   method: 'POST',
   headers: {
-    'Authorization': 'Bearer ' + token,
+    'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    code: 'VEN001',
-    name: 'Ventas Norte',
-    parent_id: parentResponse.data.id
+    code: 'CC001001',
+    name: 'Recursos Humanos',
+    description: 'Departamento de RRHH',
+    parent_id: parentCenter.id,
+    allows_direct_assignment: true,
+    is_active: true
   })
 });
-
-// 3. Obtener análisis de rentabilidad
-const profitabilityResponse = await fetch(
-  `/api/v1/cost-center-reports/${childResponse.data.id}/profitability?start_date=2024-01-01&end_date=2024-12-31`,
-  {
-    headers: { 'Authorization': 'Bearer ' + token }
-  }
-);
 ```
 
----
+### Consulta de Reportes y Análisis
 
-## Rate Limiting
+```javascript
+// Obtener estructura jerárquica
+const tree = await fetch('/api/v1/cost-centers/tree', {
+  headers: { 'Authorization': `Bearer ${token}` }
+});
 
-- **Endpoints de Consulta**: 1000 requests/hour
-- **Endpoints de Modificación**: 100 requests/hour
-- **Endpoints de Reportes**: 50 requests/hour
+// Generar reporte de centro de costo
+const report = await fetch(
+  `/api/v1/cost-centers/${costCenterId}/report?start_date=2024-06-01&end_date=2024-06-30`,
+  { headers: { 'Authorization': `Bearer ${token}` } }
+);
 
----
-**Última actualización**: Diciembre 2024  
-**Versión API**: 1.0.0
+// Obtener estadísticas generales
+const stats = await fetch('/api/v1/cost-centers/statistics/summary', {
+  headers: { 'Authorization': `Bearer ${token}` }
+});
+```
+
+## Validaciones y Reglas de Negocio
+
+### Estructura Jerárquica
+- **Códigos únicos**: No pueden existir códigos duplicados
+- **Jerarquía válida**: Un centro no puede ser padre de sí mismo
+- **Niveles**: La profundidad máxima recomendada es 5 niveles
+- **Asignación directa**: Solo centros con `allows_direct_assignment=true` pueden recibir movimientos
+
+### Restricciones de Eliminación
+- No se puede eliminar centro con movimientos asociados
+- No se puede eliminar centro con centros hijos
+- Solo administradores y contadores pueden eliminar centros
+
+### Códigos de Centros de Costo
+- **Formato recomendado**: CC + número secuencial (CC001, CC002, etc.)
+- **Jerarquía en código**: Los hijos pueden usar el código padre como prefijo
+- **Longitud**: Máximo 20 caracteres
+
+## Códigos de Error Comunes
+
+### 400 Bad Request
+- Código de centro de costo inválido
+- Jerarquía circular detectada
+- Datos de entrada malformados
+
+### 401 Unauthorized
+- Token de autenticación inválido
+- Token expirado
+
+### 403 Forbidden
+- Permisos insuficientes para la operación
+- Usuario no puede modificar centros de costo
+
+### 404 Not Found
+- Centro de costo no encontrado
+- Centro de costo padre no existe
+
+### 409 Conflict
+- Código de centro de costo ya existe
+- Centro de costo tiene movimientos (al eliminar)
+- Centro de costo tiene centros hijos (al eliminar)
+
+### 422 Unprocessable Entity
+- Validación de datos falló
+- Estructura jerárquica inválida
+- Parámetros de reporte inválidos
+
+## Testing de Endpoints
+
+### Casos de Prueba Críticos
+1. **Jerarquía**: Crear estructura padre-hijo correcta
+2. **Unicidad**: Verificar códigos únicos
+3. **Asignación**: Validar restricciones de asignación directa
+4. **Reportes**: Verificar cálculos de reportes
+5. **Restricciones**: Probar eliminación con restricciones
+6. **Permisos**: Verificar control de acceso por roles
+
+### Ejemplo con pytest
+```python
+@pytest.mark.asyncio
+async def test_create_cost_center_hierarchy(client: AsyncClient, admin_token: str):
+    # Crear centro padre
+    parent_response = await client.post(
+        "/api/v1/cost-centers/",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "code": "CC001",
+            "name": "Administración General",
+            "allows_direct_assignment": False
+        }
+    )
+    assert parent_response.status_code == 201
+    parent_data = parent_response.json()
+    
+    # Crear centro hijo
+    child_response = await client.post(
+        "/api/v1/cost-centers/",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "code": "CC001001",
+            "name": "Recursos Humanos",
+            "parent_id": parent_data["id"],
+            "allows_direct_assignment": True
+        }
+    )
+    assert child_response.status_code == 201
+    
+    # Verificar jerarquía
+    tree_response = await client.get(
+        "/api/v1/cost-centers/tree",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    assert tree_response.status_code == 200
+    tree_data = tree_response.json()
+    assert len(tree_data) == 1
+    assert len(tree_data[0]["children"]) == 1
+```
+
+## Referencias
+
+- [Esquemas de Centros de Costo](../schemas/cost-center-schemas.md)
+- [Reportes de Centros de Costo](../reports/cost-center-reports.md)
+- [Asientos Contables](../journal-entries/journal-entry-endpoints.md)
+- [Guía de Implementación](../guides/cost-center-setup.md)

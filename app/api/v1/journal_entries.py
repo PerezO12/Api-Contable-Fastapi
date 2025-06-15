@@ -160,8 +160,7 @@ async def get_journal_entry(
         journal_entry = await service.get_journal_entry_by_id(journal_entry_id)
         if not journal_entry:
             raise_journal_entry_not_found()
-        
-        # Force load all relationships to avoid lazy loading during serialization
+          # Force load all relationships to avoid lazy loading during serialization
         _ = len(journal_entry.lines)  # Force load lines
         for line in journal_entry.lines:
             if line.account:
@@ -170,9 +169,21 @@ async def get_journal_entry(
             if line.third_party:
                 _ = line.third_party.code  # Force load third party
                 _ = line.third_party.name  # Force load third party name
+                _ = line.third_party.document_type  # Force load document type
+                _ = line.third_party.document_number  # Force load document number
+                _ = line.third_party.tax_id  # Force load tax id
+                _ = line.third_party.email  # Force load email
+                _ = line.third_party.phone  # Force load phone
+                _ = line.third_party.address  # Force load address
+                _ = line.third_party.city  # Force load city
+                _ = line.third_party.third_party_type  # Force load third party type
             if line.cost_center:
                 _ = line.cost_center.code  # Force load cost center
                 _ = line.cost_center.name  # Force load cost center name
+            if line.payment_terms:
+                _ = line.payment_terms.code  # Force load payment terms
+                _ = line.payment_terms.name  # Force load payment terms name
+                _ = line.payment_terms.description  # Force load payment terms description
                 
         return JournalEntryDetailResponse.model_validate(journal_entry)
     except JournalEntryNotFoundError:

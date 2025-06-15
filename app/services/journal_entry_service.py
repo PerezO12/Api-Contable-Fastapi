@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.journal_entry import JournalEntry, JournalEntryLine, JournalEntryStatus, JournalEntryType
 from app.models.account import Account
+from app.models.payment_terms import PaymentTerms
 from app.schemas.journal_entry import (
     JournalEntryCreate, 
     JournalEntryUpdate, 
@@ -97,6 +98,9 @@ class JournalEntryService:
                 reference=line_data.reference,
                 third_party_id=line_data.third_party_id,
                 cost_center_id=line_data.cost_center_id,
+                invoice_date=getattr(line_data, 'invoice_date', None),
+                due_date=getattr(line_data, 'due_date', None),
+                payment_terms_id=getattr(line_data, 'payment_terms_id', None),
                 line_number=line_number
             )
             
@@ -146,7 +150,8 @@ class JournalEntryService:
             .options(
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account),
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.third_party),
-                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.cost_center)
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.cost_center),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.payment_terms)
             )
             .where(JournalEntry.id == journal_entry.id)
         )
@@ -165,6 +170,7 @@ class JournalEntryService:
             selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account),
             selectinload(JournalEntry.lines).selectinload(JournalEntryLine.third_party),
             selectinload(JournalEntry.lines).selectinload(JournalEntryLine.cost_center),
+            selectinload(JournalEntry.lines).selectinload(JournalEntryLine.payment_terms).selectinload(PaymentTerms.payment_schedules),
             selectinload(JournalEntry.created_by),
             selectinload(JournalEntry.posted_by)
         )
@@ -230,6 +236,7 @@ class JournalEntryService:
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account).selectinload(Account.children),
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.third_party),
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.cost_center),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.payment_terms).selectinload(PaymentTerms.payment_schedules),
                 selectinload(JournalEntry.created_by),
                 selectinload(JournalEntry.posted_by),
                 selectinload(JournalEntry.approved_by)
@@ -246,6 +253,7 @@ class JournalEntryService:
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account).selectinload(Account.children),
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.third_party),
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.cost_center),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.payment_terms).selectinload(PaymentTerms.payment_schedules),
                 selectinload(JournalEntry.created_by),
                 selectinload(JournalEntry.posted_by)
             )

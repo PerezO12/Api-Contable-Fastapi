@@ -5,6 +5,7 @@ from app.models.account import Account, AccountType, AccountCategory
 from app.models.journal_entry import JournalEntry, JournalEntryLine, JournalEntryStatus, JournalEntryType
 from app.models.cost_center import CostCenter
 from app.models.third_party import ThirdParty, ThirdPartyType, DocumentType
+from app.models.payment_terms import PaymentTerms, PaymentSchedule
 from app.models.audit import (
     AuditLog, AuditAction, AuditLogLevel, ChangeTracking,
     SystemConfiguration, CompanyInfo, NumberSequence
@@ -27,6 +28,8 @@ __all__ = [
     "ThirdParty",
     "ThirdPartyType",
     "DocumentType",
+    "PaymentTerms",
+    "PaymentSchedule",
     "AuditLog",
     "AuditAction",
     "AuditLogLevel",

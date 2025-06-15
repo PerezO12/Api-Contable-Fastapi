@@ -18,6 +18,11 @@ class JournalEntryLineBase(BaseModel):
     third_party_id: Optional[uuid.UUID] = Field(None, description="ID del tercero")
     cost_center_id: Optional[uuid.UUID] = Field(None, description="ID del centro de costo")
     reference: Optional[str] = Field(None, max_length=100, description="Referencia adicional")
+    
+    # Nuevos campos para fechas y condiciones de pago
+    invoice_date: Optional[date] = Field(None, description="Fecha de la factura (si es diferente a la fecha del asiento)")
+    due_date: Optional[date] = Field(None, description="Fecha de vencimiento manual")
+    payment_terms_id: Optional[uuid.UUID] = Field(None, description="ID de las condiciones de pago")
 
     @model_validator(mode='after')
     def validate_amounts(self):
@@ -27,6 +32,14 @@ class JournalEntryLineBase(BaseModel):
         
         if (debit > 0 and credit > 0) or (debit == 0 and credit == 0):
             raise ValueError("Una línea debe tener monto en débito O crédito, no ambos o ninguno")
+        
+        return self
+
+    @model_validator(mode='after')
+    def validate_payment_terms_and_due_date(self):
+        """Valida que no se especifiquen tanto condiciones de pago como fecha de vencimiento manual"""
+        if self.payment_terms_id and self.due_date:
+            raise ValueError("No se puede especificar tanto condiciones de pago como fecha de vencimiento manual")
         
         return self
 
@@ -45,6 +58,9 @@ class JournalEntryLineUpdate(BaseModel):
     third_party_id: Optional[uuid.UUID] = Field(None, description="ID del tercero")
     cost_center_id: Optional[uuid.UUID] = Field(None, description="ID del centro de costo")
     reference: Optional[str] = Field(None, max_length=100)
+    invoice_date: Optional[date] = Field(None, description="Fecha de la factura")
+    due_date: Optional[date] = Field(None, description="Fecha de vencimiento manual")
+    payment_terms_id: Optional[uuid.UUID] = Field(None, description="ID de las condiciones de pago")
 
 
 class JournalEntryLineRead(JournalEntryLineBase):
@@ -55,17 +71,43 @@ class JournalEntryLineRead(JournalEntryLineBase):
     created_at: datetime
     updated_at: datetime
     
-    # Campos relacionados
+    # Campos relacionados - Cuenta
     account_code: Optional[str] = None
     account_name: Optional[str] = None
+    
+    # Campos relacionados - Tercero (información completa)
     third_party_code: Optional[str] = None
     third_party_name: Optional[str] = None
+    third_party_document_type: Optional[str] = None
+    third_party_document_number: Optional[str] = None
+    third_party_tax_id: Optional[str] = None
+    third_party_email: Optional[str] = None
+    third_party_phone: Optional[str] = None
+    third_party_address: Optional[str] = None
+    third_party_city: Optional[str] = None
+    third_party_type: Optional[str] = None
+    
+    # Campos relacionados - Centro de Costo
     cost_center_code: Optional[str] = None
     cost_center_name: Optional[str] = None
+    
+    # Campos relacionados - Términos de Pago (información completa)
+    payment_terms_code: Optional[str] = None
+    payment_terms_name: Optional[str] = None
+    payment_terms_description: Optional[str] = None
+    
+    # Campos calculados
     amount: Decimal = Decimal('0')  # Monto absoluto
     movement_type: str = "debit"    # "debit" o "credit"
+    effective_invoice_date: Optional[date] = None  # Fecha de factura efectiva
+    effective_due_date: Optional[date] = None      # Fecha de vencimiento efectiva
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class JournalEntryLineDetail(JournalEntryLineRead):
+    """Schema para detalles completos de línea con cronograma de pagos"""
+    payment_schedule: List[dict] = []  # Cronograma de pagos calculado
 
 
 # Esquemas para asientos contables

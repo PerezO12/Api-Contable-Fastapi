@@ -7,6 +7,7 @@ from app.api.v1 import (
     accounts, auth, users, journal_entries, reports, report_api, 
     import_data, export_templates, export, cost_centers, third_parties, cost_center_reports
 )
+from app.api import payment_terms
 
 api_router = APIRouter()
 
@@ -27,6 +28,9 @@ api_router.include_router(cost_centers.router, prefix="/cost-centers", tags=["co
 
 # Third party routes
 api_router.include_router(third_parties.router, prefix="/third-parties", tags=["third-parties"])
+
+# Payment terms routes
+api_router.include_router(payment_terms.router, tags=["payment-terms"])
 
 # Cost center reports routes
 api_router.include_router(cost_center_reports.router, prefix="/cost-center-reports", tags=["cost-center-reports"])
