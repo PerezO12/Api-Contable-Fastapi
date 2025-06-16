@@ -374,6 +374,9 @@ class JournalEntryService:
             
             if filters.created_by_id:
                 conditions.append(JournalEntry.created_by_id == filters.created_by_id)
+            
+            if filters.transaction_origin:
+                conditions.append(JournalEntry.transaction_origin.in_(filters.transaction_origin))
         
         # Construir query principal
         if conditions:

@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from app.api.deps import get_db, get_current_active_user
 from app.models.user import User
-from app.models.journal_entry import JournalEntryStatus
+from app.models.journal_entry import JournalEntryStatus, TransactionOrigin
 from app.schemas.journal_entry import (
     JournalEntryCreate,
     JournalEntryUpdate,
@@ -125,12 +125,12 @@ async def list_journal_entries(
     date_from: Optional[date] = Query(None, description="Filter from date"),
     date_to: Optional[date] = Query(None, description="Filter to date"),
     reference: Optional[str] = Query(None, description="Filter by reference"),
+    transaction_origin: Optional[TransactionOrigin] = Query(None, description="Filter by transaction origin (sale, purchase, etc.)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ) -> JournalEntryListResponse:
     """Get paginated list of journal entries."""
-    service = JournalEntryService(db)
-      # Create filter object
+    service = JournalEntryService(db)    # Create filter object
     filters = JournalEntryFilter(
         status=[status] if status else None,
         account_id=account_id,
@@ -140,7 +140,8 @@ async def list_journal_entries(
         entry_type=None,
         created_by_id=None,
         min_amount=None,
-        max_amount=None    
+        max_amount=None,
+        transaction_origin=[transaction_origin] if transaction_origin else None
     )
     
     journal_entries, total = await service.get_journal_entries(

@@ -330,6 +330,8 @@ class JournalEntryFilter(BaseModel):
     min_amount: Optional[Decimal] = Field(None, description="Monto mínimo")
     max_amount: Optional[Decimal] = Field(None, description="Monto máximo")
     search_text: Optional[str] = Field(None, description="Texto a buscar en descripción o referencia")
+    transaction_origin: Optional[List[TransactionOrigin]] = Field(None, description="Filtrar por naturaleza de operación (venta, compra, etc.)")
+    transaction_origin: Optional[List[TransactionOrigin]] = Field(None, description="Filtrar por naturaleza de operación")
 
 
 class JournalEntrySummary(BaseModel):
