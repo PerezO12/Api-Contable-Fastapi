@@ -10,6 +10,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, EmailStr
 
 from app.models.third_party import ThirdPartyType, DocumentType
+from app.utils.enum_validators import create_enum_validator
 
 
 # Schemas base
@@ -48,10 +49,21 @@ class ThirdPartyBase(BaseModel):
     # Estado
     is_active: bool = Field(True, description="Si el tercero está activo")
     is_tax_withholding_agent: bool = Field(False, description="Si es agente de retención")
-    
-    # Metadata
+      # Metadata
     notes: Optional[str] = Field(None, max_length=1000, description="Notas adicionales")
     internal_code: Optional[str] = Field(None, max_length=50, description="Código interno adicional")
+
+    @field_validator('third_party_type', mode='before')
+    @classmethod
+    def validate_third_party_type(cls, v):
+        """Valida el tipo de tercero de forma case-insensitive"""
+        return create_enum_validator(ThirdPartyType)(v)
+
+    @field_validator('document_type', mode='before')
+    @classmethod
+    def validate_document_type(cls, v):
+        """Valida el tipo de documento de forma case-insensitive"""
+        return create_enum_validator(DocumentType)(v)
 
     @field_validator('code')
     @classmethod
@@ -133,10 +145,21 @@ class ThirdPartyUpdate(BaseModel):
     # Estado
     is_active: Optional[bool] = None
     is_tax_withholding_agent: Optional[bool] = None
-    
-    # Metadata
+      # Metadata
     notes: Optional[str] = Field(None, max_length=1000)
     internal_code: Optional[str] = Field(None, max_length=50)
+
+    @field_validator('third_party_type', mode='before')
+    @classmethod
+    def validate_third_party_type(cls, v):
+        """Valida el tipo de tercero de forma case-insensitive"""
+        return create_enum_validator(ThirdPartyType)(v)
+
+    @field_validator('document_type', mode='before')
+    @classmethod
+    def validate_document_type(cls, v):
+        """Valida el tipo de documento de forma case-insensitive"""
+        return create_enum_validator(DocumentType)(v)
 
     @field_validator('name')
     @classmethod

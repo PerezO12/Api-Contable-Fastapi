@@ -40,10 +40,9 @@ class ThirdParty(Base):
     Centraliza la información de contactos comerciales para reporting y CRM básico
     """
     __tablename__ = "third_parties"
-    
-    # Información básica
+      # Información básica
     code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
     commercial_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     
     # Clasificación

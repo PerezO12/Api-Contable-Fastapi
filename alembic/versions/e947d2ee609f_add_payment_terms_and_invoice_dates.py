@@ -1,7 +1,7 @@
 """add_payment_terms_and_invoice_dates
 
 Revision ID: e947d2ee609f
-Revises: 83d75a0f0b1c
+Revises: fccd31fddf68
 Create Date: 2025-06-14 22:17:22.599955
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'e947d2ee609f'
-down_revision: Union[str, None] = '83d75a0f0b1c'
+down_revision: Union[str, None] = 'fccd31fddf68'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

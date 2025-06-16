@@ -45,6 +45,14 @@ from app.schemas.third_party import (
     ThirdPartyDetailResponse, ThirdPartyListResponse
 )
 
+from app.schemas.product import (
+    ProductBase, ProductCreate, ProductUpdate, ProductRead, ProductSummary,
+    ProductList, ProductFilter, ProductMovement, ProductStock, ProductImport,
+    ProductExport, ProductValidation, BulkProductOperation, BulkProductOperationResult,
+    ProductStats, ProductResponse, ProductDetailResponse, ProductListResponse,
+    JournalEntryLineProduct
+)
+
 from app.schemas.reports import (
     BalanceSheetItem, BalanceSheetSection, BalanceSheet,
     IncomeStatementItem, IncomeStatementSection, IncomeStatement,
@@ -112,6 +120,13 @@ __all__ = [
     "ThirdPartyImport", "ThirdPartyExport", "ThirdPartyValidation",
     "BulkThirdPartyOperation", "ThirdPartyStats", "ThirdPartyResponse",
     "ThirdPartyDetailResponse", "ThirdPartyListResponse",
+    
+    # Product schemas
+    "ProductBase", "ProductCreate", "ProductUpdate", "ProductRead", "ProductSummary",
+    "ProductList", "ProductFilter", "ProductMovement", "ProductStock", "ProductImport",
+    "ProductExport", "ProductValidation", "BulkProductOperation", "BulkProductOperationResult",
+    "ProductStats", "ProductResponse", "ProductDetailResponse", "ProductListResponse",
+    "JournalEntryLineProduct",
     
     # Report schemas
     "BalanceSheetItem", "BalanceSheetSection", "BalanceSheet",

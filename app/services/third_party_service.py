@@ -35,8 +35,7 @@ class ThirdPartyService:
 
     async def create_third_party(self, third_party_data: ThirdPartyCreate) -> ThirdParty:
         """Crear un nuevo tercero"""
-        
-        # Validar que no exista un tercero con el mismo código
+          # Validar que no exista un tercero con el mismo código
         existing_code_result = await self.db.execute(
             select(ThirdParty).where(ThirdParty.code == third_party_data.code)
         )
@@ -44,6 +43,15 @@ class ThirdPartyService:
         
         if existing_code:
             raise ConflictError(f"Ya existe un tercero con el código {third_party_data.code}")
+        
+        # Validar que no exista un tercero con el mismo nombre (case-sensitive)
+        existing_name_result = await self.db.execute(
+            select(ThirdParty).where(ThirdParty.name == third_party_data.name)
+        )
+        existing_name = existing_name_result.scalar_one_or_none()
+        
+        if existing_name:
+            raise ConflictError(f"Ya existe un tercero con nombre '{third_party_data.name}' (los nombres son case-sensitive)")
         
         # Validar que no exista un tercero con el mismo documento
         existing_doc_result = await self.db.execute(
@@ -115,6 +123,21 @@ class ThirdPartyService:
         third_party = await self.get_third_party_by_id(third_party_id)
         if not third_party:
             raise NotFoundError("Tercero no encontrado")
+        
+        # Validar unicidad de nombre si se actualiza (case-sensitive)
+        if third_party_data.name is not None and third_party_data.name != third_party.name:
+            existing_name_result = await self.db.execute(
+                select(ThirdParty).where(
+                    and_(
+                        ThirdParty.name == third_party_data.name,
+                        ThirdParty.id != third_party_id
+                    )
+                )
+            )
+            existing_name = existing_name_result.scalar_one_or_none()
+            
+            if existing_name:
+                raise ConflictError(f"Ya existe otro tercero con nombre '{third_party_data.name}' (los nombres son case-sensitive)")
         
         # Validar unicidad de documento si se actualiza
         if (third_party_data.document_type is not None or 

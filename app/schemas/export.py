@@ -7,7 +7,9 @@ from datetime import datetime, date
 from typing import List, Optional, Dict, Any, Union
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.utils.enum_validators import create_enum_validator
 
 
 class ExportFormat(str, Enum):
@@ -57,6 +59,12 @@ class ExportRequest(BaseModel):
     filters: Optional[ExportFilter] = Field(None, description="Filtros a aplicar")
     include_metadata: bool = Field(True, description="Incluir metadatos en la exportación")
     file_name: Optional[str] = Field(None, description="Nombre personalizado del archivo")
+
+    @field_validator('export_format', mode='before')
+    @classmethod
+    def validate_export_format(cls, v):
+        """Valida el formato de exportación de forma case-insensitive"""
+        return create_enum_validator(ExportFormat)(v)
 
 
 class ExportMetadata(BaseModel):

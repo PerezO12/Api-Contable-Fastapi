@@ -404,6 +404,13 @@ class ValidationError(AccountingSystemException):
         super().__init__(message, "VALIDATION_ERROR", {"field": field})
 
 
+class DuplicateError(AccountingSystemException):
+    """Duplicate resource error"""
+    def __init__(self, resource: str, field: str, value: str):
+        message = f"Duplicate {resource}: {field} '{value}' already exists"
+        super().__init__(message, "DUPLICATE_ERROR", {"resource": resource, "field": field, "value": value})
+
+
 class BusinessLogicError(AccountingSystemException):
     """Business logic violation error"""
     def __init__(self, message: str, rule: Optional[str] = None):

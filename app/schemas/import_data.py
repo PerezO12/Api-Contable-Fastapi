@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.models.account import AccountType, AccountCategory
 from app.models.journal_entry import JournalEntryType
+from app.utils.enum_validators import create_enum_validator
 
 
 class ImportFormat(str, Enum):
@@ -60,45 +61,22 @@ class AccountImportRow(BaseModel):
     @field_validator('name')
     @classmethod
     def validate_name(cls, v):
-        return v.strip().title()
-    @field_validator('account_type')
+        return v.strip().title()    @field_validator('account_type', mode='before')
     @classmethod
     def validate_account_type(cls, v):
-        # Normalizar el valor de entrada
-        v_normalized = v.strip().lower()
-        
-        # Crear mapeo case-insensitive de valores válidos
-        valid_types_map = {t.value.lower(): t.value for t in AccountType}
-        valid_types_map.update({t.value.upper(): t.value for t in AccountType})  # Agregar versiones en mayúsculas
-        
-        # Buscar el valor normalizado
-        if v_normalized in valid_types_map:
-            return valid_types_map[v_normalized]
-        
-        # Si no se encuentra, mostrar error con valores aceptados en ambos formatos
-        valid_examples = [f"'{t.value}' o '{t.value.upper()}'" for t in AccountType]
-        raise ValueError(f"Tipo de cuenta inválido. Debe ser uno de: {', '.join(valid_examples)}")
-    
-    @field_validator('category')
+        """Valida el tipo de cuenta de forma case-insensitive"""
+        if isinstance(v, str):
+            return create_enum_validator(AccountType)(v)
+        return v    
+    @field_validator('category', mode='before')
     @classmethod
     def validate_category(cls, v):
+        """Valida la categoría de cuenta de forma case-insensitive"""
         if v is None:
             return v
-            
-        # Normalizar el valor de entrada
-        v_normalized = v.strip().lower()
-        
-        # Crear mapeo case-insensitive de valores válidos
-        valid_categories_map = {c.value.lower(): c.value for c in AccountCategory}
-        valid_categories_map.update({c.value.upper(): c.value for c in AccountCategory})  # Agregar versiones en mayúsculas
-        
-        # Buscar el valor normalizado
-        if v_normalized in valid_categories_map:
-            return valid_categories_map[v_normalized]
-        
-        # Si no se encuentra, mostrar error con valores aceptados en ambos formatos
-        valid_examples = [f"'{c.value}' o '{c.value.upper()}'" for c in AccountCategory]
-        raise ValueError(f"Categoría inválida. Debe ser una de: {', '.join(valid_examples)}")
+        if isinstance(v, str):
+            return create_enum_validator(AccountCategory)(v)
+        return v
     
     @field_validator('parent_code')
     @classmethod
@@ -140,25 +118,14 @@ class JournalEntryImportRow(BaseModel):
     notes: Optional[str] = Field(None, max_length=1000, description="Notas")
     lines: List[JournalEntryLineImportRow] = Field(..., min_length=2, description="Líneas del asiento")
     # Metadatos de importación
-    row_number: Optional[int] = Field(None, description="Número de fila en el archivo")
-    
-    @field_validator('entry_type')
+    row_number: Optional[int] = Field(None, description="Número de fila en el archivo")    
+    @field_validator('entry_type', mode='before')
     @classmethod
     def validate_entry_type(cls, v):
-        # Normalizar el valor de entrada
-        v_normalized = v.strip().lower()
-        
-        # Crear mapeo case-insensitive de valores válidos
-        valid_types_map = {t.value.lower(): t.value for t in JournalEntryType}
-        valid_types_map.update({t.value.upper(): t.value for t in JournalEntryType})  # Agregar versiones en mayúsculas
-        
-        # Buscar el valor normalizado
-        if v_normalized in valid_types_map:
-            return valid_types_map[v_normalized]
-        
-        # Si no se encuentra, mostrar error con valores aceptados en ambos formatos
-        valid_examples = [f"'{t.value}' o '{t.value.upper()}'" for t in JournalEntryType]
-        raise ValueError(f"Tipo de asiento inválido. Debe ser uno de: {', '.join(valid_examples)}")
+        """Valida el tipo de asiento de forma case-insensitive"""
+        if isinstance(v, str):
+            return create_enum_validator(JournalEntryType)(v)
+        return v
     
     @field_validator('entry_date', mode='before')
     @classmethod

@@ -6,6 +6,7 @@ from fastapi_users import schemas
 from pydantic import BaseModel, EmailStr, ConfigDict, Field, field_validator
 
 from app.models.user import UserRole
+from app.utils.enum_validators import create_enum_validator
 
 
 # Esquemas FastAPI-Users compatibles
@@ -31,6 +32,12 @@ class UserCreate(schemas.BaseUserCreate):
     notes: Optional[str] = Field(None, max_length=1000)
     force_password_change: bool = True
     
+    @field_validator('role', mode='before')
+    @classmethod
+    def validate_role(cls, v):
+        """Valida el rol de forma case-insensitive"""
+        return create_enum_validator(UserRole)(v)
+    
     @field_validator('password')
     @classmethod
     def validate_password_strength(cls, v):
@@ -49,6 +56,12 @@ class UserUpdate(schemas.BaseUserUpdate):
     notes: Optional[str] = Field(None, max_length=1000)
     force_password_change: Optional[bool] = None
 
+    @field_validator('role', mode='before')
+    @classmethod
+    def validate_role(cls, v):
+        """Valida el rol de forma case-insensitive"""
+        return create_enum_validator(UserRole)(v)
+
 
 # Esquemas base adicionales (mantener compatibilidad)
 class UserBase(BaseModel):
@@ -58,6 +71,12 @@ class UserBase(BaseModel):
     role: UserRole = UserRole.SOLO_LECTURA
     is_active: bool = True
     notes: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator('role', mode='before')
+    @classmethod
+    def validate_role(cls, v):
+        """Valida el rol de forma case-insensitive"""
+        return create_enum_validator(UserRole)(v)
 
 
 class UserUpdatePassword(BaseModel):

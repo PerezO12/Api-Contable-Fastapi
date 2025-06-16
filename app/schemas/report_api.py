@@ -7,7 +7,9 @@ from decimal import Decimal
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, field_validator
+
+from app.utils.enum_validators import create_enum_validator
 
 
 class ReportType(str, Enum):

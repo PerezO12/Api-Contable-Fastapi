@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.cost_center import CostCenter
     from app.models.third_party import ThirdParty
     from app.models.payment_terms import PaymentTerms
+    from app.models.product import Product
 
 
 class JournalEntryStatus(str, Enum):
@@ -37,6 +38,19 @@ class JournalEntryType(str, Enum):
     REVERSAL = "reversal"  # Asiento de reversión
 
 
+class TransactionOrigin(str, Enum):
+    """Origen de la transacción contable"""
+    SALE = "sale"  # Venta
+    PURCHASE = "purchase"  # Compra
+    ADJUSTMENT = "adjustment"  # Ajuste
+    TRANSFER = "transfer"  # Transferencia
+    PAYMENT = "payment"  # Pago
+    COLLECTION = "collection"  # Cobro
+    OPENING = "opening"  # Apertura
+    CLOSING = "closing"  # Cierre
+    OTHER = "other"  # Otro
+
+
 class JournalEntry(Base):
     """
     Modelo de asientos contables (encabezado)
@@ -45,10 +59,13 @@ class JournalEntry(Base):
     __tablename__ = "journal_entries"    # Información básica del asiento
     number: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    
-    # Tipo de asiento
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="Descripción del asiento (opcional, se genera automáticamente si no se proporciona)")
+      # Tipo de asiento
     entry_type: Mapped[JournalEntryType] = mapped_column(default=JournalEntryType.MANUAL, nullable=False)
+    
+    # Origen de la transacción
+    transaction_origin: Mapped[Optional[TransactionOrigin]] = mapped_column(nullable=True,
+                                                                          comment="Origen de la transacción (venta, compra, etc.)")
     
     # Fechas
     entry_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -233,6 +250,22 @@ class JournalEntryLine(Base):
     reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     third_party_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("third_parties.id"), nullable=True)
     cost_center_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("cost_centers.id"), nullable=True)
+    product_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("products.id"), nullable=True,
+                                                           comment="Producto asociado a esta línea")
+    
+    # Información adicional del producto en la transacción
+    quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=4), nullable=True,
+                                                       comment="Cantidad del producto")
+    unit_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=4), nullable=True,
+                                                         comment="Precio unitario del producto")
+    discount_percentage: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=5, scale=2), nullable=True,
+                                                                  comment="Porcentaje de descuento aplicado")
+    discount_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True,
+                                                              comment="Monto de descuento aplicado")
+    tax_percentage: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=5, scale=2), nullable=True,
+                                                             comment="Porcentaje de impuesto aplicado")
+    tax_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True,
+                                                         comment="Monto de impuesto aplicado")
     
     # Fechas de facturación y pago
     invoice_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, 
@@ -251,6 +284,7 @@ class JournalEntryLine(Base):
     third_party: Mapped[Optional["ThirdParty"]] = relationship("ThirdParty", lazy="select")
     cost_center: Mapped[Optional["CostCenter"]] = relationship("CostCenter", lazy="select")
     payment_terms: Mapped[Optional["PaymentTerms"]] = relationship("PaymentTerms", lazy="select")
+    product: Mapped[Optional["Product"]] = relationship("Product", back_populates="journal_entry_lines", lazy="select")
     def __repr__(self) -> str:
         return f"<JournalEntryLine(account='{self.account.code}', debit={self.debit_amount}, credit={self.credit_amount})>"
 
@@ -294,16 +328,19 @@ class JournalEntryLine(Base):
         """Retorna el nombre del centro de costo"""
         return self.cost_center.name if self.cost_center else None
 
+    
     @property
     def payment_terms_code(self) -> Optional[str]:
         """Retorna el código de las condiciones de pago"""
         return self.payment_terms.code if self.payment_terms else None
 
+    
     @property
     def payment_terms_name(self) -> Optional[str]:
         """Retorna el nombre de las condiciones de pago"""
         return self.payment_terms.name if self.payment_terms else None
 
+    
     @property
     def effective_invoice_date(self) -> date:
         """Retorna la fecha de factura efectiva (si no está definida, usa la fecha del asiento)"""
@@ -328,6 +365,27 @@ class JournalEntryLine(Base):
             return due_datetime.date()
         
         return None
+
+    def calculate_and_set_due_date(self) -> None:
+        """
+        Calcula y establece automáticamente la fecha de vencimiento basada en payment terms.
+        Si hay payment_terms_id pero no due_date, calcula la fecha de vencimiento automáticamente.
+        """
+        # Solo calcular si hay payment_terms pero no hay due_date manual
+        if self.payment_terms_id and not self.due_date and self.payment_terms:
+            # Si las condiciones de pago tienen cronograma
+            if self.payment_terms.payment_schedules:
+                # Obtener el último pago (mayor número de días)
+                last_schedule = max(self.payment_terms.payment_schedules, key=lambda x: x.days)
+                
+                # Usar la fecha de factura efectiva como base
+                invoice_datetime = datetime.combine(self.effective_invoice_date, datetime.min.time())
+                
+                # Calcular la fecha de vencimiento
+                due_datetime = last_schedule.calculate_payment_date(invoice_datetime)
+                
+                # Establecer la fecha de vencimiento en la base de datos
+                self.due_date = due_datetime.date()
 
     def get_payment_schedule(self) -> List[dict]:
         """
@@ -389,6 +447,7 @@ class JournalEntryLine(Base):
         """Retorna el email del tercero"""
         return self.third_party.email if self.third_party else None
 
+    
     @property
     def third_party_phone(self) -> Optional[str]:
         """Retorna el teléfono del tercero"""
@@ -399,6 +458,7 @@ class JournalEntryLine(Base):
         """Retorna la dirección del tercero"""
         return self.third_party.address if self.third_party else None
 
+    
     @property
     def third_party_city(self) -> Optional[str]:
         """Retorna la ciudad del tercero"""
@@ -407,13 +467,124 @@ class JournalEntryLine(Base):
     @property
     def third_party_type(self) -> Optional[str]:
         """Retorna el tipo del tercero"""
-        return self.third_party.third_party_type.value if self.third_party and self.third_party.third_party_type else None
-
-    # Propiedades adicionales para información detallada de términos de pago
+        return self.third_party.third_party_type.value if self.third_party and self.third_party.third_party_type else None    # Propiedades adicionales para información detallada de términos de pago
     @property
     def payment_terms_description(self) -> Optional[str]:
         """Retorna la descripción de las condiciones de pago"""
         return self.payment_terms.description if self.payment_terms else None
+
+    # Propiedades relacionadas con productos
+    @property
+    def product_code(self) -> Optional[str]:
+        """Retorna el código del producto"""
+        return self.product.code if self.product else None
+
+    @property
+    def product_name(self) -> Optional[str]:
+        """Retorna el nombre del producto"""
+        return self.product.name if self.product else None
+
+    @property
+    def product_type(self) -> Optional[str]:
+        """Retorna el tipo del producto"""
+        return self.product.product_type.value if self.product and self.product.product_type else None
+
+    @property
+    def product_measurement_unit(self) -> Optional[str]:
+        """Retorna la unidad de medida del producto"""
+        return self.product.measurement_unit.value if self.product and self.product.measurement_unit else None
+
+    @property
+    def subtotal_before_discount(self) -> Optional[Decimal]:
+        """Calcula el subtotal antes del descuento (cantidad * precio unitario)"""
+        if self.quantity and self.unit_price:
+            return self.quantity * self.unit_price
+        return None
+
+    @property
+    def effective_unit_price(self) -> Optional[Decimal]:
+        """Calcula el precio unitario efectivo después del descuento"""
+        if not self.unit_price:
+            return None
+            
+        if self.discount_percentage:
+            discount_factor = (Decimal('100') - self.discount_percentage) / Decimal('100')
+            return self.unit_price * discount_factor
+        elif self.discount_amount and self.quantity:
+            discount_per_unit = self.discount_amount / self.quantity
+            return self.unit_price - discount_per_unit
+        
+        return self.unit_price
+
+    @property
+    def total_discount(self) -> Decimal:
+        """Calcula el descuento total aplicado"""
+        if self.discount_amount:
+            return self.discount_amount
+        elif self.discount_percentage and self.subtotal_before_discount:
+            return self.subtotal_before_discount * (self.discount_percentage / Decimal('100'))
+        return Decimal('0')
+
+    @property
+    def subtotal_after_discount(self) -> Optional[Decimal]:
+        """Calcula el subtotal después del descuento"""
+        if self.subtotal_before_discount:
+            return self.subtotal_before_discount - self.total_discount
+        return None
+
+    @property
+    def net_amount(self) -> Optional[Decimal]:
+        """Calcula el monto neto (después de descuentos, antes de impuestos)"""
+        return self.subtotal_after_discount
+
+    @property
+    def gross_amount(self) -> Optional[Decimal]:
+        """Calcula el monto bruto (después de descuentos e impuestos)"""
+        if self.net_amount:
+            tax = self.tax_amount or Decimal('0')
+            return self.net_amount + tax
+        return None
+
+    def calculate_tax_amount(self) -> Optional[Decimal]:
+        """Calcula el monto de impuesto basado en el porcentaje y el monto neto"""
+        if self.tax_percentage and self.net_amount:
+            return self.net_amount * (self.tax_percentage / Decimal('100'))
+        return self.tax_amount
+
+    def validate_product_info(self) -> List[str]:
+        """Valida la información del producto en la línea"""
+        errors = []
+        
+        # Si hay producto, validar coherencia
+        if self.product_id:
+            if self.quantity and self.quantity <= 0:
+                errors.append("La cantidad debe ser mayor a cero")
+                
+            if self.unit_price and self.unit_price < 0:
+                errors.append("El precio unitario no puede ser negativo")
+                
+            if self.discount_percentage and (self.discount_percentage < 0 or self.discount_percentage > 100):
+                errors.append("El porcentaje de descuento debe estar entre 0 y 100")
+                
+            if self.discount_amount and self.discount_amount < 0:
+                errors.append("El monto de descuento no puede ser negativo")
+                
+            if self.tax_percentage and self.tax_percentage < 0:
+                errors.append("El porcentaje de impuesto no puede ser negativo")
+                
+            if self.tax_amount and self.tax_amount < 0:
+                errors.append("El monto de impuesto no puede ser negativo")
+                
+            # Validar que no se especifiquen ambos tipos de descuento
+            if self.discount_percentage and self.discount_amount:
+                errors.append("No se puede especificar porcentaje y monto de descuento al mismo tiempo")
+                
+            # Validar coherencia entre cantidades y montos
+            if self.quantity and self.unit_price and self.amount:
+                expected_amount = self.gross_amount or self.net_amount or (self.quantity * self.unit_price)
+                if expected_amount and abs(self.amount - expected_amount) > Decimal('0.01'):                    errors.append("El monto de la línea no coincide con el cálculo del producto")
+        
+        return errors
 
     @property
     def is_valid(self) -> bool:
@@ -449,5 +620,9 @@ class JournalEntryLine(Base):
         # Validar centro de costo si es requerido
         if self.account and self.account.requires_cost_center and not self.cost_center_id:
             errors.append(f"La cuenta {self.account.code} requiere centro de costo")
+        
+        # Validar información del producto
+        product_errors = self.validate_product_info()
+        errors.extend(product_errors)
         
         return errors

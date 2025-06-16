@@ -5,21 +5,30 @@ from typing import Optional, List
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models.journal_entry import JournalEntryStatus, JournalEntryType
+from app.models.journal_entry import JournalEntryStatus, JournalEntryType, TransactionOrigin
 
 
 # Esquemas para líneas de asiento
 class JournalEntryLineBase(BaseModel):
     """Schema base para líneas de asiento contable"""
     account_id: uuid.UUID = Field(..., description="ID de la cuenta contable")
-    description: str = Field(..., min_length=1, max_length=500, description="Descripción del movimiento")
+    description: Optional[str] = Field(None, max_length=500, description="Descripción del movimiento (opcional, se genera automáticamente si no se proporciona)")
     debit_amount: Decimal = Field(Decimal('0'), ge=0, description="Monto débito")
     credit_amount: Decimal = Field(Decimal('0'), ge=0, description="Monto crédito")
     third_party_id: Optional[uuid.UUID] = Field(None, description="ID del tercero")
     cost_center_id: Optional[uuid.UUID] = Field(None, description="ID del centro de costo")
     reference: Optional[str] = Field(None, max_length=100, description="Referencia adicional")
     
-    # Nuevos campos para fechas y condiciones de pago
+    # Campos para productos
+    product_id: Optional[uuid.UUID] = Field(None, description="ID del producto")
+    quantity: Optional[Decimal] = Field(None, gt=0, description="Cantidad del producto")
+    unit_price: Optional[Decimal] = Field(None, ge=0, description="Precio unitario")
+    discount_percentage: Optional[Decimal] = Field(None, ge=0, le=100, description="Porcentaje de descuento")
+    discount_amount: Optional[Decimal] = Field(None, ge=0, description="Monto de descuento")
+    tax_percentage: Optional[Decimal] = Field(None, ge=0, description="Porcentaje de impuesto")
+    tax_amount: Optional[Decimal] = Field(None, ge=0, description="Monto de impuesto")
+    
+    # Campos para fechas y condiciones de pago
     invoice_date: Optional[date] = Field(None, description="Fecha de la factura (si es diferente a la fecha del asiento)")
     due_date: Optional[date] = Field(None, description="Fecha de vencimiento manual")
     payment_terms_id: Optional[uuid.UUID] = Field(None, description="ID de las condiciones de pago")
@@ -36,11 +45,24 @@ class JournalEntryLineBase(BaseModel):
         return self
 
     @model_validator(mode='after')
-    def validate_payment_terms_and_due_date(self):
-        """Valida que no se especifiquen tanto condiciones de pago como fecha de vencimiento manual"""
-        if self.payment_terms_id and self.due_date:
-            raise ValueError("No se puede especificar tanto condiciones de pago como fecha de vencimiento manual")
+    def validate_product_fields(self):
+        """Valida coherencia de campos relacionados con productos"""
+        # Si hay producto, validar campos relacionados
+        if self.product_id:
+            if self.quantity and self.quantity <= 0:
+                raise ValueError("La cantidad debe ser mayor a cero")
+                
+            # Validar que no se especifiquen ambos tipos de descuento
+            if self.discount_percentage is not None and self.discount_amount is not None:
+                raise ValueError("No se puede especificar porcentaje y monto de descuento al mismo tiempo")
         
+        # Si hay información de producto sin ID, advertir
+        product_fields = [self.quantity, self.unit_price, self.discount_percentage, 
+                         self.discount_amount, self.tax_percentage, self.tax_amount]
+        if any(field is not None for field in product_fields) and not self.product_id:
+            # Solo una advertencia, no un error
+            pass
+            
         return self
 
 
@@ -52,7 +74,7 @@ class JournalEntryLineCreate(JournalEntryLineBase):
 class JournalEntryLineUpdate(BaseModel):
     """Schema para actualizar líneas de asiento"""
     account_id: Optional[uuid.UUID] = None
-    description: Optional[str] = Field(None, min_length=1, max_length=500)
+    description: Optional[str] = Field(None, max_length=500)
     debit_amount: Optional[Decimal] = Field(None, ge=0)
     credit_amount: Optional[Decimal] = Field(None, ge=0)
     third_party_id: Optional[uuid.UUID] = Field(None, description="ID del tercero")
@@ -91,12 +113,26 @@ class JournalEntryLineRead(JournalEntryLineBase):
     cost_center_code: Optional[str] = None
     cost_center_name: Optional[str] = None
     
+    # Campos relacionados - Producto
+    product_code: Optional[str] = None
+    product_name: Optional[str] = None
+    product_type: Optional[str] = None
+    product_measurement_unit: Optional[str] = None
+    
     # Campos relacionados - Términos de Pago (información completa)
     payment_terms_code: Optional[str] = None
     payment_terms_name: Optional[str] = None
     payment_terms_description: Optional[str] = None
     
-    # Campos calculados
+    # Campos calculados de productos
+    subtotal_before_discount: Optional[Decimal] = None
+    effective_unit_price: Optional[Decimal] = None
+    total_discount: Optional[Decimal] = None
+    subtotal_after_discount: Optional[Decimal] = None
+    net_amount: Optional[Decimal] = None
+    gross_amount: Optional[Decimal] = None
+    
+    # Campos calculados generales
     amount: Decimal = Decimal('0')  # Monto absoluto
     movement_type: str = "debit"    # "debit" o "credit"
     effective_invoice_date: Optional[date] = None  # Fecha de factura efectiva
@@ -115,8 +151,9 @@ class JournalEntryBase(BaseModel):
     """Schema base para asientos contables"""
     entry_date: date = Field(..., description="Fecha del asiento")
     reference: Optional[str] = Field(None, max_length=100, description="Referencia externa")
-    description: str = Field(..., min_length=1, max_length=1000, description="Descripción del asiento")
+    description: Optional[str] = Field(None, max_length=1000, description="Descripción del asiento (opcional, se genera automáticamente si no se proporciona)")
     entry_type: JournalEntryType = Field(JournalEntryType.MANUAL, description="Tipo de asiento")
+    transaction_origin: Optional[TransactionOrigin] = Field(None, description="Origen de la transacción")
     notes: Optional[str] = Field(None, max_length=1000, description="Notas adicionales")
     
     @field_validator('entry_date', mode='before')
@@ -237,7 +274,7 @@ class JournalEntryResetToDraftValidation(BaseModel):
     """Schema para validación de restablecimiento a borrador"""
     journal_entry_id: uuid.UUID
     journal_entry_number: str
-    journal_entry_description: str
+    journal_entry_description: Optional[str] = None
     current_status: JournalEntryStatus
     can_reset: bool
     errors: List[str] = []
@@ -289,7 +326,7 @@ class JournalEntryApproveValidation(BaseModel):
     """Schema para validación de aprobación"""
     journal_entry_id: uuid.UUID
     journal_entry_number: str
-    journal_entry_description: str
+    journal_entry_description: Optional[str] = None
     current_status: JournalEntryStatus
     can_approve: bool
     errors: List[str] = []
@@ -326,7 +363,7 @@ class JournalEntryPostValidation(BaseModel):
     """Schema para validación de contabilización"""
     journal_entry_id: uuid.UUID
     journal_entry_number: str
-    journal_entry_description: str
+    journal_entry_description: Optional[str] = None
     current_status: JournalEntryStatus
     can_post: bool
     errors: List[str] = []
@@ -363,7 +400,7 @@ class JournalEntryCancelValidation(BaseModel):
     """Schema para validación de cancelación"""
     journal_entry_id: uuid.UUID
     journal_entry_number: str
-    journal_entry_description: str
+    journal_entry_description: Optional[str] = None
     current_status: JournalEntryStatus
     can_cancel: bool
     errors: List[str] = []
@@ -400,7 +437,7 @@ class JournalEntryReverseValidation(BaseModel):
     """Schema para validación de reversión"""
     journal_entry_id: uuid.UUID
     journal_entry_number: str
-    journal_entry_description: str
+    journal_entry_description: Optional[str] = None
     current_status: JournalEntryStatus
     can_reverse: bool
     errors: List[str] = []
@@ -434,7 +471,7 @@ class JournalEntryDeleteValidation(BaseModel):
     """Schema para validación individual de eliminación de asiento"""
     journal_entry_id: uuid.UUID
     journal_entry_number: str
-    journal_entry_description: str
+    journal_entry_description: Optional[str] = None
     status: JournalEntryStatus
     can_delete: bool
     errors: List[str] = []

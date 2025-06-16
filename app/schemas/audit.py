@@ -3,9 +3,10 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.user import UserRole
+from app.utils.enum_validators import create_enum_validator
 
 
 class AuditAction(str, Enum):
@@ -41,6 +42,18 @@ class AuditLogBase(BaseModel):
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator('action', mode='before')
+    @classmethod
+    def validate_action(cls, v):
+        """Valida la acción de auditoría de forma case-insensitive"""
+        return create_enum_validator(AuditAction)(v)
+
+    @field_validator('level', mode='before')
+    @classmethod
+    def validate_level(cls, v):
+        """Valida el nivel de auditoría de forma case-insensitive"""
+        return create_enum_validator(AuditLogLevel)(v)
 
 
 class AuditLogCreate(AuditLogBase):
