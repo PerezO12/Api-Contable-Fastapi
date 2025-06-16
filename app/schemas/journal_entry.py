@@ -72,17 +72,56 @@ class JournalEntryLineCreate(JournalEntryLineBase):
 
 
 class JournalEntryLineUpdate(BaseModel):
-    """Schema para actualizar líneas de asiento"""
-    account_id: Optional[uuid.UUID] = None
-    description: Optional[str] = Field(None, max_length=500)
-    debit_amount: Optional[Decimal] = Field(None, ge=0)
-    credit_amount: Optional[Decimal] = Field(None, ge=0)
+    """Schema para actualizar líneas de asiento - todos los campos opcionales"""
+    account_id: Optional[uuid.UUID] = Field(None, description="ID de la cuenta contable")
+    description: Optional[str] = Field(None, max_length=500, description="Descripción del movimiento")
+    debit_amount: Optional[Decimal] = Field(None, ge=0, description="Monto débito")
+    credit_amount: Optional[Decimal] = Field(None, ge=0, description="Monto crédito")
     third_party_id: Optional[uuid.UUID] = Field(None, description="ID del tercero")
     cost_center_id: Optional[uuid.UUID] = Field(None, description="ID del centro de costo")
-    reference: Optional[str] = Field(None, max_length=100)
+    reference: Optional[str] = Field(None, max_length=100, description="Referencia adicional")
+    
+    # Campos para productos
+    product_id: Optional[uuid.UUID] = Field(None, description="ID del producto")
+    quantity: Optional[Decimal] = Field(None, gt=0, description="Cantidad del producto")
+    unit_price: Optional[Decimal] = Field(None, ge=0, description="Precio unitario")
+    discount_percentage: Optional[Decimal] = Field(None, ge=0, le=100, description="Porcentaje de descuento")
+    discount_amount: Optional[Decimal] = Field(None, ge=0, description="Monto de descuento")
+    tax_percentage: Optional[Decimal] = Field(None, ge=0, description="Porcentaje de impuesto")
+    tax_amount: Optional[Decimal] = Field(None, ge=0, description="Monto de impuesto")
+    
+    # Campos para fechas y condiciones de pago
     invoice_date: Optional[date] = Field(None, description="Fecha de la factura")
     due_date: Optional[date] = Field(None, description="Fecha de vencimiento manual")
     payment_terms_id: Optional[uuid.UUID] = Field(None, description="ID de las condiciones de pago")
+
+    @model_validator(mode='after')
+    def validate_amounts(self):
+        """Valida que solo uno de los montos sea mayor que cero (si se especifican)"""
+        debit = self.debit_amount
+        credit = self.credit_amount
+        
+        # Solo validar si ambos campos están especificados
+        if debit is not None and credit is not None:
+            if (debit > 0 and credit > 0) or (debit == 0 and credit == 0):
+                raise ValueError("Una línea debe tener monto en débito O crédito, no ambos o ninguno")
+        
+        return self
+
+    @model_validator(mode='after')
+    def validate_product_fields(self):
+        """Valida coherencia de campos relacionados con productos"""
+        # Si hay cantidad, debe ser mayor a cero
+        if self.quantity is not None and self.quantity <= 0:
+            raise ValueError("La cantidad debe ser mayor a cero")
+            
+        # Validar que no se especifiquen ambos tipos de descuento
+        if (self.discount_percentage is not None and 
+            self.discount_amount is not None and
+            self.discount_percentage > 0 and self.discount_amount > 0):
+            raise ValueError("No se puede especificar porcentaje y monto de descuento al mismo tiempo")
+            
+        return self
 
 
 class JournalEntryLineRead(JournalEntryLineBase):
@@ -189,11 +228,45 @@ class JournalEntryCreate(JournalEntryBase):
 
 
 class JournalEntryUpdate(BaseModel):
-    """Schema para actualizar asientos contables (solo borradores)"""
-    entry_date: Optional[date] = None
-    reference: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = Field(None, min_length=1, max_length=1000)
-    notes: Optional[str] = Field(None, max_length=1000)
+    """Schema para actualizar asientos contables (solo borradores) - incluye todos los campos"""
+    entry_date: Optional[date] = Field(None, description="Fecha del asiento")
+    reference: Optional[str] = Field(None, max_length=100, description="Referencia externa")
+    description: Optional[str] = Field(None, max_length=1000, description="Descripción del asiento")
+    entry_type: Optional[JournalEntryType] = Field(None, description="Tipo de asiento")
+    transaction_origin: Optional[TransactionOrigin] = Field(None, description="Origen de la transacción")
+    notes: Optional[str] = Field(None, max_length=1000, description="Notas adicionales")
+    lines: Optional[List[JournalEntryLineCreate]] = Field(None, description="Líneas del asiento (reemplaza todas las líneas existentes)")
+    
+    @field_validator('entry_date', mode='before')
+    @classmethod
+    def convert_datetime_to_date(cls, v):
+        """Convertir datetime a date si es necesario para compatibilidad con SQLAlchemy"""
+        if v is None:
+            return v
+        if isinstance(v, datetime):
+            return v.date()
+        return v
+    
+    @field_validator('lines')
+    @classmethod
+    def validate_lines_balance(cls, v):
+        """Valida que el asiento esté balanceado (solo si se proporcionan líneas)"""
+        if v is None:
+            return v
+            
+        if len(v) < 2:
+            raise ValueError("Un asiento debe tener al menos 2 líneas")
+        
+        total_debit = sum(line.debit_amount or Decimal('0') for line in v)
+        total_credit = sum(line.credit_amount or Decimal('0') for line in v)
+        
+        if total_debit != total_credit:
+            raise ValueError(f"El asiento no está balanceado: Débitos={total_debit}, Créditos={total_credit}")
+        
+        if total_debit == 0:
+            raise ValueError("El asiento debe tener movimientos con montos mayores a cero")
+        
+        return v
 
 
 class JournalEntryRead(JournalEntryBase):
@@ -218,12 +291,21 @@ class JournalEntryRead(JournalEntryBase):
     created_by_name: Optional[str] = None
     posted_by_name: Optional[str] = None
     
-    model_config = ConfigDict(from_attributes=True)
+    # Fecha de vencimiento (la más próxima de todas las líneas)
+    # Este campo será calculado manualmente para evitar problemas con lazy loading
+    earliest_due_date: Optional[date] = None
+    
+    model_config = ConfigDict(from_attributes=True, ignored_types=(property,))
 
 
 class JournalEntryDetail(JournalEntryRead):
     """Schema para detalles completos del asiento con líneas"""
     lines: List[JournalEntryLineRead] = []
+
+
+class JournalEntryDetailWithPayments(JournalEntryRead):
+    """Schema para detalles completos del asiento con líneas y cronogramas de pago"""
+    lines: List[JournalEntryLineDetail] = []
 
 
 # Esquemas para operaciones

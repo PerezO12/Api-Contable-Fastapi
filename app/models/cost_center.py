@@ -17,10 +17,9 @@ class CostCenter(Base):
     Permite análisis de rentabilidad y control presupuestario por departamento/área
     """
     __tablename__ = "cost_centers"
-    
-    # Información básica
+      # Información básica
     code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Jerarquía (estructura padre-hijo)

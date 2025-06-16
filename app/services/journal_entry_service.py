@@ -3,7 +3,7 @@ from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal
 from typing import List, Optional, Tuple
 
-from sqlalchemy import select, func, and_, or_, desc
+from sqlalchemy import select, func, and_, or_, desc, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -434,22 +434,212 @@ class JournalEntryService:
         entry_id: uuid.UUID, 
         entry_data: JournalEntryUpdate
     ) -> Optional[JournalEntry]:
-        """Actualizar un asiento contable"""
+        """Actualizar un asiento contable con todos los campos incluyendo líneas"""
         
         journal_entry = await self.get_journal_entry_by_id(entry_id)
         
         if not journal_entry:
             return None
         
-        # Verificar que se puede modificar (manual check to avoid sync property in async context)
+        # Verificar que se puede modificar
         if journal_entry.status not in [JournalEntryStatus.DRAFT, JournalEntryStatus.PENDING]:
             raise JournalEntryError("El asiento no puede ser modificado en su estado actual")
         
         # Actualizar campos básicos
-        update_data = entry_data.model_dump(exclude_unset=True)
+        update_data = entry_data.model_dump(exclude_unset=True, exclude={'lines'})
         for field, value in update_data.items():
             if hasattr(journal_entry, field):
                 setattr(journal_entry, field, value)
+        
+        # Si se proporcionan líneas, reemplazar completamente las líneas existentes
+        if entry_data.lines is not None:
+            # Validación inicial de cuentas en batch para optimizar rendimiento
+            account_ids = [line.account_id for line in entry_data.lines]
+            accounts_result = await self.db.execute(
+                select(Account).where(Account.id.in_(account_ids))
+            )
+            accounts_dict = {account.id: account for account in accounts_result.scalars().all()}
+            
+            # Validar que todas las cuentas existen
+            missing_accounts = set(account_ids) - set(accounts_dict.keys())
+            if missing_accounts:
+                raise AccountNotFoundError(account_id=str(list(missing_accounts)[0]))
+            
+            # Validar que todas las cuentas permiten movimientos
+            invalid_accounts = [
+                f"{account.code} - {account.name}" 
+                for account in accounts_dict.values() 
+                if not account.allows_movements
+            ]
+            if invalid_accounts:
+                raise JournalEntryError(f"Las siguientes cuentas no permiten movimientos: {', '.join(invalid_accounts)}")
+            
+            # Validación de productos en batch
+            product_ids = [line.product_id for line in entry_data.lines if line.product_id]
+            products_dict = {}
+            if product_ids:
+                products_result = await self.db.execute(
+                    select(Product).where(Product.id.in_(product_ids))
+                )
+                products_dict = {product.id: product for product in products_result.scalars().all()}
+                
+                # Validar que todos los productos existen
+                missing_products = set(product_ids) - set(products_dict.keys())
+                if missing_products:
+                    raise JournalEntryError(f"Productos no encontrados: {list(missing_products)}")
+                
+                # Validar que todos los productos están activos
+                inactive_products = [
+                    f"{product.code} - {product.name}" 
+                    for product in products_dict.values() 
+                    if product.status != ProductStatus.ACTIVE
+                ]
+                if inactive_products:
+                    raise JournalEntryError(f"Los siguientes productos no están activos: {', '.join(inactive_products)}")
+            
+            # Validación de payment terms en batch
+            payment_terms_ids = [getattr(line, 'payment_terms_id', None) for line in entry_data.lines if getattr(line, 'payment_terms_id', None)]
+            payment_terms_dict = {}
+            if payment_terms_ids:
+                payment_terms_result = await self.db.execute(
+                    select(PaymentTerms)
+                    .options(selectinload(PaymentTerms.payment_schedules))
+                    .where(PaymentTerms.id.in_(payment_terms_ids))
+                )
+                payment_terms_dict = {pt.id: pt for pt in payment_terms_result.scalars().all()}
+                
+                # Validar que todas las condiciones de pago existen
+                missing_payment_terms = set(payment_terms_ids) - set(payment_terms_dict.keys())
+                if missing_payment_terms:
+                    raise JournalEntryError(f"Condiciones de pago no encontradas: {list(missing_payment_terms)}")
+                
+                # Validar que todas las condiciones de pago están activas
+                inactive_payment_terms = [
+                    f"{pt.code} - {pt.name}" 
+                    for pt in payment_terms_dict.values() 
+                    if not pt.is_active
+                ]
+                if inactive_payment_terms:
+                    raise JournalEntryError(f"Las siguientes condiciones de pago no están activas: {', '.join(inactive_payment_terms)}")
+            
+            # Eliminar líneas existentes
+            await self.db.execute(
+                delete(JournalEntryLine).where(JournalEntryLine.journal_entry_id == entry_id)
+            )
+            
+            # Crear nuevas líneas
+            journal_lines = []
+            total_debit = Decimal('0')
+            total_credit = Decimal('0')
+            
+            for line_number, line_data in enumerate(entry_data.lines, 1):
+                # Validaciones de línea (mismas que en create)
+                if line_data.debit_amount < 0 or line_data.credit_amount < 0:
+                    raise JournalEntryError(f"Los montos no pueden ser negativos en línea {line_number}")
+                
+                if (line_data.debit_amount > 0 and line_data.credit_amount > 0) or \
+                   (line_data.debit_amount == 0 and line_data.credit_amount == 0):
+                    raise JournalEntryError(f"Línea {line_number}: debe tener monto en débito O crédito, no ambos o ninguno")
+                
+                # Validaciones específicas de productos
+                if line_data.product_id:
+                    product = products_dict.get(line_data.product_id)
+                    if not product:
+                        raise JournalEntryError(f"Producto no encontrado en línea {line_number}")
+                    
+                    # Validar cantidad para productos físicos
+                    if product.product_type in [ProductType.PRODUCT, ProductType.BOTH]:
+                        if not line_data.quantity or line_data.quantity <= 0:
+                            raise JournalEntryError(f"La cantidad debe ser mayor a 0 para productos físicos en línea {line_number}")
+                    
+                    # Validar coherencia de precios si se proporcionan
+                    if line_data.unit_price and line_data.quantity:
+                        calculated_total = line_data.unit_price * line_data.quantity
+                        # Aplicar descuentos si existen
+                        if line_data.discount_amount:
+                            calculated_total -= line_data.discount_amount
+                        elif line_data.discount_percentage:
+                            calculated_total *= (1 - line_data.discount_percentage / 100)
+                        
+                        # Verificar coherencia con el monto de la línea (con tolerancia para redondeo)
+                        line_amount = line_data.debit_amount or line_data.credit_amount
+                        if abs(calculated_total - line_amount) > Decimal('0.01'):
+                            raise JournalEntryError(
+                                f"El monto calculado ({calculated_total}) no coincide con el monto de la línea ({line_amount}) en línea {line_number}"
+                            )
+                
+                # Obtener payment_terms_id y validar lógica de fechas
+                payment_terms_id = getattr(line_data, 'payment_terms_id', None)
+                due_date = getattr(line_data, 'due_date', None)
+                invoice_date = getattr(line_data, 'invoice_date', None)
+                
+                # Generar descripción automática si no se proporciona
+                line_description = line_data.description
+                if not line_description:
+                    # Obtener información adicional para la descripción
+                    account = accounts_dict.get(line_data.account_id)
+                    product = products_dict.get(line_data.product_id) if line_data.product_id else None
+                    payment_terms = payment_terms_dict.get(payment_terms_id) if payment_terms_id else None
+                    
+                    line_description = JournalEntryDescriptionGenerator.generate_line_description(
+                        account_name=account.name if account else None,
+                        account_code=account.code if account else None,
+                        third_party_name=None,  # Se cargará más tarde desde la relación
+                        product_name=product.name if product else None,
+                        cost_center_name=None,  # Se cargará más tarde desde la relación
+                        debit_amount=line_data.debit_amount,
+                        credit_amount=line_data.credit_amount,
+                        transaction_origin=journal_entry.transaction_origin or entry_data.transaction_origin,
+                        payment_terms_name=payment_terms.name if payment_terms else None,
+                        invoice_date=invoice_date,
+                        due_date=due_date,
+                        quantity=line_data.quantity,
+                        unit_price=line_data.unit_price
+                    )
+                
+                journal_line = JournalEntryLine(
+                    journal_entry_id=entry_id,
+                    account_id=line_data.account_id,
+                    debit_amount=line_data.debit_amount,
+                    credit_amount=line_data.credit_amount,
+                    description=line_description,
+                    reference=line_data.reference,
+                    third_party_id=line_data.third_party_id,
+                    cost_center_id=line_data.cost_center_id,
+                    invoice_date=invoice_date,
+                    due_date=due_date,
+                    payment_terms_id=payment_terms_id,
+                    line_number=line_number,
+                    # Campos de producto
+                    product_id=line_data.product_id,
+                    quantity=line_data.quantity,
+                    unit_price=line_data.unit_price,
+                    discount_percentage=line_data.discount_percentage,
+                    discount_amount=line_data.discount_amount,
+                    tax_percentage=line_data.tax_percentage,
+                    tax_amount=line_data.tax_amount
+                )
+                
+                journal_lines.append(journal_line)
+                total_debit += line_data.debit_amount
+                total_credit += line_data.credit_amount
+            
+            # Actualizar totales en el journal entry
+            journal_entry.total_debit = total_debit
+            journal_entry.total_credit = total_credit
+            
+            # Agregar las líneas a la base de datos
+            self.db.add_all(journal_lines)
+            
+            # Regenerar descripción automática si no se proporciona y hay líneas nuevas
+            if not entry_data.description and not journal_entry.description:
+                journal_entry.description = JournalEntryDescriptionGenerator.generate_entry_description(
+                    entry_type=journal_entry.entry_type,
+                    transaction_origin=journal_entry.transaction_origin,
+                    entry_date=journal_entry.entry_date,
+                    reference=journal_entry.reference,
+                    lines_data=entry_data.lines
+                )
         
         await self.db.commit()
         await self.db.refresh(journal_entry)
@@ -1263,9 +1453,9 @@ class JournalEntryService:
         if journal_entry.status == JournalEntryStatus.DRAFT:
             errors.append("El asiento ya está en borrador")
         elif journal_entry.status == JournalEntryStatus.POSTED:
-            errors.append("No se puede restablecer un asiento contabilizado")
+            errors.append("No se puede restablecer a borrador un asiento contabilizado")
         elif journal_entry.status == JournalEntryStatus.CANCELLED:
-            errors.append("No se puede restablecer un asiento cancelado")
+            errors.append("No se puede restablecer a borrador un asiento cancelado")
         elif journal_entry.status not in [JournalEntryStatus.APPROVED, JournalEntryStatus.PENDING]:
             errors.append(f"Estado actual '{journal_entry.status}' no permite restablecimiento")
         

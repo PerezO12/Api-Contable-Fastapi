@@ -125,6 +125,20 @@ class JournalEntry(Base):
         """Verifica si el asiento puede ser modificado"""
         return self.status in [JournalEntryStatus.DRAFT, JournalEntryStatus.PENDING]
 
+    @property
+    def earliest_due_date(self) -> Optional[date]:
+        """Retorna la fecha de vencimiento más próxima de todas las líneas del asiento"""
+        due_dates = []
+        
+        for line in self.lines:
+            effective_due_date = line.effective_due_date
+            if effective_due_date:
+                due_dates.append(effective_due_date)
+        
+        if due_dates:
+            return min(due_dates)
+        return None
+
     def calculate_totals(self) -> None:
         """Calcula los totales de débito y crédito"""
         self.total_debit = Decimal(str(sum(line.debit_amount for line in self.lines)))

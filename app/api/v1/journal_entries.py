@@ -4,7 +4,7 @@ Following best practices from estructura.md and practicas.md
 """
 import uuid
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import ValidationError
@@ -17,6 +17,7 @@ from app.schemas.journal_entry import (
     JournalEntryUpdate,
     JournalEntryResponse,
     JournalEntryDetailResponse,
+    JournalEntryDetailWithPayments,
     JournalEntryListResponse,
     JournalEntryStatistics,
     JournalEntryFilter,
@@ -75,12 +76,35 @@ async def create_journal_entry(
     try:
         service = JournalEntryService(db)
         journal_entry = await service.create_journal_entry(
-            journal_entry_data, 
-            created_by_id=current_user.id
-        )
-        # Force load relationships to avoid lazy loading during serialization
-        _ = len(journal_entry.lines)  # Force load the relationship
-        return JournalEntryResponse.model_validate(journal_entry)
+            journal_entry_data,            created_by_id=current_user.id        )
+        
+        # Create response manually to avoid Pydantic accessing earliest_due_date property
+        response_data = JournalEntryResponse.model_validate({
+            "id": journal_entry.id,
+            "number": journal_entry.number,
+            "entry_date": journal_entry.entry_date,
+            "description": journal_entry.description,
+            "reference": journal_entry.reference,
+            "entry_type": journal_entry.entry_type,
+            "transaction_origin": journal_entry.transaction_origin,
+            "notes": journal_entry.notes,
+            "status": journal_entry.status,
+            "total_debit": journal_entry.total_debit,
+            "total_credit": journal_entry.total_credit,
+            "created_by_id": journal_entry.created_by_id,
+            "posted_by_id": journal_entry.posted_by_id,
+            "posted_at": journal_entry.posted_at,
+            "created_at": journal_entry.created_at,
+            "updated_at": journal_entry.updated_at,
+            "is_balanced": journal_entry.is_balanced,
+            "can_be_posted": journal_entry.can_be_posted,
+            "can_be_edited": journal_entry.can_be_modified,
+            "created_by_name": journal_entry.created_by.full_name if journal_entry.created_by else None,
+            "posted_by_name": journal_entry.posted_by.full_name if journal_entry.posted_by else None,
+            "earliest_due_date": None  # Evitar lazy loading
+        })
+        
+        return response_data
     except BalanceError as e:
         raise_validation_error(f"Balance error: {str(e)}")
     except JournalEntryError as e:
@@ -123,8 +147,8 @@ async def list_journal_entries(
         skip=skip,
         limit=limit,
         filters=filters
-    )    
-    # Force load relationships to avoid lazy loading during serialization
+    )      # Force load relationships to avoid lazy loading during serialization
+    journal_entries_data = []
     for je in journal_entries:
         _ = len(je.lines)  # Force load the relationship
         # Force load nested relationships within lines
@@ -135,9 +159,26 @@ async def list_journal_entries(
                 _ = line.third_party.name  # Force load third party
             if line.cost_center:
                 _ = line.cost_center.name  # Force load cost center
+            if line.payment_terms:
+                _ = line.payment_terms.code  # Force load payment terms
+                if line.payment_terms.payment_schedules:
+                    _ = len(line.payment_terms.payment_schedules)
+        
+        # Prepare journal entry data with calculated fields
+        je_data = {col.name: getattr(je, col.name) for col in je.__table__.columns}        # Add computed properties
+        je_data.update({
+            'is_balanced': je.is_balanced,
+            'can_be_posted': je.can_be_posted,
+            'can_be_edited': je.can_be_modified,
+            'created_by_name': je.created_by.full_name if je.created_by else None,
+            'posted_by_name': je.posted_by.full_name if je.posted_by else None,
+            'earliest_due_date': je.earliest_due_date  # Include earliest due date calculation
+        })
+        
+        journal_entries_data.append(je_data)
     
     return JournalEntryListResponse(
-        items=[JournalEntryResponse.model_validate(je) for je in journal_entries],
+        items=[JournalEntryResponse.model_validate(je_data) for je_data in journal_entries_data],
         total=total,
         skip=skip,
         limit=limit
@@ -146,16 +187,16 @@ async def list_journal_entries(
 
 @router.get(
     "/{journal_entry_id}",
-    response_model=JournalEntryDetailResponse,
+    response_model=JournalEntryDetailWithPayments,
     summary="Get journal entry",
-    description="Get journal entry by ID with full details"
+    description="Get journal entry by ID with full details including payment schedules"
 )
 async def get_journal_entry(
     journal_entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
-) -> JournalEntryDetailResponse:
-    """Get journal entry by ID."""
+) -> JournalEntryDetailWithPayments:
+    """Get journal entry by ID with payment schedule details."""
     try:
         service = JournalEntryService(db)
         journal_entry = await service.get_journal_entry_by_id(journal_entry_id)
@@ -163,9 +204,81 @@ async def get_journal_entry(
             raise_journal_entry_not_found()
               # Force load all relationships to avoid lazy loading during serialization
         _ = len(journal_entry.lines)  # Force load lines
+        
+        # Prepare journal entry data with payment schedules
+        journal_entry_data = {
+            **{col.name: getattr(journal_entry, col.name) for col in journal_entry.__table__.columns},
+            'lines': []
+        }
+          # Add computed properties
+        journal_entry_data.update({
+            'is_balanced': journal_entry.is_balanced,
+            'can_be_posted': journal_entry.can_be_posted,
+            'can_be_edited': journal_entry.can_be_modified,
+            'created_by_name': journal_entry.created_by.full_name if journal_entry.created_by else None,
+            'posted_by_name': journal_entry.posted_by.full_name if journal_entry.posted_by else None,
+            'earliest_due_date': journal_entry.earliest_due_date  # Include earliest due date calculation
+        })
+        
+        # Process each line and calculate payment schedule
+        for line in journal_entry.lines:
+            # Force load all line relationships
+            if line.account:
+                _ = line.account.code
+            if line.third_party:
+                _ = line.third_party.name
+            if line.cost_center:
+                _ = line.cost_center.name
+            if line.payment_terms:
+                _ = line.payment_terms.code
+                if line.payment_terms.payment_schedules:
+                    _ = len(line.payment_terms.payment_schedules)
+            if line.product:
+                _ = line.product.code
+                
+            # Prepare line data with all attributes
+            line_data = {col.name: getattr(line, col.name) for col in line.__table__.columns}
+            
+            # Add computed properties from the model
+            line_data.update({
+                'account_code': line.account_code,
+                'account_name': line.account_name,
+                'third_party_code': line.third_party_code,
+                'third_party_name': line.third_party_name,
+                'third_party_document_type': line.third_party_document_type,
+                'third_party_document_number': line.third_party_document_number,
+                'third_party_tax_id': line.third_party_tax_id,
+                'third_party_email': line.third_party_email,
+                'third_party_phone': line.third_party_phone,
+                'third_party_address': line.third_party_address,
+                'third_party_city': line.third_party_city,
+                'third_party_type': line.third_party_type,
+                'cost_center_code': line.cost_center_code,
+                'cost_center_name': line.cost_center_name,
+                'product_code': line.product_code,
+                'product_name': line.product_name,
+                'product_type': line.product_type,
+                'product_measurement_unit': line.product_measurement_unit,
+                'payment_terms_code': line.payment_terms_code,
+                'payment_terms_name': line.payment_terms_name,
+                'payment_terms_description': line.payment_terms_description,
+                'subtotal_before_discount': line.subtotal_before_discount,
+                'effective_unit_price': line.effective_unit_price,
+                'total_discount': line.total_discount,
+                'subtotal_after_discount': line.subtotal_after_discount,
+                'net_amount': line.net_amount,
+                'gross_amount': line.gross_amount,
+                'amount': line.amount,
+                'movement_type': line.movement_type,
+                'effective_invoice_date': line.effective_invoice_date,
+                'effective_due_date': line.effective_due_date,
+                'payment_schedule': line.get_payment_schedule()  # Calculate payment schedule
+            })
+            
+            journal_entry_data['lines'].append(line_data)
                 
         try:
-            return JournalEntryDetailResponse.model_validate(journal_entry)
+            return JournalEntryDetailWithPayments.model_validate(journal_entry_data)
         except ValidationError as e:
             # Re-raise validation errors as they are now valid errors
             error_messages = [error['msg'] for error in e.errors()]
@@ -207,9 +320,34 @@ async def update_journal_entry(
         )
         if not journal_entry:
             raise_journal_entry_not_found()
-        # Force load relationships to avoid lazy loading during serialization
-        _ = len(journal_entry.lines)  # Force load the relationship
-        return JournalEntryResponse.model_validate(journal_entry)
+          # Create response manually to avoid Pydantic accessing earliest_due_date property
+        response_data = JournalEntryResponse.model_validate({
+            "id": journal_entry.id,
+            "number": journal_entry.number,
+            "entry_date": journal_entry.entry_date,
+            "description": journal_entry.description,
+            "reference": journal_entry.reference,
+            "entry_type": journal_entry.entry_type,
+            "transaction_origin": journal_entry.transaction_origin,
+            "notes": journal_entry.notes,
+            "status": journal_entry.status,
+            "total_debit": journal_entry.total_debit,
+            "total_credit": journal_entry.total_credit,
+            "created_by_id": journal_entry.created_by_id,
+            "posted_by_id": journal_entry.posted_by_id,
+            "posted_at": journal_entry.posted_at,
+            "created_at": journal_entry.created_at,
+            "updated_at": journal_entry.updated_at,
+            "is_balanced": journal_entry.is_balanced,
+            "can_be_posted": journal_entry.can_be_posted,
+            "can_be_edited": journal_entry.can_be_modified,
+            "created_by_name": journal_entry.created_by.full_name if journal_entry.created_by else None,
+            "posted_by_name": journal_entry.posted_by.full_name if journal_entry.posted_by else None,
+            "earliest_due_date": None  # Evitar lazy loading
+        })
+        
+        return response_data
+        
     except JournalEntryNotFoundError:
         raise_journal_entry_not_found()
     except JournalEntryError as e:
@@ -489,7 +627,35 @@ async def get_journal_entry_by_number(
         journal_entry = await service.get_journal_entry_by_number(entry_number)
         if not journal_entry:
             raise_journal_entry_not_found()
-        return JournalEntryDetailResponse.model_validate(journal_entry)
+        
+        # Create response manually to avoid Pydantic accessing earliest_due_date property
+        response_data = JournalEntryDetailResponse.model_validate({
+            "id": journal_entry.id,
+            "number": journal_entry.number,
+            "entry_date": journal_entry.entry_date,
+            "description": journal_entry.description,
+            "reference": journal_entry.reference,
+            "entry_type": journal_entry.entry_type,
+            "transaction_origin": journal_entry.transaction_origin,
+            "notes": journal_entry.notes,
+            "status": journal_entry.status,
+            "total_debit": journal_entry.total_debit,
+            "total_credit": journal_entry.total_credit,
+            "created_by_id": journal_entry.created_by_id,
+            "posted_by_id": journal_entry.posted_by_id,
+            "posted_at": journal_entry.posted_at,
+            "created_at": journal_entry.created_at,
+            "updated_at": journal_entry.updated_at,
+            "is_balanced": journal_entry.is_balanced,
+            "can_be_posted": journal_entry.can_be_posted,
+            "can_be_edited": journal_entry.can_be_modified,
+            "created_by_name": journal_entry.created_by.full_name if journal_entry.created_by else None,
+            "posted_by_name": journal_entry.posted_by.full_name if journal_entry.posted_by else None,
+            "earliest_due_date": None,  # Evitar lazy loading
+            "lines": journal_entry.lines  # Incluir las líneas para JournalEntryDetailResponse
+        })
+        
+        return response_data
     except JournalEntryNotFoundError:
         raise_journal_entry_not_found()
 

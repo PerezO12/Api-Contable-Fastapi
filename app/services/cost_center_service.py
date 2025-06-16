@@ -35,8 +35,7 @@ class CostCenterService:
 
     async def create_cost_center(self, cost_center_data: CostCenterCreate) -> CostCenter:
         """Crear un nuevo centro de costo"""
-        
-        # Validar que no exista un centro de costo con el mismo código
+          # Validar que no exista un centro de costo con el mismo código
         existing_result = await self.db.execute(
             select(CostCenter).where(CostCenter.code == cost_center_data.code)
         )
@@ -44,6 +43,15 @@ class CostCenterService:
         
         if existing_cost_center:
             raise ConflictError(f"Ya existe un centro de costo con el código {cost_center_data.code}")
+        
+        # Validar que no exista un centro de costo con el mismo nombre (case sensitive)
+        existing_name_result = await self.db.execute(
+            select(CostCenter).where(CostCenter.name == cost_center_data.name)
+        )
+        existing_name_center = existing_name_result.scalar_one_or_none()
+        
+        if existing_name_center:
+            raise ConflictError(f"Ya existe un centro de costo con el nombre '{cost_center_data.name}'")
         
         # Validar centro de costo padre si se especifica
         parent_cost_center = None
@@ -118,8 +126,7 @@ class CostCenterService:
             
             # Si tiene padre, también calcular sus propiedades
             if cost_center.parent:
-                await self._calculate_cost_center_properties_safe(cost_center.parent)
-            
+                await self._calculate_cost_center_properties_safe(cost_center.parent)            
             # Calcular propiedades para los hijos también
             for child in cost_center.children:
                 await self._calculate_cost_center_properties_safe(child)
@@ -136,6 +143,21 @@ class CostCenterService:
         cost_center = await self.get_cost_center_by_id(cost_center_id)
         if not cost_center:
             raise NotFoundError("Centro de costo no encontrado")
+        
+        # Validar que no exista otro centro de costo con el mismo nombre (case sensitive)
+        if cost_center_data.name is not None:
+            existing_name_result = await self.db.execute(
+                select(CostCenter).where(
+                    and_(
+                        CostCenter.name == cost_center_data.name,
+                        CostCenter.id != cost_center_id
+                    )
+                )
+            )
+            existing_name_center = existing_name_result.scalar_one_or_none()
+            
+            if existing_name_center:
+                raise ConflictError(f"Ya existe otro centro de costo con el nombre '{cost_center_data.name}'")
         
         # Validar centro de costo padre si se especifica
         if cost_center_data.parent_id is not None:

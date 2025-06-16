@@ -33,8 +33,7 @@ class CostCenterService:
 
     async def create_cost_center(self, cost_center_data: CostCenterCreate) -> CostCenter:
         """Crear un nuevo centro de costo"""
-        
-        # Validar que no exista un centro de costo con el mismo código
+          # Validar que no exista un centro de costo con el mismo código
         existing_result = await self.db.execute(
             select(CostCenter).where(CostCenter.code == cost_center_data.code)
         )
@@ -42,6 +41,15 @@ class CostCenterService:
         
         if existing_cost_center:
             raise ConflictError(f"Ya existe un centro de costo con el código {cost_center_data.code}")
+        
+        # Validar que no exista un centro de costo con el mismo nombre (case sensitive)
+        existing_name_result = await self.db.execute(
+            select(CostCenter).where(CostCenter.name == cost_center_data.name)
+        )
+        existing_name_center = existing_name_result.scalar_one_or_none()
+        
+        if existing_name_center:
+            raise ConflictError(f"Ya existe un centro de costo con el nombre '{cost_center_data.name}'")
         
         # Validar centro de costo padre si se especifica
         parent_cost_center = None
