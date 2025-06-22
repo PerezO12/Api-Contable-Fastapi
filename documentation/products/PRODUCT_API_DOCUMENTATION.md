@@ -496,6 +496,575 @@ Realiza operaciones masivas sobre múltiples productos.
 }
 ```
 
+### 11. Obtener Productos Activos
+
+**GET** `/products/active`
+
+Obtiene una lista de todos los productos activos en el sistema.
+
+#### Response
+
+```json
+[
+  {
+    "id": "123e4567-e89b-12d3-a456-426614174003",
+    "code": "PROD001",
+    "name": "Producto de Ejemplo",
+    "product_type": "product",
+    "current_stock": 100.00,
+    "sale_price": 75.00
+  }
+]
+```
+
+### 12. Obtener Productos con Stock Bajo
+
+**GET** `/products/low-stock`
+
+Obtiene productos cuyo stock actual está por debajo del stock mínimo.
+
+#### Response
+
+```json
+[
+  {
+    "id": "123e4567-e89b-12d3-a456-426614174003",
+    "code": "PROD001",
+    "name": "Producto de Ejemplo",
+    "current_stock": 5.00,
+    "min_stock": 10.00,
+    "stock_difference": -5.00,
+    "urgency_level": "medium"
+  }
+]
+```
+
+### 13. Obtener Productos que Necesitan Reorden
+
+**GET** `/products/need-reorder`
+
+Obtiene productos que necesitan ser reordenados basado en stock mínimo y patrones de consumo.
+
+#### Response
+
+```json
+[
+  {
+    "id": "123e4567-e89b-12d3-a456-426614174003",
+    "code": "PROD001",
+    "name": "Producto de Ejemplo",
+    "current_stock": 8.00,
+    "min_stock": 10.00,
+    "reorder_point": 15.00,
+    "suggested_order_quantity": 50.00,
+    "days_until_stockout": 7
+  }
+]
+```
+
+### 14. Obtener Producto por Código
+
+**GET** `/products/code/{code}`
+
+Busca un producto específico por su código único.
+
+#### Path Parameters
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `code` | string | Código único del producto |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "product": {
+    "id": "123e4567-e89b-12d3-a456-426614174003",
+    "code": "PROD001",
+    "name": "Producto de Ejemplo",
+    "description": "Descripción del producto",
+    "product_type": "product",
+    "status": "active",
+    "current_stock": 100.00,
+    "cost_price": 50.00,
+    "sale_price": 75.00,
+    "created_at": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+### 15. Activar Producto
+
+**POST** `/products/{product_id}/activate`
+
+Activa un producto previamente desactivado.
+
+#### Path Parameters
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `product_id` | UUID | ID único del producto |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Producto activado exitosamente",
+  "product": {
+    "id": "123e4567-e89b-12d3-a456-426614174003",
+    "status": "active",
+    "updated_at": "2024-06-16T14:30:00Z"
+  }
+}
+```
+
+### 16. Desactivar Producto
+
+**POST** `/products/{product_id}/deactivate`
+
+Desactiva un producto sin eliminarlo del sistema.
+
+#### Path Parameters
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `product_id` | UUID | ID único del producto |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Producto desactivado exitosamente",
+  "product": {
+    "id": "123e4567-e89b-12d3-a456-426614174003",
+    "status": "inactive",
+    "updated_at": "2024-06-16T14:30:00Z"
+  }
+}
+```
+
+### 17. Descontinuar Producto
+
+**POST** `/products/{product_id}/discontinue`
+
+Marca un producto como descontinuado, impidiendo nuevas ventas pero manteniendo el historial.
+
+#### Path Parameters
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `product_id` | UUID | ID único del producto |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Producto descontinuado exitosamente",
+  "product": {
+    "id": "123e4567-e89b-12d3-a456-426614174003",
+    "status": "discontinued",
+    "updated_at": "2024-06-16T14:30:00Z"
+  }
+}
+```
+
+### 18. Agregar Stock
+
+**POST** `/products/{product_id}/stock/add`
+
+Incrementa el stock actual del producto.
+
+#### Path Parameters
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `product_id` | UUID | ID único del producto |
+
+#### Request Body
+
+```json
+{
+  "quantity": 50.00,
+  "unit_cost": 52.00,
+  "reason": "Compra de mercadería",
+  "reference": "OC-2024-001"
+}
+```
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Stock agregado exitosamente",
+  "product": {
+    "id": "123e4567-e89b-12d3-a456-426614174003",
+    "previous_stock": 100.00,
+    "added_quantity": 50.00,
+    "new_stock": 150.00,
+    "movement_id": "movement-uuid-here"
+  }
+}
+```
+
+### 19. Reducir Stock
+
+**POST** `/products/{product_id}/stock/subtract`
+
+Reduce el stock actual del producto.
+
+#### Path Parameters
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `product_id` | UUID | ID único del producto |
+
+#### Request Body
+
+```json
+{
+  "quantity": 10.00,
+  "reason": "Ajuste por inventario",
+  "reference": "AJ-2024-001"
+}
+```
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Stock reducido exitosamente",
+  "product": {
+    "id": "123e4567-e89b-12d3-a456-426614174003",
+    "previous_stock": 150.00,
+    "subtracted_quantity": 10.00,
+    "new_stock": 140.00,
+    "movement_id": "movement-uuid-here"
+  }
+}
+```
+
+### 20. Eliminación Masiva de Productos
+
+**POST** `/products/bulk-delete`
+
+Elimina múltiples productos en una sola operación. Solo se pueden eliminar productos que no tengan dependencias críticas.
+
+#### Request Body
+
+```json
+[
+  "123e4567-e89b-12d3-a456-426614174003",
+  "123e4567-e89b-12d3-a456-426614174004",
+  "123e4567-e89b-12d3-a456-426614174005"
+]
+```
+
+#### Response
+
+```json
+{
+  "total_requested": 3,
+  "total_processed": 2,
+  "total_errors": 1,
+  "successful_ids": [
+    "123e4567-e89b-12d3-a456-426614174003",
+    "123e4567-e89b-12d3-a456-426614174004"
+  ],
+  "errors": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174005",
+      "error": "Producto tiene movimientos contables asociados"
+    }
+  ]
+}
+```
+
+#### Validaciones de Eliminación
+
+La eliminación está sujeta a las siguientes validaciones:
+
+- **✅ Se puede eliminar si:**
+  - El producto existe
+  - No tiene movimientos contables asociados
+  - No está referenciado en asientos contables
+  - No tiene transacciones pendientes
+
+- **❌ No se puede eliminar si:**
+  - Tiene historial de movimientos
+  - Está referenciado en facturas o documentos
+  - Tiene asientos contables asociados
+
+#### Validaciones Detalladas para Operaciones Bulk
+
+### Validaciones para Eliminación Masiva
+
+#### Validaciones Críticas (Bloquean eliminación)
+
+1. **Existencia del Producto**
+   ```
+   Criterio: El producto debe existir en la base de datos
+   Error: "Producto no existe"
+   Acción: Ignorar ID del producto
+   ```
+
+2. **Movimientos Contables**
+   ```
+   Criterio: No debe tener asientos contables asociados
+   Error: "Producto tiene movimientos contables asociados"
+   Consulta: journal_entry_lines.product_id IS NOT NULL
+   ```
+
+3. **Facturas Pendientes**
+   ```
+   Criterio: No debe estar en facturas en estado borrador
+   Error: "Producto referenciado en facturas pendientes"
+   ```
+
+4. **Órdenes de Compra Activas**
+   ```
+   Criterio: No debe tener órdenes de compra pendientes
+   Error: "Producto tiene órdenes de compra activas"
+   ```
+
+#### Validaciones de Advertencia (No bloquean)
+
+1. **Stock Actual**
+   ```
+   Condición: current_stock > 0
+   Warning: "Producto tiene stock actual: {cantidad}"
+   Recomendación: Considerar mover stock o ajustar inventario
+   ```
+
+2. **Estado Activo**
+   ```
+   Condición: status = "active"
+   Warning: "Producto está activo - considere desactivar primero"
+   Recomendación: Desactivar antes de eliminar
+   ```
+
+3. **Valor de Inventario**
+   ```
+   Condición: stock_value > umbral_crítico
+   Warning: "Producto representa valor significativo: ${valor}"
+   Recomendación: Aprobación adicional requerida
+   ```
+
+4. **Productos Recientes**
+   ```
+   Condición: created_at < 30 días
+   Warning: "Producto creado recientemente"
+   Recomendación: Verificar necesidad de eliminación
+   ```
+
+### Validaciones para Desactivación Masiva
+
+#### Validaciones Críticas
+
+1. **Existencia del Producto**
+   ```
+   Criterio: El producto debe existir
+   Error: "Producto no encontrado"
+   ```
+
+2. **Estado Ya Inactivo**
+   ```
+   Criterio: Si ya está inactivo, omitir (no es error)
+   Acción: Marcar como exitoso sin cambios
+   ```
+
+#### Validaciones de Advertencia
+
+1. **Órdenes Pendientes**
+   ```
+   Condición: Tiene órdenes de venta/compra pendientes
+   Warning: "Producto tiene órdenes pendientes"
+   Recomendación: Completar o cancelar órdenes primero
+   ```
+
+2. **Stock Alto**
+   ```
+   Condición: current_stock > max_stock * 0.8
+   Warning: "Producto tiene stock alto"
+   Recomendación: Considerar liquidación de inventario
+   ```
+
+### Validaciones de Integridad del Sistema
+
+#### Límites de Operación
+
+```json
+{
+  "max_bulk_size": 100,
+  "max_concurrent_operations": 5,
+  "timeout_minutes": 10,
+  "retry_attempts": 3
+}
+```
+
+#### Validaciones de Permisos
+
+1. **Permisos de Usuario**
+   ```
+   - products:delete_bulk (para eliminación masiva)
+   - products:deactivate_bulk (para desactivación masiva)
+   - products:validate_deletion (para validación previa)
+   ```
+
+2. **Validación de Empresa**
+   ```
+   - Productos deben pertenecer a la empresa del usuario
+   - No se permite cross-company bulk operations
+   ```
+
+#### Validaciones de Negocio Específicas
+
+1. **Productos Críticos**
+   ```
+   Condición: Marcados como "critical" o "essential"
+   Acción: Requerir confirmación adicional
+   Warning: "Producto marcado como crítico para operaciones"
+   ```
+
+2. **Productos con Garantía**
+   ```
+   Condición: Tienen garantías activas
+   Warning: "Producto tiene garantías activas"
+   Recomendación: Verificar impacto en servicio post-venta
+   ```
+
+3. **Productos Estacionales**
+   ```
+   Condición: Marcados como estacionales
+   Warning: "Producto estacional - verificar temporada"
+   Recomendación: Considerar desactivación temporal
+   ```
+
+### Implementación de Validaciones en el Código
+
+#### Estructura de Respuesta de Validación
+
+```json
+{
+  "product_id": "uuid",
+  "product_code": "string",
+  "product_name": "string", 
+  "product_status": "active|inactive|discontinued",
+  "current_stock": "decimal",
+  "can_delete": "boolean",
+  "can_deactivate": "boolean",
+  "blocking_reasons": ["string"],
+  "warnings": ["string"],
+  "recommendations": ["string"],
+  "estimated_stock_value": "decimal",
+  "last_movement_date": "datetime",
+  "creation_date": "datetime",
+  "risk_level": "low|medium|high|critical"
+}
+```
+
+#### Algoritmo de Validación
+
+```python
+def validate_product_for_deletion(product_id: UUID) -> ValidationResult:
+    result = ValidationResult()
+    
+    # 1. Verificar existencia
+    product = get_product(product_id)
+    if not product:
+        result.can_delete = False
+        result.blocking_reasons.append("Producto no existe")
+        return result
+    
+    # 2. Validaciones críticas
+    if has_journal_entries(product_id):
+        result.can_delete = False
+        result.blocking_reasons.append("Tiene movimientos contables")
+    
+    if has_pending_orders(product_id):
+        result.can_delete = False  
+        result.blocking_reasons.append("Tiene órdenes pendientes")
+    
+    # 3. Validaciones de advertencia
+    if product.current_stock > 0:
+        result.warnings.append(f"Stock actual: {product.current_stock}")
+        result.estimated_stock_value = calculate_stock_value(product)
+    
+    if product.status == "active":
+        result.warnings.append("Producto activo - considerar desactivar")
+    
+    # 4. Evaluación de riesgo
+    result.risk_level = calculate_risk_level(product, result)
+    
+    return result
+```
+
+#### Configuración de Límites
+
+```python
+BULK_OPERATION_LIMITS = {
+    "max_products_per_batch": 100,
+    "max_concurrent_operations": 5,
+    "operation_timeout_seconds": 600,
+    "max_retries": 3,
+    "critical_stock_value_threshold": 10000.00,
+    "recent_product_days": 30
+}
+```
+
+---
+
+## Flujo Recomendado para Gestión Masiva
+
+### 1. Análisis Previo
+```bash
+# Validar qué productos se pueden eliminar
+POST /api/v1/products/validate-deletion
+```
+
+### 2. Decisión Basada en Validación
+- **Si can_delete = true y no hay warnings críticos**: Proceder con eliminación
+- **Si can_delete = true pero hay warnings**: Considerar desactivación
+- **Si can_delete = false**: Evaluar alternativas
+
+### 3. Ejecución de la Acción
+```bash
+# Opción A: Eliminación (más restrictiva)
+POST /api/v1/products/bulk-delete
+
+# Opción B: Desactivación (más segura)
+POST /api/v1/products/bulk-deactivate
+```
+
+### 4. Verificación de Resultados
+- Revisar `total_processed` vs `total_requested`
+- Analizar errores en el array `errors`
+- Confirmar que `successful_ids` contiene los productos esperados
+
+---
+
+## Consideraciones de Rendimiento
+
+### Limitaciones por Lote
+- **Máximo recomendado**: 100 productos por operación
+- **Para lotes grandes**: Dividir en múltiples requests
+- **Timeout**: Operaciones pueden tardar según el volumen
+
+### Transacciones
+- Cada operación bulk se ejecuta en una transacción separada
+- Si una operación falla, no afecta las demás
+- Se recomienda validar antes de ejecutar para minimizar fallos
+
+### Monitoreo
+- Todas las operaciones se registran en logs de auditoría
+- Se mantiene historial de cambios de estado
+- Se puede rastrear quién ejecutó cada operación masiva
+
 ## Modelos de Datos
 
 ### ProductType (Enum)
@@ -600,6 +1169,24 @@ Realiza operaciones masivas sobre múltiples productos.
 }
 ```
 
+### 423 Locked
+
+```json
+{
+  "detail": "Product is locked for stock operations",
+  "product_id": "123e4567-e89b-12d3-a456-426614174003"
+}
+```
+
+### 406 Not Acceptable
+
+```json
+{
+  "detail": "Cannot activate discontinued product",
+  "product_status": "discontinued"
+}
+```
+
 ## Ejemplos de Uso
 
 ### Crear un producto completo
@@ -670,6 +1257,82 @@ curl -X POST "http://localhost:8000/api/v1/products/bulk" \
   }'
 ```
 
+### Obtener todos los productos activos
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/products/active" \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
+```
+
+### Obtener productos con stock bajo
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/products/low-stock" \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
+```
+
+### Obtener productos que necesitan reorden
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/products/need-reorder" \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
+```
+
+### Obtener producto por código
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/products/code/PROD001" \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
+```
+
+### Activar un producto
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/products/123e4567-e89b-12d3-a456-426614174003/activate" \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
+```
+
+### Desactivar un producto
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/products/123e4567-e89b-12d3-a456-426614174003/deactivate" \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
+```
+
+### Descontinuar un producto
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/products/123e4567-e89b-12d3-a456-426614174003/discontinue" \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
+```
+
+### Agregar stock a un producto
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/products/123e4567-e89b-12d3-a456-426614174003/stock/add" \
+  -H "Authorization: Bearer ${JWT_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quantity": 20,
+    "unit_cost": 55.00,
+    "reason": "Compra de insumos",
+    "reference": "OC-2024-002"
+  }'
+```
+
+### Reducir stock de un producto
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/products/123e4567-e89b-12d3-a456-426614174003/stock/subtract" \
+  -H "Authorization: Bearer ${JWT_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quantity": 5,
+    "reason": "Venta de productos",
+    "reference": "VTA-2024-003"
+  }'
+```
+
 ## Integración con Asientos Contables
 
 Los productos se integran con los asientos contables a través de las líneas de asiento (`JournalEntryLine`). Cada línea puede referenciar un producto y especificar:
@@ -715,3 +1378,8 @@ Los productos se integran con los asientos contables a través de las líneas de
 ```
 
 Esta integración permite trazabilidad completa desde el producto hasta la contabilidad y control automático de inventarios.
+
+## Cambios en la Documentación
+
+- Se agregaron los endpoints de eliminación masiva, validación previa de eliminación y desactivación masiva de productos.
+- Se actualizaron ejemplos y secciones relevantes para reflejar los cambios en la API.

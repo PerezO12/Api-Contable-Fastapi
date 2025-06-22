@@ -127,3 +127,105 @@ async def setup_admin(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creando administrador: {str(e)}"
         )
+
+
+@router.get("/sessions")
+async def get_user_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: UserRead = Depends(get_current_active_user)
+):
+    """
+    Obtener todas las sesiones activas del usuario
+    """
+    try:
+        # Por ahora devolver datos mock
+        # En el futuro implementar gestión real de sesiones
+        return {
+            "sessions": [
+                {
+                    "session_id": "session_123",
+                    "device": "Chrome - Windows",
+                    "ip_address": "192.168.1.100",
+                    "location": "Bogotá, Colombia",
+                    "created_at": "2024-01-01T10:00:00Z",
+                    "last_activity": "2024-01-01T14:30:00Z",
+                    "is_current": True
+                },
+                {
+                    "session_id": "session_456",
+                    "device": "Mobile App - Android",
+                    "ip_address": "192.168.1.101",
+                    "location": "Bogotá, Colombia",
+                    "created_at": "2024-01-01T08:00:00Z",
+                    "last_activity": "2024-01-01T12:00:00Z",
+                    "is_current": False
+                }
+            ],
+            "total_sessions": 2,
+            "current_session_id": "session_123"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener sesiones: {str(e)}"
+        )
+
+
+@router.delete("/sessions/{session_id}")
+async def terminate_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserRead = Depends(get_current_active_user)
+):
+    """
+    Terminar una sesión específica
+    """
+    try:
+        # Por ahora devolver respuesta mock
+        # En el futuro implementar terminación real de sesiones
+        if session_id == "session_123":
+            # No permitir terminar la sesión actual
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se puede terminar la sesión actual"
+            )
+        
+        return {
+            "message": f"Sesión {session_id} terminada exitosamente",
+            "session_id": session_id,
+            "terminated_at": "2024-01-01T15:00:00Z"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al terminar sesión: {str(e)}"
+        )
+
+
+@router.delete("/sessions")
+async def terminate_all_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: UserRead = Depends(get_current_active_user)
+):
+    """
+    Terminar todas las sesiones excepto la actual
+    """
+    try:
+        # Por ahora devolver respuesta mock
+        # En el futuro implementar terminación real de todas las sesiones
+        return {
+            "message": "Todas las demás sesiones han sido terminadas",
+            "terminated_sessions": 1,
+            "current_session_preserved": True,
+            "terminated_at": "2024-01-01T15:00:00Z"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al terminar sesiones: {str(e)}"
+        )

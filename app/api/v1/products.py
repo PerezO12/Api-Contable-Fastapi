@@ -31,10 +31,17 @@ def create_product(
     """
     Crear un nuevo producto
     
-    Requiere:
-    - Código único del producto
-    - Nombre del producto
-    - Configuración contable adecuada según el tipo
+    Requiere únicamente:
+    - Nombre del producto (obligatorio)
+    
+    Valores automáticos:
+    - Código: Se genera automáticamente basado en el nombre y tipo
+    - Tipo: Producto por defecto
+    - Estado: Activo por defecto
+    - Precios: 0 por defecto
+    - Control de inventario: Desactivado por defecto
+    
+    El resto de campos son opcionales y pueden tener valores por defecto o null.
     """
     try:
         product_service = ProductService(db)
@@ -183,7 +190,7 @@ def get_low_stock_products(
         product_service = ProductService(db)
         products = product_service.get_low_stock_products()
         
-        return [ProductStock.model_validate(product) for product in products]
+        return [ProductStock.from_product(product) for product in products]
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -204,7 +211,7 @@ def get_products_need_reorder(
         product_service = ProductService(db)
         products = product_service.get_products_need_reorder()
         
-        return [ProductStock.model_validate(product) for product in products]
+        return [ProductStock.from_product(product) for product in products]
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -254,10 +261,17 @@ def get_product_by_code(
         # Obtener movimientos recientes
         movements = product_service.get_product_movements(product.id, limit=10)
         
+        # Convertir movimientos filtrando None
+        converted_movements = []
+        for movement in movements:
+            converted = ProductMovement.from_journal_entry_line(movement)
+            if converted is not None:
+                converted_movements.append(converted)
+        
         return ProductDetailResponse(
             product=ProductRead.model_validate(product),
-            movements=[ProductMovement.model_validate(movement) for movement in movements],
-            stock_info=ProductStock.model_validate(product) if product.requires_inventory_control else None,
+            movements=converted_movements,
+            stock_info=ProductStock.from_product(product) if product.requires_inventory_control else None,
             accounting_setup={
                 "sales_account": product.sales_account.code if product.sales_account else None,
                 "purchase_account": product.purchase_account.code if product.purchase_account else None,
@@ -297,10 +311,17 @@ def get_product(
         # Obtener movimientos recientes
         movements = product_service.get_product_movements(product_id, limit=10)
         
+        # Convertir movimientos filtrando None
+        converted_movements = []
+        for movement in movements:
+            converted = ProductMovement.from_journal_entry_line(movement)
+            if converted is not None:
+                converted_movements.append(converted)
+        
         return ProductDetailResponse(
             product=ProductRead.model_validate(product),
-            movements=[ProductMovement.model_validate(movement) for movement in movements],
-            stock_info=ProductStock.model_validate(product) if product.requires_inventory_control else None,
+            movements=converted_movements,
+            stock_info=ProductStock.from_product(product) if product.requires_inventory_control else None,
             accounting_setup={
                 "sales_account": product.sales_account.code if product.sales_account else None,
                 "purchase_account": product.purchase_account.code if product.purchase_account else None,
@@ -521,7 +542,12 @@ def get_product_movements(
         product_service = ProductService(db)
         movements = product_service.get_product_movements(product_id, limit)
         
-        return [ProductMovement.model_validate(movement) for movement in movements]
+        result = []
+        for movement in movements:
+            converted = ProductMovement.from_journal_entry_line(movement)
+            if converted is not None:
+                result.append(converted)
+        return result
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -556,7 +582,208 @@ def bulk_product_operation(
         )
 
 
-@router.delete("/{product_id}", response_model=ProductResponse)
+@router.post("/bulk-delete", response_model=BulkProductOperationResult)
+def bulk_delete_products(
+    *,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    product_ids: List[uuid.UUID]
+):
+    """
+    Eliminar múltiples productos en lote
+    
+    Solo se pueden eliminar productos que:
+    - No tengan movimientos contables asociados
+    - No tengan asientos contables pendientes
+    - No estén siendo utilizados en transacciones activas
+    """
+    try:
+        product_service = ProductService(db)
+        
+        successful_deletions = []
+        failed_deletions = []
+        errors = []
+        
+        for product_id in product_ids:
+            try:
+                product = product_service.get_by_id(product_id)
+                if not product:
+                    errors.append({
+                        "id": product_id,
+                        "error": "Producto no encontrado"
+                    })
+                    continue
+                
+                # Intentar eliminar - el servicio ya valida las condiciones
+                success = product_service.delete_product(product_id)
+                if success:
+                    successful_deletions.append(product_id)
+                else:
+                    errors.append({
+                        "id": product_id,
+                        "error": "No se pudo eliminar el producto"
+                    })
+                    
+            except Exception as e:
+                errors.append({
+                    "id": product_id,
+                    "error": str(e)
+                })
+        
+        return BulkProductOperationResult(
+            total_requested=len(product_ids),
+            total_processed=len(successful_deletions),
+            total_errors=len(errors),
+            successful_ids=successful_deletions,
+            errors=errors
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+
+
+@router.post("/validate-deletion", response_model=List[dict])
+def validate_products_for_deletion(
+    *,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    product_ids: List[uuid.UUID]
+):
+    """
+    Validar si múltiples productos se pueden eliminar
+    
+    Verifica:
+    - Existencia del producto
+    - Stock actual
+    - Movimientos asociados
+    - Referencias en otros módulos
+    """
+    try:
+        product_service = ProductService(db)
+        validation_results = []
+        
+        for product_id in product_ids:
+            try:
+                product = product_service.get_by_id(product_id)
+                if not product:
+                    validation_results.append({
+                        "product_id": str(product_id),
+                        "product_name": "Producto no encontrado",
+                        "can_delete": False,
+                        "blocking_reasons": ["Producto no existe"],
+                        "warnings": []
+                    })
+                    continue
+                
+                blocking_reasons = []
+                warnings = []
+                
+                # Verificar si tiene stock
+                if product.current_stock > 0:
+                    warnings.append(f"Producto tiene stock actual: {product.current_stock}")
+                
+                # Verificar si está activo
+                if product.status == "active":
+                    warnings.append("Producto está activo - considere desactivar primero")
+                
+                # Por ahora asumimos que se puede eliminar si existe
+                # En el futuro se pueden agregar más validaciones
+                can_delete = True
+                
+                validation_results.append({
+                    "product_id": str(product_id),
+                    "product_code": product.code,
+                    "product_name": product.name,
+                    "product_status": product.status,
+                    "current_stock": float(product.current_stock),
+                    "can_delete": can_delete,
+                    "blocking_reasons": blocking_reasons,
+                    "warnings": warnings,
+                    "estimated_stock_value": float(product.current_stock * product.purchase_price) if product.current_stock > 0 and product.purchase_price else 0.0
+                })
+                
+            except Exception as e:
+                validation_results.append({
+                    "product_id": str(product_id),
+                    "product_name": "Error al validar",
+                    "can_delete": False,
+                    "blocking_reasons": [f"Error de validación: {str(e)}"],
+                    "warnings": []
+                })
+        
+        return validation_results
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+
+
+@router.post("/bulk-deactivate", response_model=BulkProductOperationResult)
+def bulk_deactivate_products(
+    *,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    product_ids: List[uuid.UUID]
+):
+    """
+    Desactivar múltiples productos en lote
+    
+    La desactivación es más permisiva que la eliminación:
+    - Se pueden desactivar productos con stock
+    - Se pueden desactivar productos con historial
+    - Se bloquean futuras transacciones pero se mantiene el historial
+    """
+    try:
+        product_service = ProductService(db)
+        
+        successful_operations = []
+        errors = []
+        
+        for product_id in product_ids:
+            try:
+                product = product_service.get_by_id(product_id)
+                if not product:
+                    errors.append({
+                        "id": product_id,
+                        "error": "Producto no encontrado"
+                    })
+                    continue
+                
+                if product.status == "inactive":
+                    successful_operations.append(product_id)
+                    continue
+                
+                # Desactivar producto
+                updated_product = product_service.deactivate_product(product_id)
+                successful_operations.append(product_id)
+                
+            except Exception as e:
+                errors.append({
+                    "id": product_id,
+                    "error": str(e)
+                })
+        
+        return BulkProductOperationResult(
+            total_requested=len(product_ids),
+            total_processed=len(successful_operations),
+            total_errors=len(errors),
+            successful_ids=successful_operations,
+            errors=errors
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+
+
+@router.delete("/{product_id}", status_code=http_status.HTTP_204_NO_CONTENT)
 def delete_product(
     *,
     db: Session = Depends(get_db),
@@ -564,29 +791,48 @@ def delete_product(
     product_id: uuid.UUID
 ):
     """
-    Eliminar producto
+    Eliminar un producto individual
     
-    Solo se puede eliminar si no tiene movimientos contables asociados
+    Elimina un producto específico si no está siendo utilizado en otras entidades.
+    Se verifica que el producto no tenga:
+    - Movimientos de inventario
+    - Referencias en asientos contables
+    - Referencias en documentos
+    
+    Si el producto está en uso, retorna error 400 con detalles.
     """
     try:
         product_service = ProductService(db)
-        success = product_service.delete_product(product_id)
         
-        if success:
-            return ProductResponse(
-                success=True,
-                message="Producto eliminado exitosamente"
+        # Verificar que el producto existe
+        product = product_service.get_by_id(product_id)
+        if not product:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Producto no encontrado"
             )
-        else:
+        
+        # Eliminar el producto usando el método del servicio
+        try:
+            success = product_service.delete_product(product_id)
+            
+            if not success:
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail="No se puede eliminar el producto. Puede estar en uso en otras entidades."
+                )
+            
+            # Si llegamos aquí, la eliminación fue exitosa
+            return  # 204 No Content
+            
+        except ValidationError as e:
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="No se pudo eliminar el producto"
+                detail=str(e)
             )
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+            
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,

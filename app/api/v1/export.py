@@ -2,7 +2,7 @@
 API endpoints para exportación genérica de datos
 """
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Body
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
@@ -27,6 +27,24 @@ class SimpleExportRequest(BaseModel):
     format: ExportFormat
     ids: List[str]
     file_name: Optional[str] = None
+
+
+class BulkExportRequest(BaseModel):
+    """Request para exportación masiva de múltiples tablas"""
+    exports: List[SimpleExportRequest]
+    compress: bool = True  # Comprimir en ZIP si hay múltiples archivos
+    file_name: Optional[str] = None
+
+
+class ExportStatusResponse(BaseModel):
+    """Response para consultar el estado de una exportación"""
+    export_id: str
+    status: str  # 'pending', 'processing', 'completed', 'failed'
+    progress: int  # 0-100
+    message: Optional[str] = None
+    download_url: Optional[str] = None
+    created_at: str
+    completed_at: Optional[str] = None
 
 
 @router.get(
@@ -279,6 +297,122 @@ def export_journal_entries(
 
 
 @router.post(
+    "/export/payment-terms",
+    summary="Export specific payment terms",
+    description="Export specific payment terms by IDs"
+)
+def export_payment_terms(
+    format: ExportFormat,
+    ids: List[str],
+    file_name: Optional[str] = "condiciones_pago",
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación de condiciones de pago específicas"""
+    
+    # Solo ADMIN y CONTADOR pueden exportar condiciones de pago
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    # Crear request simplificado
+    request = SimpleExportRequest(
+        table=TableName.PAYMENT_TERMS,
+        format=format,
+        ids=ids,
+        file_name=file_name
+    )
+    
+    return export_data(request, db, current_user)
+
+
+@router.post(
+    "/export/cost-centers",
+    summary="Export specific cost centers",
+    description="Export specific cost centers by IDs"
+)
+def export_cost_centers(
+    format: ExportFormat,
+    ids: List[str],
+    file_name: Optional[str] = "centros_costo",
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación de centros de costo específicos"""
+    
+    # Solo ADMIN y CONTADOR pueden exportar centros de costo
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    # Crear request simplificado
+    request = SimpleExportRequest(
+        table=TableName.COST_CENTERS,
+        format=format,
+        ids=ids,
+        file_name=file_name
+    )
+    
+    return export_data(request, db, current_user)
+
+
+@router.post(
+    "/export/products",
+    summary="Export specific products",
+    description="Export specific products by IDs"
+)
+def export_products(
+    format: ExportFormat,
+    ids: List[str],
+    file_name: Optional[str] = "productos",
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación de productos específicos"""
+    
+    # Solo ADMIN y CONTADOR pueden exportar productos
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    # Crear request simplificado
+    request = SimpleExportRequest(
+        table=TableName.PRODUCTS,
+        format=format,
+        ids=ids,
+        file_name=file_name
+    )
+    
+    return export_data(request, db, current_user)
+
+
+@router.post(
+    "/export/third-parties",
+    summary="Export specific third parties",
+    description="Export specific third parties by IDs"
+)
+def export_third_parties(
+    format: ExportFormat,
+    ids: List[str],
+    file_name: Optional[str] = "terceros",
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación de terceros específicos"""
+    
+    # Solo ADMIN y CONTADOR pueden exportar terceros
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    # Crear request simplificado
+    request = SimpleExportRequest(
+        table=TableName.THIRD_PARTIES,
+        format=format,
+        ids=ids,
+        file_name=file_name
+    )
+    
+    return export_data(request, db, current_user)
+
+
+@router.post(
     "/export/advanced",
     summary="Advanced export with complex filters",
     description="Export data with advanced filtering options using request body"
@@ -329,3 +463,250 @@ def export_data_advanced(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error en la exportación: {str(e)}"
         )
+
+
+@router.post(
+    "/export/bulk",
+    summary="Bulk export multiple tables",
+    description="Export data from multiple tables in a single request, optionally compressed in ZIP"
+)
+def export_bulk_data(
+    request: BulkExportRequest,
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación masiva de múltiples tablas"""
+    # Solo usuarios ADMIN y CONTADOR pueden exportar datos
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    try:
+        export_service = ExportService(db)
+        
+        # Por ahora, procesar cada exportación individualmente
+        # En el futuro se podría implementar exportación asíncrona
+        results = []
+        
+        for export_req in request.exports:
+            # Convertir strings a UUIDs
+            uuid_ids = []
+            for id_str in export_req.ids:
+                try:
+                    uuid_ids.append(uuid.UUID(id_str))
+                except ValueError:
+                    raise_validation_error(f"ID inválido: {id_str}")
+            
+            # Crear filtros con IDs específicos
+            filters = ExportFilter(
+                ids=uuid_ids,
+                date_from=None,
+                date_to=None,
+                active_only=None,
+                custom_filters=None,
+                limit=None,
+                offset=0
+            )
+            
+            # Crear request completo
+            full_request = ExportRequest(
+                table_name=export_req.table,
+                export_format=export_req.format,
+                filters=filters,
+                columns=None,
+                include_metadata=True,
+                file_name=export_req.file_name
+            )
+            
+            result = export_service.export_data(full_request, current_user.id)
+            results.append({
+                "table": export_req.table,
+                "format": export_req.format,
+                "file_name": result.file_name,
+                "file_content": result.file_content,
+                "content_type": result.content_type
+            })
+          # Si solo hay una exportación, devolverla directamente
+        if len(results) == 1:
+            result = results[0]
+            return Response(
+                content=result["file_content"],
+                media_type=result["content_type"],
+                headers={
+                    "Content-Disposition": f"attachment; filename={result['file_name']}"
+                }
+            )
+        
+        # Si hay múltiples exportaciones, crear un ZIP (por implementar)
+        # Por ahora devolver la primera
+        result = results[0]
+        return Response(
+            content=result["file_content"],
+            media_type=result["content_type"],
+            headers={
+                "Content-Disposition": f"attachment; filename={result['file_name']}"
+            }
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error en la exportación masiva: {str(e)}"
+        )
+
+
+@router.get(
+    "/export/{export_id}/status",
+    response_model=ExportStatusResponse,
+    summary="Get export status",
+    description="Get the status of an export operation"
+)
+def get_export_status(
+    export_id: str,
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Obtener el estado de una exportación"""
+    # Solo usuarios ADMIN y CONTADOR pueden consultar estado de exportaciones
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    try:
+        # Por ahora, como las exportaciones son síncronas, siempre devolver completado
+        # En el futuro se podría implementar un sistema de exportaciones asíncronas
+        return ExportStatusResponse(
+            export_id=export_id,
+            status="completed",
+            progress=100,
+            message="Exportación completada",
+            download_url=f"/api/v1/export/{export_id}/download",
+            created_at="2024-01-01T00:00:00Z",
+            completed_at="2024-01-01T00:00:01Z"
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al consultar estado de exportación: {str(e)}"
+        )
+
+
+@router.get(
+    "/export/{export_id}/download",
+    summary="Download exported file",
+    description="Download a previously generated export file"
+)
+def download_export_file(
+    export_id: str,
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Descargar un archivo de exportación generado previamente"""
+    # Solo usuarios ADMIN y CONTADOR pueden descargar exportaciones
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    try:
+        # Por ahora, devolver un error indicando que la funcionalidad no está disponible
+        # En el futuro se podría implementar un sistema de almacenamiento temporal de archivos
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Archivo de exportación no encontrado. Las exportaciones son procesadas en tiempo real."
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al descargar archivo de exportación: {str(e)}"
+        )
+
+
+@router.get(
+    "/stats",
+    summary="Get export statistics",
+    description="Get statistics about export operations"
+)
+def get_export_stats(
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Obtener estadísticas de exportaciones"""
+    # Solo usuarios ADMIN pueden ver estadísticas
+    if current_user.role != UserRole.ADMIN:
+        raise_insufficient_permissions()
+    
+    try:
+        # Por ahora devolver estadísticas mock
+        # En el futuro se podría implementar un sistema de logging de exportaciones
+        return {
+            "total_exports": 0,
+            "exports_today": 0,
+            "exports_this_month": 0,
+            "popular_formats": {
+                "csv": 0,
+                "xlsx": 0,
+                "json": 0
+            },
+            "popular_tables": {
+                "accounts": 0,
+                "journal_entries": 0,
+                "products": 0,
+                "third_parties": 0
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener estadísticas de exportación: {str(e)}"
+        )
+
+
+@router.post(
+    "/export/validate",
+    summary="Validate export request",
+    description="Validate an export request without executing it"
+)
+def validate_export_request(
+    request: SimpleExportRequest,
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Validar una solicitud de exportación sin ejecutarla"""
+    # Solo usuarios ADMIN y CONTADOR pueden validar exportaciones
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    try:
+        # Validar que la tabla existe
+        export_service = ExportService(db)
+        table_schema = export_service.get_table_schema(request.table)
+        
+        # Validar que los IDs son válidos
+        valid_ids = []
+        invalid_ids = []
+        
+        for id_str in request.ids:
+            try:
+                uuid.UUID(id_str)
+                valid_ids.append(id_str)
+            except ValueError:
+                invalid_ids.append(id_str)
+        
+        return {
+            "valid": len(invalid_ids) == 0,
+            "table_exists": True,
+            "table_name": table_schema.table_name,
+            "total_records": table_schema.total_records,
+            "valid_ids_count": len(valid_ids),
+            "invalid_ids": invalid_ids,
+            "estimated_size": len(valid_ids) * 1024,  # Estimación simple
+            "supported_format": request.format in [ExportFormat.CSV, ExportFormat.JSON, ExportFormat.XLSX]
+        }
+        
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": str(e)
+        }

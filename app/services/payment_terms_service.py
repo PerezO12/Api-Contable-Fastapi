@@ -251,8 +251,7 @@ class PaymentTermsService:
         
         # Recargar con cronograma
         result = await self.db.execute(
-            select(PaymentTerms)
-            .options(selectinload(PaymentTerms.payment_schedules))
+            select(PaymentTerms)            .options(selectinload(PaymentTerms.payment_schedules))
             .where(PaymentTerms.id == payment_terms.id)
         )
         return result.scalar_one()
@@ -284,6 +283,39 @@ class PaymentTermsService:
 
         await self.db.delete(payment_terms)
         await self.db.commit()
+
+    async def check_can_delete_payment_terms(self, payment_terms_id: uuid.UUID) -> Dict[str, Any]:
+        """
+        Verifica si las condiciones de pago se pueden eliminar o solo desactivar
+        
+        Args:
+            payment_terms_id: ID de las condiciones de pago
+            
+        Returns:
+            Dict con información sobre si se puede eliminar y detalles de uso
+        """
+        payment_terms = await self.get_payment_terms_by_id(payment_terms_id)
+        
+        # Verificar si está en uso (en journal_entry_lines)
+        from app.models.journal_entry import JournalEntryLine
+        usage_check = await self.db.execute(
+            select(func.count(JournalEntryLine.id))
+            .where(JournalEntryLine.payment_terms_id == payment_terms_id)
+        )
+        
+        usage_count = usage_check.scalar() or 0
+        can_delete = usage_count == 0
+        
+        return {
+            "can_delete": can_delete,
+            "can_deactivate": True,  # Siempre se puede desactivar
+            "usage_count": usage_count,
+            "is_active": payment_terms.is_active,
+            "message": (
+                "Se puede eliminar las condiciones de pago" if can_delete 
+                else f"No se puede eliminar porque está siendo utilizada en {usage_count} asiento(s) contable(s). Solo se puede desactivar."
+            )
+        }
 
     async def toggle_active_status(self, payment_terms_id: uuid.UUID) -> PaymentTerms:
         """

@@ -315,14 +315,14 @@ class Product(Base):
                 errors.append("El stock máximo no puede ser negativo")
                 
             if self.min_stock and self.max_stock and self.min_stock > self.max_stock:
-                errors.append("El stock mínimo no puede ser mayor al stock máximo")
-                
-        # Validar configuración contable
-        if not self.has_valid_accounting_setup:
-            if self.is_service:
-                errors.append("Los servicios deben tener cuenta de ventas configurada")
-            else:
-                errors.append("Los productos deben tener cuentas contables configuradas")
+                errors.append("El stock mínimo no puede ser mayor al stock máximo")                
+        # Validar configuración contable (opcional - no obligatoria)
+        # Las cuentas contables son opcionales al crear un producto
+        # if not self.has_valid_accounting_setup:
+        #     if self.is_service:
+        #         errors.append("Los servicios deben tener cuenta de ventas configurada")
+        #     else:
+        #         errors.append("Los productos deben tener cuentas contables configuradas")
                 
         return errors
 

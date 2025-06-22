@@ -24,13 +24,13 @@ from app.models import (
     User, Account, JournalEntry, JournalEntryLine,
     AuditLog, UserSession, ChangeTracking,
     SystemConfiguration, CompanyInfo, NumberSequence,
-    CostCenter
+    CostCenter, ThirdParty, Product
 )
+from app.models.payment_terms import PaymentTerms
 
 
 class ExportService:
-    """Servicio para exportación genérica de datos de la base de datos"""
-      # Mapeo de nombres de tabla a modelos SQLAlchemy
+    """Servicio para exportación genérica de datos de la base de datos"""    # Mapeo de nombres de tabla a modelos SQLAlchemy
     TABLE_MODEL_MAPPING = {
         TableName.USERS: User,
         TableName.ACCOUNTS: Account,
@@ -43,9 +43,11 @@ class ExportService:
         TableName.COMPANY_INFO: CompanyInfo,
         TableName.NUMBER_SEQUENCES: NumberSequence,
         TableName.COST_CENTERS: CostCenter,
+        TableName.THIRD_PARTIES: ThirdParty,
+        TableName.PRODUCTS: Product,
+        TableName.PAYMENT_TERMS: PaymentTerms,
     }
-    
-    # Nombres amigables para las tablas
+      # Nombres amigables para las tablas
     TABLE_DISPLAY_NAMES = {
         TableName.USERS: "Usuarios",
         TableName.ACCOUNTS: "Plan de Cuentas",
@@ -57,9 +59,12 @@ class ExportService:
         TableName.SYSTEM_CONFIGURATION: "Configuración del Sistema",
         TableName.COMPANY_INFO: "Información de la Empresa",
         TableName.NUMBER_SEQUENCES: "Secuencias de Numeración",
+        TableName.COST_CENTERS: "Centros de Costo",
+        TableName.THIRD_PARTIES: "Terceros",
+        TableName.PRODUCTS: "Productos",
+        TableName.PAYMENT_TERMS: "Condiciones de Pago",
     }
-    
-    # Campos confidenciales que deben omitirse en las exportaciones
+      # Campos confidenciales que deben omitirse en las exportaciones
     SENSITIVE_FIELDS = {
         TableName.USERS: [
             'hashed_password',
@@ -81,6 +86,15 @@ class ExportService:
             'password',
             'api_secret',
             'private_key'
+        ],
+        TableName.THIRD_PARTIES: [
+            # No hay campos sensibles específicos por ahora
+        ],
+        TableName.PRODUCTS: [
+            # No hay campos sensibles específicos por ahora
+        ],
+        TableName.PAYMENT_TERMS: [
+            # No hay campos sensibles específicos por ahora
         ]
     }
     

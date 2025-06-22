@@ -11,7 +11,7 @@ from app.utils.enum_validators import create_enum_validator
 # Esquemas base para productos
 class ProductBase(BaseModel):
     """Esquema base para productos"""
-    code: str = Field(..., min_length=1, max_length=50, description="Código único del producto")
+    code: Optional[str] = Field(None, min_length=1, max_length=50, description="Código único del producto")
     name: str = Field(..., min_length=1, max_length=200, description="Nombre del producto")
     description: Optional[str] = Field(None, max_length=1000, description="Descripción detallada")
     product_type: ProductType = Field(default=ProductType.PRODUCT, description="Tipo de producto")
@@ -22,14 +22,13 @@ class ProductBase(BaseModel):
     measurement_unit: MeasurementUnit = Field(default=MeasurementUnit.UNIT, description="Unidad de medida")
     weight: Optional[Decimal] = Field(None, ge=0, description="Peso en kilogramos")
     dimensions: Optional[str] = Field(None, max_length=100, description="Dimensiones (LxAxA)")    # Precios y costos
-    purchase_price: Decimal = Field(default=Decimal("0"), ge=0, description="Precio de compra")
-    sale_price: Decimal = Field(default=Decimal("0"), ge=0, description="Precio de venta")
-    min_sale_price: Decimal = Field(default=Decimal("0"), ge=0, description="Precio mínimo de venta")
-    suggested_price: Decimal = Field(default=Decimal("0"), ge=0, description="Precio sugerido")
-    
+    purchase_price: Optional[Decimal] = Field(None, ge=0, description="Precio de compra")
+    sale_price: Optional[Decimal] = Field(None, ge=0, description="Precio de venta")
+    min_sale_price: Optional[Decimal] = Field(None, ge=0, description="Precio mínimo de venta")
+    suggested_price: Optional[Decimal] = Field(None, ge=0, description="Precio sugerido")    
     # Información fiscal
-    tax_category: TaxCategory = Field(default=TaxCategory.EXEMPT, description="Categoría fiscal")
-    tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100, description="Tasa de impuesto (%)")
+    tax_category: Optional[TaxCategory] = Field(None, description="Categoría fiscal")
+    tax_rate: Optional[Decimal] = Field(None, ge=0, le=100, description="Tasa de impuesto (%)")
     
     # Cuentas contables
     sales_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta contable para ventas")
@@ -37,11 +36,11 @@ class ProductBase(BaseModel):
     inventory_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta contable para inventario")
     cogs_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta contable para costo de ventas")
       # Control de inventario
-    manage_inventory: bool = Field(default=False, description="Maneja inventario")
-    current_stock: Decimal = Field(default=Decimal("0"), ge=0, description="Stock actual")
-    min_stock: Decimal = Field(default=Decimal("0"), ge=0, description="Stock mínimo")
-    max_stock: Decimal = Field(default=Decimal("0"), ge=0, description="Stock máximo")
-    reorder_point: Decimal = Field(default=Decimal("0"), ge=0, description="Punto de reorden")
+    manage_inventory: Optional[bool] = Field(None, description="Maneja inventario")
+    current_stock: Optional[Decimal] = Field(None, ge=0, description="Stock actual")
+    min_stock: Optional[Decimal] = Field(None, ge=0, description="Stock mínimo")
+    max_stock: Optional[Decimal] = Field(None, ge=0, description="Stock máximo")
+    reorder_point: Optional[Decimal] = Field(None, ge=0, description="Punto de reorden")
     
     # Información adicional
     barcode: Optional[str] = Field(None, max_length=50, description="Código de barras")
@@ -102,9 +101,90 @@ class ProductBase(BaseModel):
         return v
 
 
-class ProductCreate(ProductBase):
-    """Esquema para crear productos"""
-    pass
+class ProductCreate(BaseModel):
+    """Esquema para crear productos - solo requiere nombre"""
+    name: str = Field(..., min_length=1, max_length=200, description="Nombre del producto")
+    description: Optional[str] = Field(None, max_length=1000, description="Descripción detallada")
+    product_type: Optional[ProductType] = Field(None, description="Tipo de producto")
+    category: Optional[str] = Field(None, max_length=100, description="Categoría del producto")
+    subcategory: Optional[str] = Field(None, max_length=100, description="Subcategoría del producto")
+    brand: Optional[str] = Field(None, max_length=100, description="Marca del producto")
+    status: Optional[ProductStatus] = Field(None, description="Estado del producto")
+    measurement_unit: Optional[MeasurementUnit] = Field(None, description="Unidad de medida")
+    weight: Optional[Decimal] = Field(None, ge=0, description="Peso en kilogramos")
+    dimensions: Optional[str] = Field(None, max_length=100, description="Dimensiones (LxAxA)")
+    
+    # Precios y costos
+    purchase_price: Optional[Decimal] = Field(None, ge=0, description="Precio de compra")
+    sale_price: Optional[Decimal] = Field(None, ge=0, description="Precio de venta")
+    min_sale_price: Optional[Decimal] = Field(None, ge=0, description="Precio mínimo de venta")
+    suggested_price: Optional[Decimal] = Field(None, ge=0, description="Precio sugerido")
+    
+    # Información fiscal
+    tax_category: Optional[TaxCategory] = Field(None, description="Categoría fiscal")
+    tax_rate: Optional[Decimal] = Field(None, ge=0, le=100, description="Tasa de impuesto (%)")
+    
+    # Cuentas contables
+    sales_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta contable para ventas")
+    purchase_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta contable para compras")
+    inventory_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta contable para inventario")
+    cogs_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta contable para costo de ventas")
+    
+    # Control de inventario
+    manage_inventory: Optional[bool] = Field(None, description="Maneja inventario")
+    current_stock: Optional[Decimal] = Field(None, ge=0, description="Stock actual")
+    min_stock: Optional[Decimal] = Field(None, ge=0, description="Stock mínimo")
+    max_stock: Optional[Decimal] = Field(None, ge=0, description="Stock máximo")
+    reorder_point: Optional[Decimal] = Field(None, ge=0, description="Punto de reorden")
+    
+    # Información adicional
+    barcode: Optional[str] = Field(None, max_length=50, description="Código de barras")
+    sku: Optional[str] = Field(None, max_length=50, description="SKU")
+    internal_reference: Optional[str] = Field(None, max_length=50, description="Referencia interna")
+    supplier_reference: Optional[str] = Field(None, max_length=50, description="Referencia del proveedor")
+    notes: Optional[str] = Field(None, description="Notas adicionales")
+    external_reference: Optional[str] = Field(None, max_length=100, description="Referencia externa")
+    
+    # Fechas de control
+    launch_date: Optional[datetime] = Field(None, description="Fecha de lanzamiento")
+    discontinuation_date: Optional[datetime] = Field(None, description="Fecha de descontinuación")
+
+    @field_validator('product_type', mode='before')
+    @classmethod
+    def validate_product_type(cls, v):
+        """Valida el tipo de producto de forma case-insensitive"""
+        if v is None:
+            return None
+        return create_enum_validator(ProductType)(v)
+
+    @field_validator('status', mode='before')
+    @classmethod
+    def validate_status(cls, v):
+        """Valida el estado del producto de forma case-insensitive"""
+        if v is None:
+            return None
+        return create_enum_validator(ProductStatus)(v)
+
+    @field_validator('measurement_unit', mode='before')
+    @classmethod
+    def validate_measurement_unit(cls, v):
+        """Valida la unidad de medida de forma case-insensitive"""
+        if v is None:
+            return None
+        return create_enum_validator(MeasurementUnit)(v)
+
+    @field_validator('tax_category', mode='before')
+    @classmethod
+    def validate_tax_category(cls, v):
+        """Valida la categoría fiscal de forma case-insensitive"""
+        if v is None:
+            return None
+        return create_enum_validator(TaxCategory)(v)
+
+    model_config = ConfigDict(
+        extra='forbid',  # No permitir campos adicionales
+        validate_assignment=True  # Validar al asignar valores
+    )
 
 
 class ProductUpdate(BaseModel):
@@ -236,6 +316,46 @@ class ProductMovement(BaseModel):
     third_party_code: Optional[str] = None
     third_party_name: Optional[str] = None
     reference: Optional[str] = None
+    
+    @classmethod
+    def from_journal_entry_line(cls, line):
+        """Crea una instancia de ProductMovement desde un objeto JournalEntryLine"""
+        from app.models.journal_entry import JournalEntryLine
+        
+        if isinstance(line, JournalEntryLine):
+            # Asegurar que las relaciones estén cargadas
+            product_code = line.product_code if line.product else None
+            product_name = line.product_name if line.product else None
+            journal_entry_number = line.journal_entry.number if line.journal_entry else None
+            entry_date = line.journal_entry.entry_date if line.journal_entry else None
+            account_code = line.account_code if line.account else None
+            account_name = line.account_name if line.account else None
+            third_party_code = line.third_party_code if line.third_party else None
+            third_party_name = line.third_party_name if line.third_party else None
+              # Skip if no product_id (this line doesn't relate to a product)
+            if not line.product_id:
+                return None
+                
+            return cls(
+                product_id=line.product_id,
+                product_code=product_code or "",
+                product_name=product_name or "",
+                journal_entry_id=line.journal_entry_id,
+                journal_entry_number=journal_entry_number or "",
+                entry_date=entry_date or datetime.now(),
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                amount=line.amount,
+                movement_type=line.movement_type,
+                account_code=account_code or "",
+                account_name=account_name or "",
+                third_party_code=third_party_code,
+                third_party_name=third_party_name,
+                reference=line.reference
+            )
+        else:
+            # Si no es un JournalEntryLine, intentar validación normal
+            return cls.model_validate(line)
 
 
 class ProductStock(BaseModel):
@@ -253,6 +373,29 @@ class ProductStock(BaseModel):
     is_low_stock: bool
     needs_reorder: bool
     stock_value: Optional[Decimal] = None
+    
+    @classmethod
+    def from_product(cls, product):
+        """Crea una instancia de ProductStock desde un objeto Product"""
+        from app.models.product import Product
+        
+        if isinstance(product, Product):
+            return cls(
+                product_id=product.id,
+                product_code=product.code,
+                product_name=product.name,
+                current_stock=product.current_stock,
+                min_stock=product.min_stock,
+                max_stock=product.max_stock,
+                reorder_point=product.reorder_point,
+                measurement_unit=product.measurement_unit,
+                is_low_stock=product.is_low_stock,
+                needs_reorder=product.needs_reorder,
+                stock_value=product.stock_value
+            )
+        else:
+            # Si no es un Product, intentar validación normal
+            return cls.model_validate(product)
 
 
 class ProductImport(BaseModel):

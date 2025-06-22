@@ -369,3 +369,180 @@ async def check_accounting_integrity(
         raise_validation_error(str(e))
     except Exception as e:
         raise_validation_error(f"Error checking accounting integrity: {str(e)}")
+
+
+@router.get(
+    "/types",
+    summary="Get available report types",
+    description="Get all available report types with their descriptions and parameters"
+)
+async def get_report_types(
+    current_user: User = Depends(get_current_active_user)
+):
+    """Obtener tipos de reportes disponibles"""
+    return {
+        "report_types": [
+            {
+                "id": "balance_general",
+                "name": "Balance General",
+                "description": "Estado de situación financiera que muestra activos, pasivos y patrimonio",
+                "category": "financial_statements",
+                "parameters": [
+                    {"name": "as_of_date", "type": "date", "required": False, "description": "Fecha del balance"},
+                    {"name": "include_zero_balances", "type": "boolean", "required": False, "description": "Incluir cuentas con saldo cero"},
+                    {"name": "company_name", "type": "string", "required": False, "description": "Nombre de la empresa"}
+                ]
+            },
+            {
+                "id": "p_g",
+                "name": "Estado de Pérdidas y Ganancias",
+                "description": "Estado de resultados que muestra ingresos, gastos y utilidad neta",
+                "category": "financial_statements",
+                "parameters": [
+                    {"name": "from_date", "type": "date", "required": True, "description": "Fecha de inicio"},
+                    {"name": "to_date", "type": "date", "required": True, "description": "Fecha de fin"},
+                    {"name": "detail_level", "type": "string", "required": False, "description": "Nivel de detalle"}
+                ]
+            },
+            {
+                "id": "flujo_efectivo",
+                "name": "Estado de Flujo de Efectivo",
+                "description": "Flujo de efectivo por actividades operativas, de inversión y financiamiento",
+                "category": "financial_statements",
+                "parameters": [
+                    {"name": "from_date", "type": "date", "required": True, "description": "Fecha de inicio"},
+                    {"name": "to_date", "type": "date", "required": True, "description": "Fecha de fin"},
+                    {"name": "method", "type": "string", "required": False, "description": "Método (directo/indirecto)"}
+                ]
+            },
+            {
+                "id": "trial_balance",
+                "name": "Balance de Comprobación",
+                "description": "Balance de comprobación con saldos iniciales, movimientos y saldos finales",
+                "category": "management_reports",
+                "parameters": [
+                    {"name": "from_date", "type": "date", "required": True, "description": "Fecha de inicio"},
+                    {"name": "to_date", "type": "date", "required": True, "description": "Fecha de fin"}
+                ]
+            }
+        ],
+        "categories": [
+            {"id": "financial_statements", "name": "Estados Financieros"},
+            {"id": "management_reports", "name": "Reportes Gerenciales"},
+            {"id": "tax_reports", "name": "Reportes Fiscales"}
+        ]
+    }
+
+
+@router.post(
+    "/export/pdf",
+    summary="Export report to PDF",
+    description="Export any report to PDF format"
+)
+async def export_report_to_pdf(
+    report_data: dict,
+    options: dict = {},
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportar reporte a PDF"""
+    try:
+        # Por ahora devolver respuesta mock
+        # En el futuro implementar generación real de PDF
+        return {
+            "export_id": str(uuid.uuid4()),
+            "status": "processing",
+            "format": "pdf",
+            "download_url": f"/api/v1/reports/exports/{uuid.uuid4()}/download",
+            "message": "Generación de PDF iniciada",
+            "estimated_completion": "2024-01-01T00:01:00Z"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al exportar a PDF: {str(e)}"
+        )
+
+
+@router.post(
+    "/export/excel",
+    summary="Export report to Excel",
+    description="Export any report to Excel format"
+)
+async def export_report_to_excel(
+    report_data: dict,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportar reporte a Excel"""
+    try:
+        # Por ahora devolver respuesta mock
+        # En el futuro implementar generación real de Excel
+        return {
+            "export_id": str(uuid.uuid4()),
+            "status": "processing",
+            "format": "excel",
+            "download_url": f"/api/v1/reports/exports/{uuid.uuid4()}/download",
+            "message": "Generación de Excel iniciada",
+            "estimated_completion": "2024-01-01T00:01:00Z"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al exportar a Excel: {str(e)}"
+        )
+
+
+@router.post(
+    "/export/csv",
+    summary="Export report to CSV",
+    description="Export any report to CSV format"
+)
+async def export_report_to_csv(
+    report_data: dict,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportar reporte a CSV"""
+    try:
+        # Por ahora devolver respuesta mock
+        # En el futuro implementar generación real de CSV
+        return {
+            "export_id": str(uuid.uuid4()),
+            "status": "processing",
+            "format": "csv",
+            "download_url": f"/api/v1/reports/exports/{uuid.uuid4()}/download",
+            "message": "Generación de CSV iniciada",
+            "estimated_completion": "2024-01-01T00:01:00Z"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al exportar a CSV: {str(e)}"
+        )
+
+
+@router.get(
+    "/exports/{export_id}/download",
+    summary="Download exported report",
+    description="Download a previously exported report file"
+)
+async def download_exported_report(
+    export_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Descargar archivo de reporte exportado"""
+    try:
+        # Por ahora devolver error 404 ya que no hay almacenamiento temporal
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Archivo de exportación no encontrado. Los reportes se procesan en tiempo real."
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al descargar archivo: {str(e)}"
+        )

@@ -312,3 +312,185 @@ async def validate_payment_terms(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
+
+
+# Bulk Operations
+@router.post(
+    "/bulk-operation",
+    summary="Operación masiva en condiciones de pago",
+    description="Realiza operaciones masivas en múltiples condiciones de pago"
+)
+async def bulk_payment_terms_operation(
+    operation_data: Dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Operación masiva en condiciones de pago"""
+    try:
+        service = PaymentTermsService(db)
+        
+        operation_type = operation_data.get("operation")
+        payment_terms_ids = operation_data.get("payment_terms_ids", [])
+        
+        if not payment_terms_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Se requiere al menos un ID de condiciones de pago"
+            )
+        
+        # Convertir strings a UUID
+        uuid_ids = []
+        for id_str in payment_terms_ids:
+            try:
+                uuid_ids.append(uuid.UUID(id_str))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"ID inválido: {id_str}"
+                )
+        
+        success_count = 0
+        failed_count = 0
+        errors = []
+        
+        if operation_type == "toggle_active":
+            for payment_terms_id in uuid_ids:
+                try:
+                    await service.toggle_active_status(payment_terms_id)
+                    success_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    errors.append(f"Error en {payment_terms_id}: {str(e)}")
+        
+        elif operation_type == "activate":
+            for payment_terms_id in uuid_ids:
+                try:
+                    # Implementar método de activación si no existe
+                    payment_terms = await service.get_payment_terms_by_id(payment_terms_id)
+                    if not payment_terms.is_active:
+                        await service.toggle_active_status(payment_terms_id)
+                    success_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    errors.append(f"Error en {payment_terms_id}: {str(e)}")
+        
+        elif operation_type == "deactivate":
+            for payment_terms_id in uuid_ids:
+                try:
+                    payment_terms = await service.get_payment_terms_by_id(payment_terms_id)
+                    if payment_terms.is_active:
+                        await service.toggle_active_status(payment_terms_id)
+                    success_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    errors.append(f"Error en {payment_terms_id}: {str(e)}")
+        
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Operación no soportada: {operation_type}"
+            )
+        
+        return {
+            "success": True,
+            "processed": len(uuid_ids),
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "errors": errors
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error en operación masiva: {str(e)}"
+        )
+
+
+@router.post(
+    "/bulk-delete",
+    summary="Eliminación masiva de condiciones de pago",
+    description="Elimina múltiples condiciones de pago si no están en uso"
+)
+async def bulk_delete_payment_terms(
+    delete_request: Dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Eliminación masiva de condiciones de pago"""
+    try:
+        service = PaymentTermsService(db)
+        
+        payment_terms_ids = delete_request.get("payment_terms_ids", [])
+        
+        if not payment_terms_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Se requiere al menos un ID de condiciones de pago"
+            )
+        
+        # Convertir strings a UUID
+        uuid_ids = []
+        for id_str in payment_terms_ids:
+            try:
+                uuid_ids.append(uuid.UUID(id_str))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"ID inválido: {id_str}"
+                )
+        
+        deleted_count = 0
+        failed_count = 0
+        errors = []
+        
+        for payment_terms_id in uuid_ids:
+            try:
+                await service.delete_payment_terms(payment_terms_id)
+                deleted_count += 1
+            except Exception as e:
+                failed_count += 1
+                errors.append(f"Error al eliminar {payment_terms_id}: {str(e)}")
+        
+        return {
+            "success": True,
+            "total_requested": len(uuid_ids),
+            "deleted_count": deleted_count,
+            "failed_count": failed_count,
+            "errors": errors        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error en eliminación masiva: {str(e)}"
+        )
+
+
+@router.get(
+    "/{payment_terms_id}/can-delete",
+    summary="Verificar si se puede eliminar",
+    description="Verifica si las condiciones de pago se pueden eliminar o solo desactivar"
+)
+async def check_can_delete_payment_terms(
+    payment_terms_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Verificar si se puede eliminar condiciones de pago"""
+    try:
+        service = PaymentTermsService(db)
+        result = await service.check_can_delete_payment_terms(payment_terms_id)
+        return result
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )

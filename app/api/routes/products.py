@@ -181,7 +181,7 @@ async def get_low_stock_products(
         product_service = ProductService(db)
         products = product_service.get_low_stock_products()
         
-        return [ProductStock.model_validate(product) for product in products]
+        return [ProductStock.from_product(product) for product in products]
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -202,7 +202,7 @@ async def get_products_need_reorder(
         product_service = ProductService(db)
         products = product_service.get_products_need_reorder()
         
-        return [ProductStock.model_validate(product) for product in products]
+        return [ProductStock.from_product(product) for product in products]
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -247,15 +247,20 @@ async def get_product_by_code(
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Producto con código '{code}' no encontrado"
-            )
-        
-        # Obtener movimientos recientes
+            )        # Obtener movimientos recientes
         movements = product_service.get_product_movements(product.id, limit=10)
+        
+        # Convertir movimientos filtrando None
+        converted_movements = []
+        for movement in movements:
+            converted = ProductMovement.from_journal_entry_line(movement)
+            if converted is not None:
+                converted_movements.append(converted)
         
         return ProductDetailResponse(
             product=ProductRead.model_validate(product),
-            movements=[ProductMovement.model_validate(movement) for movement in movements],
-            stock_info=ProductStock.model_validate(product) if product.requires_inventory_control else None,
+            movements=converted_movements,
+            stock_info=ProductStock.from_product(product) if product.requires_inventory_control else None,
             accounting_setup={
                 "sales_account": product.sales_account.code if product.sales_account else None,
                 "purchase_account": product.purchase_account.code if product.purchase_account else None,
@@ -291,14 +296,20 @@ async def get_product(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Producto con ID {product_id} no encontrado"
             )
-        
-        # Obtener movimientos recientes
+          # Obtener movimientos recientes
         movements = product_service.get_product_movements(product_id, limit=10)
+        
+        # Convertir movimientos filtrando None
+        converted_movements = []
+        for movement in movements:
+            converted = ProductMovement.from_journal_entry_line(movement)
+            if converted is not None:
+                converted_movements.append(converted)
         
         return ProductDetailResponse(
             product=ProductRead.model_validate(product),
-            movements=[ProductMovement.model_validate(movement) for movement in movements],
-            stock_info=ProductStock.model_validate(product) if product.requires_inventory_control else None,
+            movements=converted_movements,
+            stock_info=ProductStock.from_product(product) if product.requires_inventory_control else None,
             accounting_setup={
                 "sales_account": product.sales_account.code if product.sales_account else None,
                 "purchase_account": product.purchase_account.code if product.purchase_account else None,
@@ -519,7 +530,12 @@ async def get_product_movements(
         product_service = ProductService(db)
         movements = product_service.get_product_movements(product_id, limit)
         
-        return [ProductMovement.model_validate(movement) for movement in movements]
+        result = []
+        for movement in movements:
+            converted = ProductMovement.from_journal_entry_line(movement)
+            if converted is not None:
+                result.append(converted)
+        return result
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -46,6 +46,54 @@ class ProductService:
     def __init__(self, db: Session):
         self.db = db
 
+    def _generate_product_code(self, name: str, product_type: Optional[ProductType] = None) -> str:
+        """
+        Genera un código único para el producto basado en el nombre y tipo
+        
+        Args:
+            name: Nombre del producto
+            product_type: Tipo de producto
+            
+        Returns:
+            Código único generado
+        """
+        # Obtener prefijo basado en el tipo de producto
+        if product_type == ProductType.SERVICE:
+            prefix = "SRV"
+        elif product_type == ProductType.BOTH:
+            prefix = "MIX"
+        else:  # PRODUCT o None
+            prefix = "PRD"
+        
+        # Limpiar el nombre para crear una base del código
+        # Tomar las primeras letras significativas del nombre
+        clean_name = ''.join(c.upper() for c in name if c.isalnum())[:6]
+        if len(clean_name) < 3:
+            clean_name = clean_name.ljust(3, 'X')
+        
+        # Buscar el siguiente número disponible
+        base_code = f"{prefix}-{clean_name}"
+        counter = 1
+        
+        while True:
+            if counter == 1:
+                candidate_code = base_code
+            else:
+                candidate_code = f"{base_code}-{counter:02d}"
+            
+            # Verificar si el código ya existe
+            existing = self.db.query(Product).filter(Product.code == candidate_code).first()
+            if not existing:
+                return candidate_code
+            
+            counter += 1
+            # Evitar bucle infinito
+            if counter > 999:
+                # Usar timestamp como fallback
+                import time
+                timestamp = str(int(time.time()))[-6:]
+                return f"{prefix}-{timestamp}"
+
     def get_by_id(self, product_id: uuid.UUID) -> Optional[Product]:
         """Obtiene un producto por ID"""
         return self.db.query(Product).filter(Product.id == product_id).first()
@@ -62,13 +110,8 @@ class ProductService:
             Producto creado
             
         Raises:
-            ValidationError: Si los datos no son válidos o ya existe un producto con el mismo código/nombre
+            ValidationError: Si los datos no son válidos o ya existe un producto con el mismo nombre
         """
-        # Verificar que no exista un producto con el mismo código
-        existing_product = self.db.query(Product).filter(Product.code == product_data.code).first()
-        if existing_product:
-            raise ValidationError(f"Ya existe un producto con código '{product_data.code}'")
-        
         # Verificar que no exista un producto con el mismo nombre (case-sensitive)
         existing_name = self.db.query(Product).filter(Product.name == product_data.name).first()
         if existing_name:
@@ -89,8 +132,38 @@ class ProductService:
         # Validar cuentas contables si se especifican
         self._validate_accounting_accounts(product_data)
         
-        # Crear el producto
+        # Crear diccionario con datos del producto
         product_dict = product_data.model_dump(exclude_unset=True)
+        
+        # Generar código automáticamente
+        product_type = product_dict.get('product_type', ProductType.PRODUCT)
+        generated_code = self._generate_product_code(product_data.name, product_type)
+        product_dict['code'] = generated_code
+        
+        # Aplicar valores por defecto
+        defaults = {
+            'product_type': ProductType.PRODUCT,
+            'status': ProductStatus.ACTIVE,
+            'measurement_unit': MeasurementUnit.UNIT,
+            'purchase_price': Decimal("0"),
+            'sale_price': Decimal("0"),
+            'min_sale_price': Decimal("0"),
+            'suggested_price': Decimal("0"),
+            'tax_category': TaxCategory.EXEMPT,
+            'tax_rate': Decimal("0"),
+            'manage_inventory': False,
+            'current_stock': Decimal("0"),
+            'min_stock': Decimal("0"),
+            'max_stock': Decimal("0"),
+            'reorder_point': Decimal("0")
+        }
+        
+        # Aplicar valores por defecto solo para campos no especificados
+        for key, default_value in defaults.items():
+            if key not in product_dict or product_dict[key] is None:
+                product_dict[key] = default_value
+        
+        # Crear el producto
         product = Product(**product_dict)
         
         # Validar el producto
@@ -406,7 +479,14 @@ class ProductService:
         Returns:
             Lista de líneas de asientos contables relacionadas con el producto
         """
-        query = self.db.query(JournalEntryLine).filter(
+        from sqlalchemy.orm import joinedload
+        
+        query = self.db.query(JournalEntryLine).options(
+            joinedload(JournalEntryLine.journal_entry),
+            joinedload(JournalEntryLine.account),
+            joinedload(JournalEntryLine.product),
+            joinedload(JournalEntryLine.third_party)
+        ).filter(
             JournalEntryLine.product_id == product_id
         ).order_by(desc(JournalEntryLine.created_at))
         
