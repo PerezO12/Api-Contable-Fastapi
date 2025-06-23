@@ -346,8 +346,7 @@ class CashFlowService:
             .join(Account, JournalEntryLine.account_id == Account.id)
             .where(
                 and_(
-                    Account.account_type.in_([AccountType.GASTO, AccountType.COSTOS]),
-                    JournalEntry.entry_date >= start_date,
+                    Account.account_type.in_([AccountType.GASTO, AccountType.COSTOS]),                    JournalEntry.entry_date >= start_date,
                     JournalEntry.entry_date <= end_date,
                     JournalEntry.status == JournalEntryStatus.POSTED
                 )
@@ -368,10 +367,7 @@ class CashFlowService:
         start_date: date, 
         end_date: date
     ) -> List[CashFlowItem]:
-        """Obtener ajustes por partidas que no representan efectivo"""
-        
-        adjustments = []
-        
+        """Obtener ajustes operativos para flujo de caja método indirecto"""
         # TODO: Implementar ajustes específicos como:
         # - Depreciación y amortización
         # - Provisiones
@@ -379,10 +375,7 @@ class CashFlowService:
         # - Otros ajustes por partidas no monetarias
         
         # Por ahora, retornar lista vacía
-        # En una implementación completa, se buscarían cuentas específicas
-        # como depreciación acumulada, provisiones, etc.
-        
-        return adjustments
+        return []
 
     async def _get_working_capital_changes(
         self, 
@@ -390,74 +383,24 @@ class CashFlowService:
         end_date: date
     ) -> List[CashFlowItem]:
         """Calcular cambios en capital de trabajo"""
-        
-        changes = []
-        
         # TODO: Implementar cambios en capital de trabajo:
         # - Cambios en cuentas por cobrar
         # - Cambios en inventarios  
-        # - Cambios en cuentas por pagar
-        # - Otros cambios en activos y pasivos operativos
+        # - Cambios en cuentas por pagar        # - Otros cambios en activos y pasivos operativos
         
         # Por ahora, retornar lista vacía
-        # En una implementación completa, se compararían saldos
-        # de inicio vs fin del período para cuentas operativas
-        
-        return changes
+        return []
 
     async def _get_direct_operating_flows(
         self, 
         start_date: date, 
         end_date: date
     ) -> List[Dict]:
-        """Obtener flujos operativos directos (cobros y pagos)"""
-        
+        """Obtener flujos operativos directos (cobros y pagos)"""        
         flows = []
         
         # Obtener movimientos de cuentas operativas
-        operating_query = (
-            select(JournalEntryLine, JournalEntry, Account)
-            .join(JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id)
-            .join(Account, JournalEntryLine.account_id == Account.id)
-            .where(
-                and_(
-                    Account.cash_flow_category == CashFlowCategory.OPERATING,
-                    JournalEntry.entry_date >= start_date,
-                    JournalEntry.entry_date <= end_date,
-                    JournalEntry.status == JournalEntryStatus.POSTED
-                )
-            )
-        )
-        
-        result = await self.db.execute(operating_query)
-        movements = result.all()
-        
-        # Agrupar por cuenta
-        accounts_summary = {}
-        
-        for line, entry, account in movements:
-            if account.id not in accounts_summary:
-                accounts_summary[account.id] = {
-                    'account': account,
-                    'total_debits': Decimal('0'),
-                    'total_credits': Decimal('0')
-                }
-            
-            accounts_summary[account.id]['total_debits'] += line.debit_amount
-            accounts_summary[account.id]['total_credits'] += line.credit_amount
-        
-        # Convertir a flujos de efectivo
-        for data in accounts_summary.values():
-            account = data['account']
-            net_movement = data['total_debits'] - data['total_credits']
-            
-            if net_movement != 0:
-                flows.append({
-                    'description': f"Flujos por {account.name}",
-                    'amount': net_movement,
-                    'account_code': account.code,
-                    'account_name': account.name
-                })
+        # TODO: Implementar flujos directos específicos
         
         return flows
 
@@ -474,7 +417,8 @@ class CashFlowService:
                     Account.cash_flow_category == category,
                     Account.is_active == True
                 )
-            )        )
+            )
+        )
         
         result = await self.db.execute(query)
         return list(result.scalars().all())

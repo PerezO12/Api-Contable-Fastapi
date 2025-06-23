@@ -430,14 +430,27 @@ class AccountService:
                 .where(Account.category == category)
             )
             by_category[category.value] = cat_result.scalar() or 0
+          # Calcular cuentas con y sin movimientos
+        from app.models.journal_entry import JournalEntryLine
+        
+        # Subconsulta para obtener cuentas con movimientos
+        accounts_with_movements_query = (
+            select(func.count(func.distinct(JournalEntryLine.account_id)))
+            .select_from(JournalEntryLine)
+            .join(Account, JournalEntryLine.account_id == Account.id)
+            .where(Account.is_active == True)
+        )
+        accounts_with_movements = await self.db.scalar(accounts_with_movements_query) or 0
+        accounts_without_movements = active_accounts - accounts_with_movements
         
         return AccountStats(
-            total_accounts=total_accounts,            active_accounts=active_accounts,
+            total_accounts=total_accounts,
+            active_accounts=active_accounts,
             inactive_accounts=total_accounts - active_accounts,
             by_type=by_type,
             by_category=by_category,
-            accounts_with_movements=0,  # TODO: Implementar
-            accounts_without_movements=0  # TODO: Implementar
+            accounts_with_movements=accounts_with_movements,
+            accounts_without_movements=accounts_without_movements
         )
 
     async def bulk_operation(self, operation: BulkAccountOperation, user_id: uuid.UUID) -> dict:

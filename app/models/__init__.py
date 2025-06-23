@@ -11,6 +11,11 @@ from app.models.audit import (
     AuditLog, AuditAction, AuditLogLevel, ChangeTracking,
     SystemConfiguration, CompanyInfo, NumberSequence
 )
+# Importar modelos del sistema de pagos y banca
+from app.models.payment import Payment, PaymentInvoice, PaymentStatus, PaymentType
+from app.models.invoice import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
+from app.models.bank_extract import BankExtract, BankExtractLine, BankExtractStatus
+from app.models.bank_reconciliation import BankReconciliation, ReconciliationType
 
 # Exportar para facilitar importaciones
 __all__ = [
@@ -43,5 +48,19 @@ __all__ = [
     "ChangeTracking",
     "SystemConfiguration",
     "CompanyInfo",
-    "NumberSequence"
+    "NumberSequence",
+    # Modelos del sistema de pagos y banca
+    "Payment",
+    "PaymentInvoice", 
+    "PaymentStatus",
+    "PaymentType",
+    "Invoice",
+    "InvoiceLine",
+    "InvoiceStatus", 
+    "InvoiceType",
+    "BankExtract",
+    "BankExtractLine",
+    "BankExtractStatus",
+    "BankReconciliation",
+    "ReconciliationType"
 ]

@@ -3,13 +3,17 @@ Third Party model for customers, suppliers, employees and other business partner
 Enables customer/supplier accounting and relationship management.
 """
 import uuid
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from enum import Enum
 
 from sqlalchemy import String, Text, Boolean, Enum as SQLEnum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+
+if TYPE_CHECKING:
+    from app.models.payment import Payment
+    from app.models.invoice import Invoice
 
 
 class ThirdPartyType(str, Enum):
@@ -85,11 +89,13 @@ class ThirdParty(Base):
     # Estado y configuración
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_tax_withholding_agent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    
-    # Metadata
+      # Metadata
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     internal_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Código interno adicional
-    
+      # Relationships
+    payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="third_party")
+    invoices: Mapped[List["Invoice"]] = relationship("Invoice", back_populates="third_party")
+
     def __repr__(self) -> str:
         return f"<ThirdParty(code='{self.code}', name='{self.name}', type='{self.third_party_type}')>"
     

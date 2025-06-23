@@ -421,9 +421,15 @@ class BusinessLogicError(AccountingSystemException):
 def raise_not_found(detail: str) -> NoReturn:
     """Raise a not found error"""
     raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=detail
+        status_code=status.HTTP_404_NOT_FOUND,        detail=detail
     )
+
+
+class BusinessRuleError(AccountingSystemException):
+    """Exception for business rule violations"""
+    def __init__(self, message: str, rule_code: Optional[str] = None, context: Optional[Dict[str, Any]] = None):
+        details = {"rule_code": rule_code, "context": context} if rule_code or context else {}
+        super().__init__(message, "BUSINESS_RULE_ERROR", details)
 
 
 def raise_conflict_error(detail: str) -> NoReturn:

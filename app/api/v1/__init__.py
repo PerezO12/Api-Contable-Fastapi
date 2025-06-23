@@ -8,7 +8,7 @@ from app.api.v1 import (
     import_data, export_templates, export, cost_centers, third_parties, cost_center_reports,
     products
 )
-from app.api import payment_terms
+from app.api import payment_terms, payments, invoices, bank_extracts, bank_reconciliation
 
 api_router = APIRouter()
 
@@ -35,6 +35,18 @@ api_router.include_router(products.router, prefix="/products", tags=["products"]
 
 # Payment terms routes
 api_router.include_router(payment_terms.router, tags=["payment-terms"])
+
+# Payment routes - Odoo-like payment workflow
+api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
+
+# Invoice routes - Customer and supplier invoices
+api_router.include_router(invoices.router, prefix="/invoices", tags=["invoices"])
+
+# Bank extract routes - Bank statement import and management
+api_router.include_router(bank_extracts.router, prefix="/bank-extracts", tags=["bank-extracts"])
+
+# Bank reconciliation routes - Bank reconciliation workflow
+api_router.include_router(bank_reconciliation.router, prefix="/bank-reconciliation", tags=["bank-reconciliation"])
 
 # Cost center reports routes
 api_router.include_router(cost_center_reports.router, prefix="/cost-center-reports", tags=["cost-center-reports"])
