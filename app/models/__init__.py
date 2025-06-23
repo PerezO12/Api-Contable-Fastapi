@@ -7,6 +7,7 @@ from app.models.cost_center import CostCenter
 from app.models.third_party import ThirdParty, ThirdPartyType, DocumentType
 from app.models.payment_terms import PaymentTerms, PaymentSchedule
 from app.models.product import Product, ProductType, ProductStatus, MeasurementUnit, TaxCategory
+from app.models.tax import Tax, TaxType, TaxScope
 from app.models.audit import (
     AuditLog, AuditAction, AuditLogLevel, ChangeTracking,
     SystemConfiguration, CompanyInfo, NumberSequence

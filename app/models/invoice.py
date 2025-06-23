@@ -29,23 +29,23 @@ if TYPE_CHECKING:
 
 
 class InvoiceType(str, Enum):
-    """Tipos de factura"""
-    CUSTOMER_INVOICE = "customer_invoice"  # Factura de cliente (ventas)
-    SUPPLIER_INVOICE = "supplier_invoice"  # Factura de proveedor (compras)
-    CREDIT_NOTE = "credit_note"  # Nota de crédito
-    DEBIT_NOTE = "debit_note"    # Nota de débito
+    """Tipos de factura siguiendo patrón Odoo"""
+    CUSTOMER_INVOICE = "CUSTOMER_INVOICE"     # Factura de venta (customer_invoice)
+    SUPPLIER_INVOICE = "SUPPLIER_INVOICE"     # Factura de compra (supplier_invoice)
+    CREDIT_NOTE = "CREDIT_NOTE"               # Nota de crédito
+    DEBIT_NOTE = "DEBIT_NOTE"                 # Nota de débito
 
 
 class InvoiceStatus(str, Enum):
-    """Estados de la factura"""
-    DRAFT = "draft"              # Borrador
-    PENDING = "pending"          # Pendiente de aprobación
-    APPROVED = "approved"        # Aprobada
-    POSTED = "posted"           # Contabilizada
-    PAID = "paid"               # Pagada
-    PARTIALLY_PAID = "partially_paid"  # Parcialmente pagada
-    OVERDUE = "overdue"         # Vencida
-    CANCELLED = "cancelled"     # Anulada
+    """Estados de la factura siguiendo patrón de la base de datos"""
+    DRAFT = "DRAFT"                 # Borrador - completamente editable
+    PENDING = "PENDING"             # Pendiente
+    APPROVED = "APPROVED"           # Aprobada
+    POSTED = "POSTED"               # Contabilizada - genera JournalEntry(POSTED), no editable
+    PAID = "PAID"                   # Pagada completamente
+    PARTIALLY_PAID = "PARTIALLY_PAID"  # Pagada parcialmente
+    OVERDUE = "OVERDUE"             # Vencida
+    CANCELLED = "CANCELLED"         # Cancelada - reversión del asiento, estado final
 
 
 class Invoice(Base):
@@ -71,9 +71,12 @@ class Invoice(Base):
     # Fechas
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
-    
-    # Términos de pago
+      # Términos de pago
     payment_terms_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("payment_terms.id"), nullable=True)
+    
+    # Override de cuentas contables (opcionales)
+    third_party_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("accounts.id"), nullable=True,
+                                                                        comment="Override cuenta cliente/proveedor")
     
     # Montos
     subtotal: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
@@ -98,20 +101,26 @@ class Invoice(Base):
     
     # Asiento contable relacionado
     journal_entry_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("journal_entries.id"), nullable=True)
-    
-    # Auditoría
+      # Auditoría siguiendo patrón Odoo
     created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    approved_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    posted_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    cancelled_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True,
+                                                              comment="Quien modificó por última vez")
+    posted_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True,
+                                                             comment="Quien contabilizó la factura")
+    cancelled_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True,
+                                                                comment="Quien canceló la factura")
     
     # Fechas de auditoría
-    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True,
+                                                         comment="Fecha de contabilización")
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True,
+                                                            comment="Fecha de cancelación")
 
     # Relationships
     third_party: Mapped["ThirdParty"] = relationship("ThirdParty", back_populates="invoices")
+    third_party_account: Mapped[Optional["Account"]] = relationship("Account", foreign_keys=[third_party_account_id])
     payment_terms: Mapped[Optional["PaymentTerms"]] = relationship("PaymentTerms")
     cost_center: Mapped[Optional["CostCenter"]] = relationship("CostCenter")
     journal_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry")
@@ -130,19 +139,18 @@ class Invoice(Base):
     bank_reconciliations: Mapped[List["BankReconciliation"]] = relationship(
         "BankReconciliation",
         back_populates="invoice",
-        cascade="all, delete-orphan"
-    )
-
+        cascade="all, delete-orphan"    )
+    
     # Propiedades calculadas
     @hybrid_property
     def is_customer_invoice(self) -> bool:
         """Indica si es factura de cliente"""
-        return self.invoice_type in [InvoiceType.CUSTOMER_INVOICE]
+        return self.invoice_type == InvoiceType.CUSTOMER_INVOICE
     
     @hybrid_property
     def is_supplier_invoice(self) -> bool:
         """Indica si es factura de proveedor"""
-        return self.invoice_type in [InvoiceType.SUPPLIER_INVOICE]
+        return self.invoice_type == InvoiceType.SUPPLIER_INVOICE
     
     @hybrid_property
     def is_paid(self) -> bool:
@@ -154,6 +162,19 @@ class Invoice(Base):
         """Indica si la factura está vencida"""
         from datetime import date
         return self.due_date < date.today() and self.outstanding_amount > 0
+    
+    @hybrid_property
+    def invoice_number(self) -> str:
+        """Alias para el campo number (compatibilidad con schemas)"""
+        return self.number
+    
+    @hybrid_property
+    def days_overdue(self) -> int:
+        """Calcula los días de vencimiento"""
+        from datetime import date
+        if self.due_date < date.today() and self.outstanding_amount > 0:
+            return (date.today() - self.due_date).days
+        return 0
 
     def __repr__(self) -> str:
         return f"<Invoice(number='{self.number}', type='{self.invoice_type}', total={self.total_amount})>"
@@ -168,33 +189,37 @@ class InvoiceLine(Base):
 
     # Relación con factura
     invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("invoices.id"), nullable=False, index=True)
-    
-    # Línea
-    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+      # Línea
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, comment="Orden de las líneas")
     
     # Producto/Servicio
     product_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("products.id"), nullable=True)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, comment="Descripción de la línea")
     
     # Cantidad y precios
     quantity: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=4), default=1, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=4), nullable=False)
     discount_percentage: Mapped[Decimal] = mapped_column(Numeric(precision=5, scale=2), default=0, nullable=False)
-    discount_amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
     
-    # Impuestos
-    tax_percentage: Mapped[Decimal] = mapped_column(Numeric(precision=5, scale=2), default=0, nullable=False)
-    tax_amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
-    
-    # Totales
-    subtotal: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), nullable=False)
-    total_amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), nullable=False)
-    
-    # Cuenta contable
-    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("accounts.id"), nullable=True)
-    
-    # Centro de costo específico de la línea
+    # Override de cuentas contables (opcionales)
+    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("accounts.id"), nullable=True,
+                                                           comment="Override cuenta ingreso/gasto")
     cost_center_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("cost_centers.id"), nullable=True)
+      # Montos calculados
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False,
+                                             comment="quantity * unit_price")
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False,
+                                                 comment="subtotal - discount + tax")
+    
+    # Auditoría
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    
+    # Fechas de auditoría
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
     invoice: Mapped["Invoice"] = relationship("Invoice", back_populates="lines")
@@ -203,4 +228,4 @@ class InvoiceLine(Base):
     cost_center: Mapped[Optional["CostCenter"]] = relationship("CostCenter")
 
     def __repr__(self) -> str:
-        return f"<InvoiceLine(invoice_id='{self.invoice_id}', line={self.line_number}, total={self.total_amount})>"
+        return f"<InvoiceLine(invoice_id='{self.invoice_id}', sequence={self.sequence}, total={self.total_amount})>"

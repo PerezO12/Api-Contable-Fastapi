@@ -15,7 +15,8 @@ from app.schemas.invoice import (
     InvoiceCreate, InvoiceUpdate, InvoiceResponse,
     InvoiceCreateWithLines, InvoiceWithLines,
     InvoiceLineCreate, InvoiceLineResponse,
-    InvoiceListResponse, InvoiceSummary
+    InvoiceListResponse, InvoiceSummary,
+    InvoiceCreateLegacy  # Para compatibilidad con el endpoint actual
 )
 from app.services.invoice_service import InvoiceService
 from app.utils.exceptions import NotFoundError, ValidationError, BusinessRuleError
@@ -25,20 +26,85 @@ from app.models.user import User
 router = APIRouter()
 
 
-@router.post("/", response_model=InvoiceResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post("/", response_model=InvoiceWithLines, status_code=http_status.HTTP_201_CREATED)
 def create_invoice(
+    invoice_data: InvoiceCreateWithLines,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    🆕 Crear factura con líneas siguiendo patrón Odoo de IMPLEMENTAR.md
+    
+    Este es el endpoint principal que sigue IMPLEMENTAR.md:
+    - Crea factura completa con líneas en una operación
+    - Usa 'third_party_id' en lugar de 'customer_id'
+    - Usa 'payment_terms_id' en lugar de 'payment_term_id'
+    - Líneas con impuestos por línea (tax_ids)
+    - Soporte para overrides de cuentas contables
+    - Facturas inician en estado DRAFT (sin journal entry)
+    
+    Para crear solo header: POST /header-only
+    """
+    try:
+        service = InvoiceService(db)
+        return service.create_invoice_with_lines(invoice_data, current_user.id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
+    except (ValidationError, BusinessRuleError) as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/legacy", response_model=InvoiceResponse, status_code=http_status.HTTP_201_CREATED)
+def create_invoice_legacy(
+    invoice_data: InvoiceCreateLegacy,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    ⚠️ LEGACY: Crear factura con schema anterior (para compatibilidad)
+    
+    Usa el schema anterior con:
+    - 'customer_id' en lugar de 'third_party_id'
+    - 'payment_term_id' en lugar de 'payment_terms_id'
+    - discount_percentage y tax_percentage globales
+    
+    RECOMENDADO: Usar POST / o POST /with-lines con el nuevo schema
+    """
+    try:        # Convertir schema legacy al nuevo
+        new_data_dict = {
+            "invoice_date": invoice_data.invoice_date,
+            "due_date": invoice_data.due_date,
+            "invoice_type": invoice_data.invoice_type,
+            "currency_code": invoice_data.currency_code,
+            "exchange_rate": invoice_data.exchange_rate,
+            "description": invoice_data.description,
+            "notes": invoice_data.notes,
+            "third_party_id": invoice_data.customer_id,  # Mapeo legacy
+            "payment_terms_id": invoice_data.payment_term_id  # Mapeo legacy
+        }
+        new_data = InvoiceCreate(**new_data_dict)
+        
+        service = InvoiceService(db)
+        return service.create_invoice(new_data, current_user.id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
+    except (ValidationError, BusinessRuleError) as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/header-only", response_model=InvoiceResponse, status_code=http_status.HTTP_201_CREATED)
+def create_invoice_header_only(
     invoice_data: InvoiceCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Crear una nueva factura
+    Crear solo encabezado de factura (sin líneas) - Para casos especiales
     
-    Flujo Odoo:
-    1. Cliente creado previamente
-    2. Crear factura en estado DRAFT
-    3. Agregar líneas de factura
-    4. Validar y emitir (POSTED) para generar asiento contable
+    Crea factura en estado DRAFT sin líneas.
+    Las líneas se pueden agregar después con POST /invoices/{id}/lines
+    
+    Usar POST / (endpoint principal) es recomendado para el flujo normal.
     """
     try:
         service = InvoiceService(db)
@@ -49,7 +115,7 @@ def create_invoice(
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/with-lines", response_model=InvoiceWithLines, status_code=http_status.HTTP_201_CREATED)
+@router.post("/with-lines-alt", response_model=InvoiceWithLines, status_code=http_status.HTTP_201_CREATED)
 def create_invoice_with_lines(
     invoice_data: InvoiceCreateWithLines,
     db: Session = Depends(get_db),
@@ -71,7 +137,8 @@ def create_invoice_with_lines(
 
 @router.get("/", response_model=InvoiceListResponse)
 def get_invoices(
-    customer_id: Optional[uuid.UUID] = Query(None, description="Filter by customer ID"),
+    customer_id: Optional[uuid.UUID] = Query(None, description="Filter by customer ID (legacy, use third_party_id)"),
+    third_party_id: Optional[uuid.UUID] = Query(None, description="Filter by third party ID"),
     status: Optional[InvoiceStatus] = Query(None, description="Filter by invoice status"),
     invoice_type: Optional[InvoiceType] = Query(None, description="Filter by invoice type"),
     date_from: Optional[date] = Query(None, description="Filter invoices from this date"),
@@ -84,19 +151,28 @@ def get_invoices(
     """
     Obtener lista de facturas con filtros
     
-    Permite filtrar por cliente, estado, tipo, rango de fechas, etc.
+    Permite filtrar por cliente/tercero, estado, tipo, rango de fechas, etc.
     Similar a la vista de facturas en Odoo.
+    
+    Parámetros de filtro:
+    - third_party_id: ID del tercero (nuevo parámetro siguiendo IMPLEMENTAR.md)
+    - customer_id: ID del tercero (parámetro legacy para compatibilidad)
     """
     try:
         service = InvoiceService(db)
+        skip = (page - 1) * size  # Convert page/size to skip/limit
+        
+        # Usar third_party_id si se proporciona, sino customer_id (legacy)
+        filter_third_party_id = third_party_id or customer_id
+        
         return service.get_invoices(
-            customer_id=customer_id,
+            skip=skip,
+            limit=size,
+            third_party_id=filter_third_party_id,
             status=status,
             invoice_type=invoice_type,
             date_from=date_from,
-            date_to=date_to,
-            page=page,
-            size=size
+            date_to=date_to
         )
     except Exception as e:
         raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
@@ -211,8 +287,8 @@ def post_invoice(
     try:
         service = InvoiceService(db)
         
-        # Usar el nuevo método que implementa la lógica completa
-        return service.post_invoice_with_journal_entry(invoice_id, current_user.id)
+        # Usar el método que implementa la lógica completa de Odoo
+        return service.post_invoice(invoice_id, current_user.id)
         
     except NotFoundError as e:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -222,7 +298,8 @@ def post_invoice(
 
 @router.get("/summary/statistics", response_model=InvoiceSummary)
 def get_invoice_summary(
-    customer_id: Optional[uuid.UUID] = Query(None, description="Filter by customer ID"),
+    customer_id: Optional[uuid.UUID] = Query(None, description="Filter by customer ID (legacy, use third_party_id)"),
+    third_party_id: Optional[uuid.UUID] = Query(None, description="Filter by third party ID"),
     invoice_type: Optional[InvoiceType] = Query(None, description="Filter by invoice type"),
     date_from: Optional[date] = Query(None, description="Filter invoices from this date"),
     date_to: Optional[date] = Query(None, description="Filter invoices to this date"),
@@ -232,17 +309,22 @@ def get_invoice_summary(
     """
     Obtener resumen estadístico de facturas
     
-    Útil para dashboards y reportes ejecutivos
+    Útil para dashboards y reportes ejecutivos.
+    Soporta filtros por tercero (third_party_id o customer_id legacy).
     """
     try:
         # Por ahora retornamos un resumen básico
-        # En el futuro esto se implementaría en el servicio        from app.models.invoice import Invoice
+        # En el futuro esto se implementaría en el servicio
+        from app.models.invoice import Invoice
         from decimal import Decimal
         
         query = db.query(Invoice)
         
-        if customer_id:
-            query = query.filter(Invoice.third_party_id == customer_id)
+        # Usar third_party_id si se proporciona, sino customer_id (legacy)
+        filter_third_party_id = third_party_id or customer_id
+        
+        if filter_third_party_id:
+            query = query.filter(Invoice.third_party_id == filter_third_party_id)
         if invoice_type:
             query = query.filter(Invoice.invoice_type == invoice_type)
         if date_from:
@@ -255,12 +337,11 @@ def get_invoice_summary(
         total_amount = Decimal(str(sum(i.total_amount or 0 for i in invoices)))
         paid_amount = Decimal(str(sum(i.paid_amount or 0 for i in invoices)))
         pending_amount = total_amount - paid_amount
-        
-        # Calcular vencidas
+          # Calcular vencidas (solo facturas contabilizadas no pagadas completamente)
         from datetime import date
         overdue_amount = Decimal(str(sum(
             i.outstanding_amount or 0 for i in invoices 
-            if i.due_date and i.due_date < date.today() and i.status != InvoiceStatus.PAID
+            if i.due_date and i.due_date < date.today() and i.status == InvoiceStatus.POSTED and (i.outstanding_amount or 0) > 0
         )))
         
         by_status = {}

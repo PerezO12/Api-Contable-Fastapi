@@ -16,7 +16,10 @@ from app.core.config import settings
 from app.models.base import Base
 
 # Now import all models to ensure they're registered
-from app.models import user, account, journal_entry, audit, third_party, cost_center
+from app.models import (
+    user, account, journal_entry, audit, third_party, cost_center,
+    invoice, product, payment_terms, tax
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

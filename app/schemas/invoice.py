@@ -1,5 +1,6 @@
 """
 Invoice schemas for request/response serialization and validation.
+Following Odoo pattern from IMPLEMENTAR.md
 """
 import uuid
 from decimal import Decimal
@@ -10,88 +11,25 @@ from pydantic import BaseModel, Field, validator
 from app.models.invoice import InvoiceStatus, InvoiceType
 
 
-# Base schemas
-class InvoiceBase(BaseModel):
-    """Schema base para facturas"""
-    invoice_number: Optional[str] = Field(None, max_length=50, description="Número de factura")
-    invoice_date: date = Field(description="Fecha de la factura")
-    due_date: date = Field(description="Fecha de vencimiento")
-    invoice_type: InvoiceType = Field(description="Tipo de factura")
-    currency_code: str = Field(default="USD", max_length=3, description="Código de moneda")
-    exchange_rate: Optional[Decimal] = Field(None, gt=0, description="Tasa de cambio")
-    discount_percentage: Optional[Decimal] = Field(None, ge=0, le=100, description="Porcentaje de descuento")
-    tax_percentage: Optional[Decimal] = Field(None, ge=0, le=100, description="Porcentaje de impuesto")
-    description: Optional[str] = Field(None, description="Descripción de la factura")
-    notes: Optional[str] = Field(None, description="Notas adicionales")
+# ================================
+# LINE SCHEMAS (siguiendo IMPLEMENTAR.md)
+# ================================
 
-    @validator('due_date')
-    def validate_due_date(cls, v, values):
-        """Validar que la fecha de vencimiento sea posterior a la fecha de factura"""
-        invoice_date = values.get('invoice_date')
-        if invoice_date and v < invoice_date:
-            raise ValueError('Due date must be after invoice date')
-        return v
-
-    @validator('exchange_rate')
-    def validate_exchange_rate(cls, v, values):
-        """Validar tasa de cambio si la moneda no es la base"""
-        currency_code = values.get('currency_code', 'USD')
-        if currency_code != 'USD' and v is None:
-            raise ValueError('Exchange rate is required for non-USD currencies')
-        return v
-
-
-class InvoiceCreate(InvoiceBase):
-    """Schema para crear facturas"""
-    customer_id: uuid.UUID = Field(description="ID del cliente")
-    payment_term_id: Optional[uuid.UUID] = Field(None, description="ID del término de pago")
-
-
-class InvoiceUpdate(BaseModel):
-    """Schema para actualizar facturas"""
-    invoice_number: Optional[str] = Field(None, max_length=50)
-    invoice_date: Optional[date] = None
-    due_date: Optional[date] = None
-    discount_percentage: Optional[Decimal] = Field(None, ge=0, le=100)
-    tax_percentage: Optional[Decimal] = Field(None, ge=0, le=100)
-    description: Optional[str] = None
-    notes: Optional[str] = None
-    exchange_rate: Optional[Decimal] = Field(None, gt=0)
-
-
-class InvoiceResponse(InvoiceBase):
-    """Schema de respuesta para facturas"""
-    id: uuid.UUID
-    customer_id: uuid.UUID
-    payment_term_id: Optional[uuid.UUID]
-    status: InvoiceStatus
-    subtotal: Decimal
-    discount_amount: Decimal
-    tax_amount: Decimal
-    total_amount: Decimal
-    paid_amount: Decimal
-    remaining_amount: Decimal
-    is_paid: bool
-    is_overdue: bool
-    days_overdue: int
-    journal_entry_id: Optional[uuid.UUID] = Field(None, description="ID del asiento contable generado")
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# Invoice line schemas
 class InvoiceLineBase(BaseModel):
-    """Schema base para líneas de factura"""
-    sequence: int = Field(ge=1, description="Secuencia de la línea")
-    description: str = Field(max_length=500, description="Descripción del item")
-    quantity: Decimal = Field(gt=0, description="Cantidad")
+    """Schema base para líneas de factura siguiendo patrón Odoo"""
+    sequence: Optional[int] = Field(None, description="Orden de la línea (auto-asignado si no se especifica)")
+    product_id: Optional[uuid.UUID] = Field(None, description="ID del producto (opcional)")
+    description: str = Field(description="Descripción de la línea")
+    quantity: Decimal = Field(default=Decimal('1'), gt=0, description="Cantidad")
     unit_price: Decimal = Field(ge=0, description="Precio unitario")
-    discount_percentage: Optional[Decimal] = Field(None, ge=0, le=100, description="Porcentaje de descuento")
-    account_id: uuid.UUID = Field(description="ID de la cuenta contable")
-    product_id: Optional[uuid.UUID] = Field(None, description="ID del producto")
+    discount_percentage: Optional[Decimal] = Field(default=Decimal('0'), ge=0, le=100, description="Porcentaje de descuento")
+    
+    # Overrides de cuentas contables (opcionales - patrón Odoo)
+    account_id: Optional[uuid.UUID] = Field(None, description="Override cuenta ingreso/gasto")
+    cost_center_id: Optional[uuid.UUID] = Field(None, description="Centro de costo")
+    
+    # Impuestos (siguiendo patrón Odoo)
+    tax_ids: Optional[List[uuid.UUID]] = Field(default_factory=list, description="IDs de impuestos aplicables")
 
 
 class InvoiceLineCreate(InvoiceLineBase):
@@ -101,21 +39,165 @@ class InvoiceLineCreate(InvoiceLineBase):
 
 class InvoiceLineUpdate(BaseModel):
     """Schema para actualizar líneas de factura"""
-    description: Optional[str] = Field(None, max_length=500)
+    sequence: Optional[int] = None
+    product_id: Optional[uuid.UUID] = None
+    description: Optional[str] = None
     quantity: Optional[Decimal] = Field(None, gt=0)
     unit_price: Optional[Decimal] = Field(None, ge=0)
     discount_percentage: Optional[Decimal] = Field(None, ge=0, le=100)
     account_id: Optional[uuid.UUID] = None
+    cost_center_id: Optional[uuid.UUID] = None
+    tax_ids: Optional[List[uuid.UUID]] = None
 
 
-class InvoiceLineResponse(InvoiceLineBase):
-    """Schema de respuesta para líneas de factura"""
+class InvoiceLineResponse(BaseModel):
+    """Schema de respuesta para líneas de factura (no hereda para evitar conflicto de tipos)"""
     id: uuid.UUID
     invoice_id: uuid.UUID
+    sequence: int = Field(description="Orden de la línea")
+    product_id: Optional[uuid.UUID] = None
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+    discount_percentage: Decimal
+    account_id: Optional[uuid.UUID] = None
+    cost_center_id: Optional[uuid.UUID] = None
+    tax_ids: List[uuid.UUID] = Field(default_factory=list)
+    
+    # Montos calculados
+    subtotal: Decimal = Field(description="quantity * unit_price")
+    discount_amount: Decimal = Field(description="subtotal * discount_percentage / 100")
+    tax_amount: Decimal = Field(description="Impuestos calculados")
+    total_amount: Decimal = Field(description="subtotal - discount + tax")
+    
+    # Auditoría
+    created_at: datetime
+    updated_at: datetime
+    created_by_id: uuid.UUID
+    updated_by_id: Optional[uuid.UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ================================
+# INVOICE SCHEMAS (siguiendo IMPLEMENTAR.md)
+# ================================
+
+class InvoiceBase(BaseModel):
+    """Schema base para facturas siguiendo patrón Odoo"""
+    invoice_date: date = Field(description="Fecha de la factura")
+    due_date: Optional[date] = Field(None, description="Fecha de vencimiento (opcional si hay payment_terms)")
+    invoice_type: InvoiceType = Field(description="Tipo de factura: CUSTOMER_INVOICE, SUPPLIER_INVOICE, CREDIT_NOTE o DEBIT_NOTE")
+    currency_code: str = Field(default="USD", max_length=3, description="Código de moneda")
+    exchange_rate: Optional[Decimal] = Field(default=Decimal('1'), gt=0, description="Tasa de cambio")
+    description: Optional[str] = Field(None, description="Descripción de la factura")
+    notes: Optional[str] = Field(None, description="Notas adicionales")
+
+    @validator('due_date')
+    def validate_due_date(cls, v, values):
+        """Validar que la fecha de vencimiento sea posterior a la fecha de factura"""
+        if v:
+            invoice_date = values.get('invoice_date')
+            if invoice_date and v < invoice_date:
+                raise ValueError('Due date must be after invoice date')
+        return v
+
+    @validator('exchange_rate')
+    def validate_exchange_rate(cls, v, values):
+        """Validar tasa de cambio si la moneda no es la base"""
+        currency_code = values.get('currency_code', 'USD')
+        if currency_code != 'USD' and (v is None or v == 0):
+            raise ValueError('Exchange rate is required for non-USD currencies')
+        return v or Decimal('1')
+
+
+class InvoiceCreate(InvoiceBase):
+    """Schema para crear facturas siguiendo patrón Odoo de IMPLEMENTAR.md"""
+    # Identificación
+    invoice_number: Optional[str] = Field(None, max_length=50, description="Número de factura (auto-generado si no se especifica)")
+      # Relaciones principales (siguiendo IMPLEMENTAR.md)
+    third_party_id: uuid.UUID = Field(description="ID del cliente o proveedor (third_party)")
+    journal_id: Optional[uuid.UUID] = Field(None, description="ID del diario contable (no implementado aún)")
+    payment_terms_id: Optional[uuid.UUID] = Field(None, description="ID de términos de pago")
+    
+    # Overrides de cuentas contables (opcionales - patrón Odoo)
+    third_party_account_id: Optional[uuid.UUID] = Field(None, description="Override cuenta cliente/proveedor")
+    
+    @validator('due_date', always=True)
+    def calculate_due_date(cls, v, values):
+        """Si no se especifica due_date y hay payment_terms, calcular automáticamente"""
+        if not v and values.get('payment_terms_id'):
+            # El servicio calculará la fecha automáticamente
+            return None
+        return v
+
+
+class InvoiceCreateWithLines(InvoiceCreate):
+    """
+    Schema para crear factura con líneas en una operación (patrón Odoo completo)
+    
+    Este es el esquema principal que sigue IMPLEMENTAR.md:
+    POST /invoices/with-lines
+    """
+    lines: List[InvoiceLineCreate] = Field(description="Líneas de la factura")
+
+    @validator('lines')
+    def validate_lines(cls, v):
+        """Validar que hay al menos una línea"""
+        if not v:
+            raise ValueError('Invoice must have at least one line')
+        return v
+
+
+class InvoiceUpdate(BaseModel):
+    """Schema para actualizar facturas (solo en estado DRAFT)"""
+    invoice_number: Optional[str] = Field(None, max_length=50)
+    invoice_date: Optional[date] = None
+    due_date: Optional[date] = None
+    description: Optional[str] = None
+    notes: Optional[str] = None
+    exchange_rate: Optional[Decimal] = Field(None, gt=0)
+
+
+class InvoiceResponse(InvoiceBase):
+    """Schema de respuesta para facturas siguiendo IMPLEMENTAR.md"""
+    id: uuid.UUID
+    invoice_number: str = Field(description="Número generado automáticamente")
+    status: InvoiceStatus
+    
+    # Relaciones (usando third_party_id según IMPLEMENTAR.md)
+    third_party_id: uuid.UUID = Field(description="ID del cliente o proveedor")
+    payment_terms_id: Optional[uuid.UUID] = None
+    journal_id: Optional[uuid.UUID] = None
+    third_party_account_id: Optional[uuid.UUID] = None
+    
+    # Montos calculados
     subtotal: Decimal
     discount_amount: Decimal
-    line_total: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+    paid_amount: Decimal
+    outstanding_amount: Decimal  # remaining_amount renombrado
+    
+    # Estados calculados
+    is_paid: bool
+    is_overdue: bool
+    days_overdue: int
+    
+    # Asiento contable generado (patrón Odoo)
+    journal_entry_id: Optional[uuid.UUID] = Field(None, description="ID del asiento contable generado")
+    
+    # Auditoría completa (siguiendo IMPLEMENTAR.md)
+    created_by_id: uuid.UUID
+    updated_by_id: Optional[uuid.UUID] = None
+    posted_by_id: Optional[uuid.UUID] = None  # Quien contabilizó
+    cancelled_by_id: Optional[uuid.UUID] = None  # Quien canceló
+    
     created_at: datetime
+    updated_at: datetime
+    posted_at: Optional[datetime] = None  # Fecha contabilización
+    cancelled_at: Optional[datetime] = None  # Fecha cancelación
 
     class Config:
         from_attributes = True
@@ -126,62 +208,38 @@ class InvoiceWithLines(InvoiceResponse):
     lines: List[InvoiceLineResponse] = Field(default_factory=list)
 
 
-# Bulk operations
-class InvoiceCreateWithLines(InvoiceCreate):
-    """Schema para crear factura con líneas"""
-    lines: List[InvoiceLineCreate] = Field(description="Líneas de la factura")
-
-    @validator('lines')
-    def validate_lines(cls, v):
-        """Validar que hay al menos una línea"""
-        if not v:
-            raise ValueError('At least one invoice line is required')
-        return v
-
-
-# Payment allocation schemas
-class InvoicePaymentResponse(BaseModel):
-    """Schema para pagos asignados a factura"""
-    id: uuid.UUID
-    payment_id: uuid.UUID
-    payment_number: str
-    payment_date: date
-    allocated_amount: Decimal
-    allocation_date: Optional[date]
-    notes: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-
-class InvoiceWithPayments(InvoiceResponse):
-    """Schema de factura con pagos"""
-    payments: List[InvoicePaymentResponse] = Field(default_factory=list)
-
-
-# Summary schemas
-class InvoiceSummary(BaseModel):
-    """Schema para resumen de facturas"""
-    total_invoices: int = Field(description="Total de facturas")
-    total_amount: Decimal = Field(description="Monto total")
-    paid_amount: Decimal = Field(description="Monto pagado")
-    pending_amount: Decimal = Field(description="Monto pendiente")
-    overdue_amount: Decimal = Field(description="Monto vencido")
-    by_status: dict = Field(description="Distribución por estado")
-    by_type: dict = Field(description="Distribución por tipo")
-
+# ================================
+# BULK OPERATIONS Y UTILIDADES
+# ================================
 
 class InvoiceListResponse(BaseModel):
-    """Schema para lista de facturas"""
-    invoices: List[InvoiceResponse]
-    total: int
-    page: int
-    size: int
-    pages: int
+    """Schema para respuesta de lista de facturas"""
+    items: List[InvoiceResponse] = Field(..., description="Lista de facturas")
+    total: int = Field(..., description="Total de facturas")
+    page: int = Field(..., description="Página actual")
+    size: int = Field(..., description="Tamaño de página")
+    total_pages: int = Field(..., description="Total de páginas")
 
 
-# Status update schemas
-class InvoiceStatusUpdate(BaseModel):
-    """Schema para actualizar estado de factura"""
-    status: InvoiceStatus = Field(description="Nuevo estado")
-    notes: Optional[str] = Field(None, description="Notas del cambio de estado")
+class InvoiceSummary(BaseModel):
+    """Schema para resumen estadístico de facturas"""
+    total_invoices: int
+    total_amount: Decimal
+    paid_amount: Decimal
+    pending_amount: Decimal
+    overdue_amount: Decimal
+    by_status: dict  # {status: count}
+    by_type: dict    # {type: count}
+
+
+# ================================
+# LEGACY COMPATIBILITY
+# ================================
+
+# Para mantener compatibilidad con endpoints existentes que usan customer_id
+class InvoiceCreateLegacy(InvoiceBase):
+    """Schema legacy para compatibilidad con endpoints existentes"""
+    customer_id: uuid.UUID = Field(description="ID del cliente (legacy, use third_party_id)")
+    payment_term_id: Optional[uuid.UUID] = Field(None, description="ID del término de pago (legacy, use payment_terms_id)")
+    discount_percentage: Optional[Decimal] = Field(None, ge=0, le=100, description="Descuento global (legacy, use por línea)")
+    tax_percentage: Optional[Decimal] = Field(None, ge=0, le=100, description="Impuesto global (legacy, use por línea)")
