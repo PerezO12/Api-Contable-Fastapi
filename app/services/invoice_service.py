@@ -6,7 +6,7 @@ import uuid
 from decimal import Decimal
 from datetime import datetime, date, timezone
 from typing import Optional, List, Dict, Any, Tuple
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, and_, func
 
 from app.models.invoice import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
@@ -423,14 +423,23 @@ class InvoiceService:
                 account_id=getattr(line_data, 'account_id', None),
                 created_by_id=created_by_id,
                 created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
-            )
+                updated_at=datetime.utcnow()            )
             
             self.db.add(new_line)
+            self.db.flush()  # Para obtener el ID y cargar relaciones
+            
+            # Recargar la línea con la información del producto
+            reloaded_line = self.db.query(InvoiceLine).options(
+                joinedload(InvoiceLine.product)
+            ).filter(InvoiceLine.id == new_line.id).first()
+            
+            if not reloaded_line:
+                raise Exception("Failed to reload invoice line")
+            
             self.db.commit()
 
             logger.info(f"Line added to invoice {invoice.number}")
-            return InvoiceLineResponse.from_orm(new_line)
+            return self._create_line_response_with_product_info(reloaded_line)
 
         except Exception as e:
             logger.error(f"Error adding line to invoice {invoice_id}: {str(e)}")
@@ -902,8 +911,7 @@ class InvoiceService:
             journal.last_sequence_reset_year != year):
             journal.current_sequence_number = 0
             journal.last_sequence_reset_year = year
-        
-        # Incrementar número de secuencia 
+          # Incrementar número de secuencia 
         journal.current_sequence_number += 1
         
         # Formatear número con padding
@@ -914,7 +922,43 @@ class InvoiceService:
             return f"{journal.sequence_prefix}/{year}/JE/{number_str}"
         else:
             return f"{journal.sequence_prefix}/JE/{number_str}"
-
+    
+    def _create_line_response_with_product_info(self, line: InvoiceLine) -> InvoiceLineResponse:
+        """
+        Crear respuesta de línea de factura incluyendo información del producto
+        """
+        # Comenzar con la respuesta base
+        line_data = {
+            'id': line.id,
+            'invoice_id': line.invoice_id,
+            'sequence': line.sequence,
+            'product_id': line.product_id,
+            'description': line.description,
+            'quantity': line.quantity,
+            'unit_price': line.unit_price,
+            'discount_percentage': line.discount_percentage,
+            'account_id': line.account_id,
+            'cost_center_id': line.cost_center_id,
+            'tax_ids': [],  # TODO: Implementar gestión de impuestos
+            'subtotal': line.subtotal,
+            'discount_amount': line.discount_amount,
+            'tax_amount': line.tax_amount,
+            'total_amount': line.total_amount,
+            'created_at': line.created_at,
+            'updated_at': line.updated_at,
+            'created_by_id': line.created_by_id,
+            'updated_by_id': line.updated_by_id,
+            'product_name': None,
+            'product_code': None
+        }
+        
+        # Agregar información del producto si existe
+        if line.product_id and line.product:
+            line_data['product_name'] = line.product.name
+            line_data['product_code'] = line.product.code
+            
+        return InvoiceLineResponse(**line_data)
+    
     def get_invoice_with_lines(self, invoice_id: uuid.UUID) -> InvoiceWithLines:
         """
         Obtener factura con todas sus líneas
@@ -922,12 +966,14 @@ class InvoiceService:
         # Obtener la factura base
         invoice_response = self.get_invoice(invoice_id)
         
-        # Obtener las líneas ordenadas por secuencia
-        lines = self.db.query(InvoiceLine).filter(
+        # Obtener las líneas ordenadas por secuencia con información del producto
+        lines = self.db.query(InvoiceLine).options(
+            joinedload(InvoiceLine.product)
+        ).filter(
             InvoiceLine.invoice_id == invoice_id
         ).order_by(InvoiceLine.sequence).all()
         
-        lines_response = [InvoiceLineResponse.from_orm(line) for line in lines]
+        lines_response = [self._create_line_response_with_product_info(line) for line in lines]
         
         # Crear la respuesta - InvoiceWithLines hereda de InvoiceResponse
         invoice_dict = invoice_response.dict()

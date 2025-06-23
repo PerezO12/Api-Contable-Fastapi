@@ -64,6 +64,10 @@ class InvoiceLineResponse(BaseModel):
     cost_center_id: Optional[uuid.UUID] = None
     tax_ids: List[uuid.UUID] = Field(default_factory=list)
     
+    # Información del producto relacionado
+    product_name: Optional[str] = Field(None, description="Nombre del producto")
+    product_code: Optional[str] = Field(None, description="Código del producto")
+    
     # Montos calculados
     subtotal: Decimal = Field(description="quantity * unit_price")
     discount_amount: Decimal = Field(description="subtotal * discount_percentage / 100")

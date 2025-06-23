@@ -190,12 +190,12 @@ class Journal(Base):
         if self.include_year_in_sequence:
             return f"{self.sequence_prefix}/{year}/{number_str}"
         else:
-            return f"{self.sequence_prefix}/{number_str}"
-
-    @hybrid_property
-    def total_journal_entries(self) -> int:
-        """Total de asientos contables en este diario"""
-        return len(self.journal_entries)
+            return f"{self.sequence_prefix}/{number_str}"    # NOTA: Comentado temporalmente para evitar lazy loading en serialización
+    # El conteo se maneja ahora directamente en los servicios y esquemas
+    # @hybrid_property
+    # def total_journal_entries(self) -> int:
+    #     """Total de asientos contables en este diario"""
+    #     return len(self.journal_entries)
 
     def can_create_entry(self, manual: bool = False) -> bool:
         """

@@ -1,15 +1,30 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List
 import uuid
 
 from pydantic import BaseModel, Field, validator, ConfigDict
 
 from app.models.journal import JournalType
 
-if TYPE_CHECKING:
-    from app.schemas.account import AccountRead
-    from app.schemas.user import UserRead
+
+class AccountRead(BaseModel):
+    """Esquema simplificado para cuentas en journals"""
+    id: str
+    code: str
+    name: str
+    account_type: str
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserRead(BaseModel):
+    """Esquema simplificado para usuarios en journals"""
+    id: str
+    full_name: str
+    email: str
+    
+    model_config = ConfigDict(from_attributes=True)
 
 
 class JournalBase(BaseModel):
@@ -151,7 +166,7 @@ class JournalRead(JournalBase):
     current_sequence_number: int
     last_sequence_reset_year: Optional[int]
     total_journal_entries: int = Field(
-        0,
+        default=0,
         description="Total de asientos contables en este diario"
     )
     created_at: datetime
@@ -159,12 +174,66 @@ class JournalRead(JournalBase):
     created_by_id: Optional[uuid.UUID]
 
     model_config = ConfigDict(from_attributes=True)
+    
+    @classmethod
+    def from_journal_with_count(cls, journal, count: int = 0):
+        """Crear instancia desde Journal con conteo manual"""
+        data = {
+            'id': journal.id,
+            'name': journal.name,
+            'code': journal.code,
+            'type': journal.type,
+            'sequence_prefix': journal.sequence_prefix,
+            'default_account_id': journal.default_account_id,
+            'sequence_padding': journal.sequence_padding,
+            'include_year_in_sequence': journal.include_year_in_sequence,
+            'reset_sequence_yearly': journal.reset_sequence_yearly,
+            'requires_validation': journal.requires_validation,
+            'allow_manual_entries': journal.allow_manual_entries,
+            'is_active': journal.is_active,
+            'description': journal.description,
+            'current_sequence_number': journal.current_sequence_number,
+            'last_sequence_reset_year': journal.last_sequence_reset_year,
+            'total_journal_entries': count,
+            'created_at': journal.created_at,
+            'updated_at': journal.updated_at,
+            'created_by_id': journal.created_by_id
+        }
+        return cls(**data)
 
 
 class JournalDetail(JournalRead):
     """Esquema detallado para diarios incluyendo relaciones"""
-    default_account: Optional["AccountRead"] = None
-    created_by: Optional["UserRead"] = None
+    default_account: Optional[AccountRead] = None
+    created_by: Optional[UserRead] = None
+    
+    @classmethod
+    def from_journal_with_count(cls, journal, count: int = 0):
+        """Crear instancia desde Journal con conteo manual y relaciones"""
+        data = {
+            'id': journal.id,
+            'name': journal.name,
+            'code': journal.code,
+            'type': journal.type,
+            'sequence_prefix': journal.sequence_prefix,
+            'default_account_id': journal.default_account_id,
+            'sequence_padding': journal.sequence_padding,
+            'include_year_in_sequence': journal.include_year_in_sequence,
+            'reset_sequence_yearly': journal.reset_sequence_yearly,
+            'requires_validation': journal.requires_validation,
+            'allow_manual_entries': journal.allow_manual_entries,
+            'is_active': journal.is_active,
+            'description': journal.description,
+            'current_sequence_number': journal.current_sequence_number,
+            'last_sequence_reset_year': journal.last_sequence_reset_year,
+            'total_journal_entries': count,
+            'created_at': journal.created_at,
+            'updated_at': journal.updated_at,
+            'created_by_id': journal.created_by_id,
+            'default_account': journal.default_account,
+            'created_by': journal.created_by
+        }
+        return cls(**data)
 
 
 class JournalListItem(BaseModel):
@@ -178,6 +247,7 @@ class JournalListItem(BaseModel):
     current_sequence_number: int
     total_journal_entries: int = 0
     created_at: datetime
+    default_account: Optional[AccountRead] = None
 
     model_config = ConfigDict(from_attributes=True)
 

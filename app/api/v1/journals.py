@@ -31,8 +31,7 @@ async def create_journal(
     """
     Crear un nuevo diario contable
     
-    - **name**: Nombre descriptivo del diario
-    - **code**: Código único del diario
+    - **name**: Nombre descriptivo del diario    - **code**: Código único del diario
     - **type**: Tipo de diario (sale, purchase, cash, bank, miscellaneous)
     - **sequence_prefix**: Prefijo único para la secuencia (ej: VEN, COM, CAJ)
     - **default_account_id**: Cuenta contable por defecto (opcional)
@@ -41,9 +40,17 @@ async def create_journal(
         journal_service = JournalService(db)
         journal = await journal_service.create_journal(journal_data, current_user.id)
         
-        # Recargar con relaciones para la respuesta
-        journal = await journal_service.get_journal_by_id(journal.id)
-        return journal
+        # Recargar con conteo correcto para la respuesta
+        journal_data_with_count = await journal_service.get_journal_by_id_with_count(journal.id)
+        if not journal_data_with_count:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error al recargar journal creado"
+            )
+        return JournalDetail.from_journal_with_count(
+            journal_data_with_count['journal'],
+            journal_data_with_count['total_journal_entries']
+        )
         
     except JournalDuplicateError as e:
         raise HTTPException(
@@ -78,16 +85,32 @@ async def get_journals(
         filters = JournalFilter(
             type=type,
             is_active=is_active,
-            search=search
-        )
+            search=search        )
         
-        journals = await journal_service.get_journals(
+        journals_data = await journal_service.get_journals_list(
             filters=filters,
             skip=skip,
             limit=limit,
             order_by=order_by,
             order_dir=order_dir
         )
+          # Convertir a JournalListItem manejando la serialización correctamente
+        journals = []
+        for data in journals_data:
+            # Crear copia del diccionario para manipular
+            journal_dict = data.copy()
+            
+            # Serializar default_account si existe
+            if journal_dict.get('default_account'):
+                account = journal_dict['default_account']
+                journal_dict['default_account'] = {
+                    'id': str(account.id),
+                    'code': account.code,
+                    'name': account.name,
+                    'account_type': account.account_type
+                }
+            
+            journals.append(JournalListItem(**journal_dict))
         
         total = await journal_service.count_journals(filters)
         
@@ -116,15 +139,19 @@ async def get_journal(
     """
     try:
         journal_service = JournalService(db)
-        journal = await journal_service.get_journal_by_id(journal_id)
+        journal_data = await journal_service.get_journal_by_id_with_count(journal_id)
         
-        if not journal:
+        if not journal_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Diario con ID {journal_id} no encontrado"
             )
         
-        return journal
+        # Crear JournalDetail usando el método from_journal_with_count
+        return JournalDetail.from_journal_with_count(
+            journal_data['journal'],
+            journal_data['total_journal_entries']
+        )
         
     except HTTPException:
         raise
@@ -149,7 +176,17 @@ async def update_journal(
         journal_service = JournalService(db)
         journal = await journal_service.update_journal(journal_id, journal_data)
         
-        return journal
+        # Recargar con conteo correcto para la respuesta
+        journal_data_with_count = await journal_service.get_journal_by_id_with_count(journal_id)
+        if not journal_data_with_count:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error al recargar journal actualizado"
+            )
+        return JournalDetail.from_journal_with_count(
+            journal_data_with_count['journal'],
+            journal_data_with_count['total_journal_entries']
+        )
         
     except JournalNotFoundError as e:
         raise HTTPException(

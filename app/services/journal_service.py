@@ -81,8 +81,7 @@ class JournalService:
 
         # Crear el diario
         journal = Journal(
-            **journal_data.model_dump(),
-            created_by_id=current_user_id,
+            **journal_data.model_dump(),            created_by_id=current_user_id,
             current_sequence_number=0,
             last_sequence_reset_year=datetime.now(timezone.utc).year
         )
@@ -93,8 +92,34 @@ class JournalService:
 
         return journal
 
+    async def get_journal_by_id_with_count(self, journal_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+        """Obtiene un diario por ID con conteo manual de journal entries"""
+        # Obtener el journal básico
+        result = await self.db.execute(
+            select(Journal)
+            .options(
+                joinedload(Journal.default_account),
+                joinedload(Journal.created_by)
+            )
+            .where(Journal.id == journal_id)
+        )
+        journal = result.scalar_one_or_none()
+        
+        if not journal:
+            return None        
+        # Calcular manualmente el total de journal entries
+        count_result = await self.db.execute(
+            select(func.count(JournalEntry.id)).where(JournalEntry.journal_id == journal_id)
+        )
+        total_entries = count_result.scalar() or 0
+        
+        return {
+            'journal': journal,
+            'total_journal_entries': total_entries
+        }
+
     async def get_journal_by_id(self, journal_id: uuid.UUID) -> Optional[Journal]:
-        """Obtiene un diario por ID"""
+        """Obtiene un diario por ID (método simple sin conteo)"""
         result = await self.db.execute(
             select(Journal)
             .options(
@@ -111,6 +136,80 @@ class JournalService:
             select(Journal).where(Journal.code == code)
         )
         return result.scalar_one_or_none()
+
+    async def get_journals_list(
+        self, 
+        filters: JournalFilter,
+        skip: int = 0,
+        limit: int = 100,
+        order_by: str = "name",
+        order_dir: str = "asc"
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene lista de diarios con conteo de asientos para JournalListItem        """
+        # Query principal con joins para obtener información completa
+        query = select(Journal).options(
+            joinedload(Journal.default_account)
+        )
+
+        # Aplicar filtros
+        conditions = []
+        
+        if filters.type is not None:
+            conditions.append(Journal.type == filters.type)
+            
+        if filters.is_active is not None:
+            conditions.append(Journal.is_active == filters.is_active)
+            
+        if filters.search:
+            search_term = f"%{filters.search}%"
+            conditions.append(
+                or_(
+                    Journal.name.ilike(search_term),
+                    Journal.code.ilike(search_term),
+                    Journal.description.ilike(search_term)
+                )
+            )
+
+        if conditions:
+            query = query.where(and_(*conditions))
+
+        # Aplicar ordenamiento
+        order_column = getattr(Journal, order_by, Journal.name)
+        if order_dir.lower() == "desc":
+            query = query.order_by(desc(order_column))
+        else:
+            query = query.order_by(asc(order_column))
+
+        # Aplicar paginación
+        query = query.offset(skip).limit(limit)
+        
+        result = await self.db.execute(query)
+        journals = result.scalars().all()
+        
+        # Convertir a lista de diccionarios con conteo manual de journal entries
+        journals_list = []
+        for journal in journals:
+            # Calcular conteo de journal entries para cada journal
+            count_result = await self.db.execute(
+                select(func.count(JournalEntry.id)).where(JournalEntry.journal_id == journal.id)
+            )
+            total_entries = count_result.scalar() or 0
+            
+            journals_list.append({
+                'id': journal.id,
+                'name': journal.name,
+                'code': journal.code,
+                'type': journal.type,
+                'sequence_prefix': journal.sequence_prefix,
+                'is_active': journal.is_active,
+                'current_sequence_number': journal.current_sequence_number,
+                'total_journal_entries': total_entries,
+                'created_at': journal.created_at,
+                'default_account': journal.default_account
+            })
+        
+        return journals_list
 
     async def get_journals(
         self, 
