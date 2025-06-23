@@ -7,6 +7,7 @@ from app.config import settings
 from app.api.v1 import api_router
 from app.database import create_async_db_and_tables, AsyncSessionLocal
 from app.services.auth_service import AuthService
+from app.utils.schema_rebuild import rebuild_schemas
 
 
 @asynccontextmanager
@@ -15,7 +16,6 @@ async def lifespan(app: FastAPI):
     try:
         await create_async_db_and_tables()
         print("✅ Conexión a base de datos establecida")
-        
         # Crear usuario administrador por defecto si no existe
         async with AsyncSessionLocal() as db:
             try:
@@ -29,6 +29,9 @@ async def lifespan(app: FastAPI):
     except Exception as db_error:
         print(f"⚠️ Error de conexión a base de datos: {db_error}")
         print("ℹ️ La aplicación iniciará sin conexión a BD")
+    
+    # Rebuild schemas to resolve forward references
+    rebuild_schemas()
     
     yield
     

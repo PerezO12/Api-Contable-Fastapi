@@ -422,14 +422,13 @@ class PaymentTermsService:
             'errors': [],
             'warnings': []
         }
-        
-        # Validaciones específicas
+          # Validaciones específicas
         if not payment_terms.payment_schedules:
             validation_result['errors'].append("No tiene cronograma de pagos definido")
         
-        if payment_terms.total_percentage != Decimal('100.00'):
+        if payment_terms.total_percentage != Decimal('100.000000'):
             validation_result['errors'].append(
-                f"El porcentaje total es {payment_terms.total_percentage}%, debe ser 100%"
+                f"El porcentaje total es {payment_terms.total_percentage}%, debe ser exactamente 100.000000%"
             )
         
         # Validar secuencias

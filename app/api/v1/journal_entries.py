@@ -76,7 +76,10 @@ async def create_journal_entry(
     try:
         service = JournalEntryService(db)
         journal_entry = await service.create_journal_entry(
-            journal_entry_data,            created_by_id=current_user.id        )
+            journal_entry_data,
+            created_by_id=current_user.id,
+            journal_id=journal_entry_data.journal_id
+        )
         
         # Create response manually to avoid Pydantic accessing earliest_due_date property
         response_data = JournalEntryResponse.model_validate({

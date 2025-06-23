@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from app.models.product import Product
     from app.models.account import Account
     from app.models.journal_entry import JournalEntry
+    from app.models.journal import Journal
     from app.models.payment import PaymentInvoice
     from app.models.cost_center import CostCenter
     from app.models.bank_reconciliation import BankReconciliation
@@ -98,8 +99,9 @@ class Invoice(Base):
     
     # Centro de costo
     cost_center_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("cost_centers.id"), nullable=True)
-    
-    # Asiento contable relacionado
+      # Diario contable para facturación y asiento contable relacionado
+    journal_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("journals.id"), nullable=True,
+                                                            comment="Diario contable para la numeración de factura")
     journal_entry_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("journal_entries.id"), nullable=True)
       # Auditoría siguiendo patrón Odoo
     created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -116,13 +118,12 @@ class Invoice(Base):
     posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True,
                                                          comment="Fecha de contabilización")
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True,
-                                                            comment="Fecha de cancelación")
-
-    # Relationships
+                                                            comment="Fecha de cancelación")    # Relationships
     third_party: Mapped["ThirdParty"] = relationship("ThirdParty", back_populates="invoices")
     third_party_account: Mapped[Optional["Account"]] = relationship("Account", foreign_keys=[third_party_account_id])
     payment_terms: Mapped[Optional["PaymentTerms"]] = relationship("PaymentTerms")
     cost_center: Mapped[Optional["CostCenter"]] = relationship("CostCenter")
+    journal: Mapped[Optional["Journal"]] = relationship("Journal")
     journal_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry")
     
     lines: Mapped[List["InvoiceLine"]] = relationship(

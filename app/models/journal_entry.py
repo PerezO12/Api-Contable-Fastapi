@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from app.models.third_party import ThirdParty
     from app.models.payment_terms import PaymentTerms
     from app.models.product import Product
+    from app.models.journal import Journal
 
 
 class JournalEntryStatus(str, Enum):
@@ -60,6 +61,14 @@ class JournalEntry(Base):
     number: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="Descripción del asiento (opcional, se genera automáticamente si no se proporciona)")
+    
+    # Diario al que pertenece el asiento
+    journal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("journals.id"), 
+        nullable=True,
+        index=True,
+        comment="Diario al que pertenece este asiento"
+    )
       # Tipo de asiento
     entry_type: Mapped[JournalEntryType] = mapped_column(default=JournalEntryType.MANUAL, nullable=False)
     
@@ -91,12 +100,15 @@ class JournalEntry(Base):
     # Metadatos
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     external_reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    
-    # Relationships
+      # Relationships
     lines: Mapped[List["JournalEntryLine"]] = relationship(
         "JournalEntryLine",
         back_populates="journal_entry",
         cascade="all, delete-orphan"
+    )
+    journal: Mapped[Optional["Journal"]] = relationship(
+        "Journal",
+        back_populates="journal_entries"
     )
     created_by: Mapped["User"] = relationship("User", foreign_keys=[created_by_id])
     approved_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[approved_by_id])

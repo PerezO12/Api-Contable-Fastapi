@@ -11,7 +11,7 @@ class PaymentScheduleBase(BaseModel):
     """Schema base para cronograma de pagos"""
     sequence: int = Field(..., ge=1, description="Orden del pago")
     days: int = Field(..., ge=0, description="Días desde la fecha de factura")
-    percentage: Decimal = Field(..., gt=0, le=100, description="Porcentaje a pagar")
+    percentage: Decimal = Field(..., gt=0, le=100, decimal_places=6, description="Porcentaje a pagar (hasta 6 decimales)")
     description: Optional[str] = Field(None, max_length=200, description="Descripción del período")
 
 
@@ -58,8 +58,7 @@ class PaymentTermsCreate(PaymentTermsBase):
         """Valida que el cronograma de pagos sea correcto"""
         if not v:
             raise ValueError("Debe tener al menos un período de pago")
-        
-        # Validar que las secuencias sean únicas y consecutivas
+          # Validar que las secuencias sean únicas y consecutivas
         sequences = [schedule.sequence for schedule in v]
         if len(set(sequences)) != len(sequences):
             raise ValueError("Las secuencias deben ser únicas")
@@ -67,10 +66,11 @@ class PaymentTermsCreate(PaymentTermsBase):
         if sorted(sequences) != list(range(1, len(sequences) + 1)):
             raise ValueError("Las secuencias deben ser consecutivas empezando en 1")
         
-        # Validar que el total de porcentajes sea 100%
+        # Validar que el total de porcentajes sea exactamente 100%
         total_percentage = sum(schedule.percentage for schedule in v)
-        if abs(total_percentage - Decimal('100.00')) > Decimal('0.01'):
-            raise ValueError(f"El total de porcentajes debe ser 100%. Actual: {total_percentage}%")
+        # Usar mayor precisión - hasta 6 decimales (0.000001)
+        if abs(total_percentage - Decimal('100.000000')) > Decimal('0.000001'):
+            raise ValueError(f"El total de porcentajes debe ser exactamente 100.000000%. Actual: {total_percentage}%")
         
         # Validar que los días estén en orden ascendente
         days_list = [schedule.days for schedule in sorted(v, key=lambda x: x.sequence)]
@@ -94,8 +94,7 @@ class PaymentTermsUpdate(BaseModel):
         """Valida que el cronograma de pagos sea correcto si se proporciona"""
         if v is None:
             return v
-        
-        # Aplicar las mismas validaciones que en PaymentTermsCreate
+          # Aplicar las mismas validaciones que en PaymentTermsCreate
         if not v:
             raise ValueError("Debe tener al menos un período de pago")
         
@@ -106,9 +105,11 @@ class PaymentTermsUpdate(BaseModel):
         if sorted(sequences) != list(range(1, len(sequences) + 1)):
             raise ValueError("Las secuencias deben ser consecutivas empezando en 1")
         
+        # Validar que el total de porcentajes sea exactamente 100%
         total_percentage = sum(schedule.percentage for schedule in v)
-        if abs(total_percentage - Decimal('100.00')) > Decimal('0.01'):
-            raise ValueError(f"El total de porcentajes debe ser 100%. Actual: {total_percentage}%")
+        # Usar mayor precisión - hasta 6 decimales (0.000001)
+        if abs(total_percentage - Decimal('100.000000')) > Decimal('0.000001'):
+            raise ValueError(f"El total de porcentajes debe ser exactamente 100.000000%. Actual: {total_percentage}%")
         
         days_list = [schedule.days for schedule in sorted(v, key=lambda x: x.sequence)]
         if days_list != sorted(days_list):

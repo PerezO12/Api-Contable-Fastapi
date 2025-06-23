@@ -74,13 +74,12 @@ class AccountDeterminationService:
             # Por ahora, buscar cuenta por defecto del tipo (paso 3)
             # TODO: Implementar cuentas por defecto en terceros si es necesario
             pass
-        
-        # 3. Cuenta por defecto del tipo
-        if invoice.invoice_type == InvoiceType.SALE:
-            # Buscar cuenta de clientes (1305 - Clientes por cobrar)
-            account = self._get_default_account_by_pattern(['1305', '1300'], AccountType.ACTIVO)
+          # 3. Cuenta por defecto del tipo
+        if invoice.invoice_type in [InvoiceType.CUSTOMER_INVOICE, InvoiceType.CREDIT_NOTE, InvoiceType.DEBIT_NOTE]:
+            # Buscar cuenta de clientes (1105, 1140 - Clientes por cobrar)
+            account = self._get_default_account_by_pattern(['1105', '1140', '1300'], AccountType.ACTIVO)
             account_description = "Cuenta de clientes por cobrar"
-        else:  # PURCHASE
+        else:  # SUPPLIER_INVOICE
             # Buscar cuenta de proveedores (2205 - Proveedores por pagar)
             account = self._get_default_account_by_pattern(['2205', '2200'], AccountType.PASIVO)
             account_description = "Cuenta de proveedores por pagar"
@@ -134,15 +133,14 @@ class AccountDeterminationService:
                     'account_name': account.name,
                     'source': 'line_override'
                 }
-        
-        # 2. Cuenta del producto
+          # 2. Cuenta del producto
         if line.product_id:
             product = self.db.query(Product).filter(Product.id == line.product_id).first()
             if product:
                 account_id = None
-                if invoice_type == InvoiceType.SALE:
+                if invoice_type in [InvoiceType.CUSTOMER_INVOICE, InvoiceType.CREDIT_NOTE, InvoiceType.DEBIT_NOTE]:
                     account_id = product.sales_account_id
-                else:  # PURCHASE
+                else:  # SUPPLIER_INVOICE
                     account_id = product.purchase_account_id
                 
                 if account_id:
@@ -156,13 +154,12 @@ class AccountDeterminationService:
                         }
         
         # 3. Cuenta de categoría del producto (TODO: implementar si es necesario)
-        
-        # 4. Cuenta por defecto del tipo
-        if invoice_type == InvoiceType.SALE:
+          # 4. Cuenta por defecto del tipo
+        if invoice_type in [InvoiceType.CUSTOMER_INVOICE, InvoiceType.CREDIT_NOTE, InvoiceType.DEBIT_NOTE]:
             # Buscar cuenta de ingresos (4135 - Ventas)
             account = self._get_default_account_by_pattern(['4135', '4100'], AccountType.INGRESO)
             account_description = "ingresos por ventas"
-        else:  # PURCHASE
+        else:  # SUPPLIER_INVOICE
             # Buscar cuenta de gastos (5135 - Compras)
             account = self._get_default_account_by_pattern(['5135', '5100'], AccountType.GASTO)
             account_description = "gastos por compras"
@@ -190,11 +187,11 @@ class AccountDeterminationService:
         
         if invoice.tax_amount and invoice.tax_amount > 0:
             # Buscar cuenta de IVA por pagar (para ventas) o IVA deducible (para compras)
-            if invoice.invoice_type == InvoiceType.SALE:
+            if invoice.invoice_type in [InvoiceType.CUSTOMER_INVOICE, InvoiceType.CREDIT_NOTE, InvoiceType.DEBIT_NOTE]:
                 # IVA por pagar (2408)
                 account = self._get_default_account_by_pattern(['2408', '2400'], AccountType.PASIVO)
                 account_description = "IVA por pagar"
-            else:  # PURCHASE
+            else:  # SUPPLIER_INVOICE
                 # IVA deducible (2408 o cuenta de activo)
                 account = self._get_default_account_by_pattern(['1365', '2408'], None)  # Buscar en cualquier tipo
                 account_description = "IVA deducible"
@@ -256,7 +253,7 @@ class AccountDeterminationService:
                 return account
         
         # Fallback: buscar cuenta por defecto según el tipo de factura
-        if invoice_type == InvoiceType.SALE:
+        if invoice_type == InvoiceType.CUSTOMER_INVOICE:
             # IVA por pagar
             account = self._get_default_account_by_pattern(['2408', '2400'], AccountType.PASIVO)
         else:  # PURCHASE
@@ -287,7 +284,7 @@ class AccountDeterminationService:
     
     def _validate_third_party_account(self, account: Account, invoice_type: InvoiceType) -> None:
         """Valida que la cuenta de tercero sea compatible con el tipo de factura"""
-        if invoice_type == InvoiceType.SALE:
+        if invoice_type == InvoiceType.CUSTOMER_INVOICE:
             # Para ventas: cuentas de activo (clientes por cobrar)
             allowed_types = [AccountType.ACTIVO]
         else:  # PURCHASE
@@ -297,13 +294,13 @@ class AccountDeterminationService:
         if account.account_type not in allowed_types:
             raise BusinessRuleError(
                 f"La cuenta {account.code} - {account.name} no es válida para facturas de tipo "
-                f"{'venta' if invoice_type == InvoiceType.SALE else 'compra'}. "
+                f"{'venta' if invoice_type == InvoiceType.CUSTOMER_INVOICE else 'compra'}. "
                 f"Debe ser una cuenta de tipo {', '.join([t.value for t in allowed_types])}."
             )
     
     def _validate_line_account(self, account: Account, invoice_type: InvoiceType) -> None:
         """Valida que la cuenta de línea sea compatible con el tipo de factura"""
-        if invoice_type == InvoiceType.SALE:
+        if invoice_type == InvoiceType.CUSTOMER_INVOICE:
             # Para ventas: cuentas de ingresos
             allowed_types = [AccountType.INGRESO]
         else:  # PURCHASE
@@ -313,7 +310,7 @@ class AccountDeterminationService:
         if account.account_type not in allowed_types:
             raise BusinessRuleError(
                 f"La cuenta {account.code} - {account.name} no es válida para líneas de facturas de tipo "
-                f"{'venta' if invoice_type == InvoiceType.SALE else 'compra'}. "
+                f"{'venta' if invoice_type == InvoiceType.CUSTOMER_INVOICE else 'compra'}. "
                 f"Debe ser una cuenta de tipo {', '.join([t.value for t in allowed_types])}."
             )
     
@@ -348,7 +345,7 @@ class AccountDeterminationService:
         # Línea del tercero (cliente/proveedor)
         third_party_account = accounts['third_party_account']
         
-        if invoice.invoice_type == InvoiceType.SALE:
+        if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
             # DÉBITO: Cliente por el total
             lines.append({
                 'account_id': third_party_account['account_id'],
@@ -375,7 +372,7 @@ class AccountDeterminationService:
         for i, (line, line_account) in enumerate(zip(invoice.lines, accounts['line_accounts'])):
             line_total = line.subtotal - line.discount_amount  # Sin impuestos
             
-            if invoice.invoice_type == InvoiceType.SALE:
+            if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
                 # CRÉDITO: Ingresos
                 lines.append({
                     'account_id': line_account['account_id'],
@@ -402,7 +399,7 @@ class AccountDeterminationService:
         
         # Líneas de impuestos
         for tax_account in accounts['tax_accounts']:
-            if invoice.invoice_type == InvoiceType.SALE:
+            if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
                 # CRÉDITO: IVA por pagar
                 lines.append({
                     'account_id': tax_account['account_id'],

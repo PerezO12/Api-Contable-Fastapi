@@ -194,6 +194,7 @@ class JournalEntryBase(BaseModel):
     entry_type: JournalEntryType = Field(JournalEntryType.MANUAL, description="Tipo de asiento")
     transaction_origin: Optional[TransactionOrigin] = Field(None, description="Origen de la transacción")
     notes: Optional[str] = Field(None, max_length=1000, description="Notas adicionales")
+    journal_id: Optional[uuid.UUID] = Field(None, description="ID del diario al que pertenece (opcional, se asignará automáticamente si no se especifica)")
     
     @field_validator('entry_date', mode='before')
     @classmethod
@@ -281,6 +282,11 @@ class JournalEntryRead(JournalEntryBase):
     posted_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    
+    # Información del diario
+    journal_code: Optional[str] = None
+    journal_name: Optional[str] = None
+    journal_type: Optional[str] = None
     
     # Propiedades calculadas
     is_balanced: bool = True

@@ -2,6 +2,7 @@
 from app.models.base import Base
 from app.models.user import User, UserRole, UserSession
 from app.models.account import Account, AccountType, AccountCategory
+from app.models.journal import Journal, JournalType
 from app.models.journal_entry import JournalEntry, JournalEntryLine, JournalEntryStatus, JournalEntryType, TransactionOrigin
 from app.models.cost_center import CostCenter
 from app.models.third_party import ThirdParty, ThirdPartyType, DocumentType
@@ -27,6 +28,8 @@ __all__ = [
     "Account", 
     "AccountType", 
     "AccountCategory",
+    "Journal",
+    "JournalType",
     "JournalEntry", 
     "JournalEntryLine", 
     "JournalEntryStatus", 

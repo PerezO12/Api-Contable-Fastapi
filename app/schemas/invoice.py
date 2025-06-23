@@ -118,7 +118,7 @@ class InvoiceCreate(InvoiceBase):
     invoice_number: Optional[str] = Field(None, max_length=50, description="Número de factura (auto-generado si no se especifica)")
       # Relaciones principales (siguiendo IMPLEMENTAR.md)
     third_party_id: uuid.UUID = Field(description="ID del cliente o proveedor (third_party)")
-    journal_id: Optional[uuid.UUID] = Field(None, description="ID del diario contable (no implementado aún)")
+    journal_id: Optional[uuid.UUID] = Field(None, description="ID del diario contable para numeración automática")
     payment_terms_id: Optional[uuid.UUID] = Field(None, description="ID de términos de pago")
     
     # Overrides de cuentas contables (opcionales - patrón Odoo)
@@ -243,3 +243,177 @@ class InvoiceCreateLegacy(InvoiceBase):
     payment_term_id: Optional[uuid.UUID] = Field(None, description="ID del término de pago (legacy, use payment_terms_id)")
     discount_percentage: Optional[Decimal] = Field(None, ge=0, le=100, description="Descuento global (legacy, use por línea)")
     tax_percentage: Optional[Decimal] = Field(None, ge=0, le=100, description="Impuesto global (legacy, use por línea)")
+
+
+# ================================
+# WORKFLOW OPERATION SCHEMAS
+# ================================
+
+class InvoiceCancelRequest(BaseModel):
+    """Schema para cancelar una factura"""
+    reason: Optional[str] = Field(
+        None, 
+        max_length=500,
+        description="Razón de la cancelación"
+    )
+
+
+class InvoiceResetToDraftRequest(BaseModel):
+    """Schema para restablecer una factura a borrador"""
+    reason: Optional[str] = Field(
+        None, 
+        max_length=500,
+        description="Razón del restablecimiento a borrador"
+    )
+
+
+class InvoicePostRequest(BaseModel):
+    """Schema para contabilizar una factura"""
+    posting_date: Optional[date] = Field(
+        None,
+        description="Fecha de contabilización (opcional, usa fecha actual si no se especifica)"    )
+    notes: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Notas adicionales para la contabilización"
+    )
+    force_post: Optional[bool] = Field(
+        False,
+        description="Forzar contabilización aunque haya advertencias menores"
+    )
+
+
+# ================================
+# BULK OPERATION SCHEMAS
+# ================================
+
+class BulkOperationResult(BaseModel):
+    """Resultado de una operación masiva"""
+    total_requested: int = Field(description="Total de elementos solicitados")
+    successful: int = Field(description="Elementos procesados exitosamente")
+    failed: int = Field(description="Elementos que fallaron")
+    skipped: int = Field(description="Elementos omitidos por validaciones")
+    
+    successful_ids: List[uuid.UUID] = Field(description="IDs procesados exitosamente")
+    failed_items: List[dict] = Field(description="Items que fallaron con sus errores")
+    skipped_items: List[dict] = Field(description="Items omitidos con razones")
+    
+    execution_time_seconds: float = Field(description="Tiempo de ejecución en segundos")
+
+
+class BulkInvoicePostRequest(BaseModel):
+    """Schema para contabilizar facturas en lote"""
+    invoice_ids: List[uuid.UUID] = Field(
+        ..., 
+        description="Lista de IDs de facturas a contabilizar"
+    )
+    posting_date: Optional[date] = Field(
+        None,
+        description="Fecha de contabilización (opcional, usa fecha actual si no se especifica)"
+    )
+    notes: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Notas adicionales para todas las facturas"
+    )
+    force_post: Optional[bool] = Field(
+        False,
+        description="Forzar contabilización aunque haya advertencias menores"
+    )
+    stop_on_error: Optional[bool] = Field(
+        False,
+        description="Detener procesamiento en el primer error (default: continuar)"
+    )
+    
+    @validator('invoice_ids')
+    def validate_invoice_ids(cls, v):
+        if len(v) < 1:
+            raise ValueError('Debe proporcionar al menos 1 ID de factura')
+        if len(v) > 100:
+            raise ValueError('Máximo 100 facturas por operación bulk')
+        return v
+
+
+class BulkInvoiceCancelRequest(BaseModel):
+    """Schema para cancelar facturas en lote"""
+    invoice_ids: List[uuid.UUID] = Field(
+        ..., 
+        description="Lista de IDs de facturas a cancelar"
+    )
+    reason: Optional[str] = Field(
+        None, 
+        max_length=500,
+        description="Razón de la cancelación para todas las facturas"
+    )
+    stop_on_error: Optional[bool] = Field(
+        False,
+        description="Detener procesamiento en el primer error"
+    )
+    
+    @validator('invoice_ids')
+    def validate_invoice_ids(cls, v):
+        if len(v) < 1:
+            raise ValueError('Debe proporcionar al menos 1 ID de factura')
+        if len(v) > 100:
+            raise ValueError('Máximo 100 facturas por operación bulk')
+        return v
+
+
+class BulkInvoiceResetToDraftRequest(BaseModel):
+    """Schema para restablecer facturas a borrador en lote"""
+    invoice_ids: List[uuid.UUID] = Field(
+        ..., 
+        description="Lista de IDs de facturas a restablecer"
+    )
+    reason: Optional[str] = Field(
+        None, 
+        max_length=500,
+        description="Razón del restablecimiento para todas las facturas"
+    )
+    stop_on_error: Optional[bool] = Field(
+        False,
+        description="Detener procesamiento en el primer error"
+    )
+    force_reset: Optional[bool] = Field(
+        False,
+        description="Forzar reset aunque haya pagos aplicados (peligroso)"
+    )
+    
+    @validator('invoice_ids')
+    def validate_invoice_ids(cls, v):
+        if len(v) < 1:
+            raise ValueError('Debe proporcionar al menos 1 ID de factura')
+        if len(v) > 100:
+            raise ValueError('Máximo 100 facturas por operación bulk')
+        return v
+
+
+class BulkInvoiceDeleteRequest(BaseModel):
+    """Schema para eliminar facturas en lote"""
+    invoice_ids: List[uuid.UUID] = Field(
+        ..., 
+        description="Lista de IDs de facturas a eliminar"
+    )
+    confirmation: str = Field(
+        ...,
+        description="Confirmación requerida: debe ser 'CONFIRM_DELETE'"
+    )
+    reason: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Razón de la eliminación masiva"
+    )
+    
+    @validator('invoice_ids')
+    def validate_invoice_ids(cls, v):
+        if len(v) < 1:
+            raise ValueError('Debe proporcionar al menos 1 ID de factura')
+        if len(v) > 50:
+            raise ValueError('Máximo 50 facturas por operación de eliminación bulk')
+        return v
+    
+    @validator('confirmation')
+    def validate_confirmation(cls, v):
+        if v != 'CONFIRM_DELETE':
+            raise ValueError('Debe confirmar la eliminación con "CONFIRM_DELETE"')
+        return v

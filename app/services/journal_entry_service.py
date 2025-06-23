@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.journal_entry import JournalEntry, JournalEntryLine, JournalEntryStatus, JournalEntryType, TransactionOrigin
+from app.models.journal import Journal, JournalType
 from app.models.account import Account
 from app.models.payment_terms import PaymentTerms
 from app.models.product import Product, ProductStatus, ProductType
@@ -51,7 +52,8 @@ class JournalEntryService:
     async def create_journal_entry(
         self, 
         entry_data: JournalEntryCreate, 
-        created_by_id: uuid.UUID
+        created_by_id: uuid.UUID,
+        journal_id: Optional[uuid.UUID] = None
     ) -> JournalEntry:
         """Crear un nuevo asiento contable con optimización async/await"""
         
@@ -143,8 +145,26 @@ class JournalEntryService:
                     if not has_expense_line:
                         raise JournalEntryError("Los asientos de compras deben incluir al menos una línea de débito (gasto o activo)")
         
-        # Generar número de asiento
-        entry_number = await self.generate_entry_number(entry_data.entry_type)
+        # Determinar el diario a usar
+        journal = None
+        if journal_id:
+            journal_result = await self.db.execute(
+                select(Journal).where(Journal.id == journal_id)
+            )
+            journal = journal_result.scalar_one_or_none()
+            if not journal:
+                raise JournalEntryError(f"Diario con ID {journal_id} no encontrado")
+            if not journal.is_active:
+                raise JournalEntryError(f"El diario {journal.name} está inactivo")
+        else:
+            # Si no se especifica diario, intentar obtener uno automáticamente
+            journal = await self.get_default_journal_for_transaction(entry_data.transaction_origin)
+        
+        # Generar número de asiento usando el diario si está disponible
+        if journal:
+            entry_number = await self.generate_entry_number_with_journal(journal)
+        else:
+            entry_number = await self.generate_entry_number(entry_data.entry_type)
         
         # Generar descripción automática si no se proporciona
         entry_description = entry_data.description
@@ -291,7 +311,8 @@ class JournalEntryService:
             notes=entry_data.notes,
             total_debit=total_debit,
             total_credit=total_credit,
-            transaction_origin=entry_data.transaction_origin
+            transaction_origin=entry_data.transaction_origin,
+            journal_id=journal.id if journal else None
         )
         
         self.db.add(journal_entry)
@@ -782,10 +803,25 @@ class JournalEntryService:
                                 f"Stock actual: {line.product.current_stock}, Cantidad requerida: {line.quantity}"
                             )
         
-        # Contabilizar usando lógica asíncrona directa
+        # Contabilizar el asiento y actualizar saldos de cuentas
         journal_entry.status = JournalEntryStatus.POSTED
         journal_entry.posted_by_id = posted_by_id
         journal_entry.posted_at = datetime.now(timezone.utc)
+        
+        # CRÍTICO: Actualizar saldos de las cuentas
+        for line in journal_entry.lines:
+            # Cargar la cuenta si no está ya cargada
+            if not line.account:
+                account_result = await self.db.execute(
+                    select(Account).where(Account.id == line.account_id)
+                )
+                account = account_result.scalar_one_or_none()
+                if account:
+                    line.account = account
+            
+            # Actualizar saldos de la cuenta
+            if line.account:
+                line.account.update_balance(line.debit_amount, line.credit_amount)
         
         # Actualizar notas si se proporcionan
         if post_data and post_data.reason:
@@ -901,10 +937,25 @@ class JournalEntryService:
         reversal_entry.approved_by_id = created_by_id
         reversal_entry.approved_at = datetime.now(timezone.utc)
         
-        # Contabilizar directamente
+        # Contabilizar y actualizar saldos de cuentas
         reversal_entry.status = JournalEntryStatus.POSTED
         reversal_entry.posted_by_id = created_by_id
         reversal_entry.posted_at = datetime.now(timezone.utc)
+        
+        # CRÍTICO: Actualizar saldos de las cuentas para la reversión
+        for line in reversal_lines:
+            # Cargar la cuenta si no está ya cargada
+            if not line.account:
+                account_result = await self.db.execute(
+                    select(Account).where(Account.id == line.account_id)
+                )
+                account = account_result.scalar_one_or_none()
+                if account:
+                    line.account = account
+            
+            # Actualizar saldos de la cuenta
+            if line.account:
+                line.account.update_balance(line.debit_amount, line.credit_amount)
         
         return reversal_entry
 
@@ -1048,6 +1099,54 @@ class JournalEntryService:
             sequence = 1
         
         return f"{prefix}-{current_year}-{sequence:06d}"
+
+    async def generate_entry_number_with_journal(self, journal: Journal) -> str:
+        """Generar número de asiento usando la secuencia del diario"""
+        
+        # Obtener el siguiente número de secuencia del diario
+        next_number = journal.get_next_sequence_number()
+        
+        # Actualizar el número de secuencia en la base de datos
+        await self.db.commit()  # Guardar el cambio en current_sequence_number
+        
+        return next_number
+
+    async def get_default_journal_for_transaction(
+        self, 
+        transaction_origin: Optional[TransactionOrigin] = None
+    ) -> Optional[Journal]:
+        """
+        Obtiene el diario por defecto según el origen de la transacción
+        """
+        if transaction_origin is None:
+            journal_type = JournalType.MISCELLANEOUS
+        else:
+            journal_type_mapping = {
+                TransactionOrigin.SALE: JournalType.SALE,
+                TransactionOrigin.PURCHASE: JournalType.PURCHASE,
+                TransactionOrigin.PAYMENT: JournalType.BANK,
+                TransactionOrigin.COLLECTION: JournalType.BANK,
+                TransactionOrigin.TRANSFER: JournalType.BANK,
+                TransactionOrigin.ADJUSTMENT: JournalType.MISCELLANEOUS,
+                TransactionOrigin.OPENING: JournalType.MISCELLANEOUS,
+                TransactionOrigin.CLOSING: JournalType.MISCELLANEOUS,
+            }
+            journal_type = journal_type_mapping.get(transaction_origin, JournalType.MISCELLANEOUS)
+        
+        # Buscar el primer diario activo de este tipo
+        result = await self.db.execute(
+            select(Journal)
+            .where(
+                and_(
+                    Journal.type == journal_type,
+                    Journal.is_active == True
+                )
+            )
+            .order_by(Journal.created_at)
+            .limit(1)
+        )
+        
+        return result.scalar_one_or_none()
 
     async def delete_journal_entry(self, entry_id: uuid.UUID) -> bool:
         """Eliminar un asiento contable (solo borradores)"""

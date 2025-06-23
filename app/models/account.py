@@ -1,7 +1,7 @@
 import uuid
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import Boolean, String, Text, ForeignKey, Numeric, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -9,6 +9,9 @@ from sqlalchemy.ext.hybrid import hybrid_property
 
 from app.models.base import Base
 from app.models.user import User
+
+if TYPE_CHECKING:
+    from app.models.journal import Journal
 
 
 class AccountType(str, Enum):
@@ -113,10 +116,16 @@ class Account(Base):
         back_populates="parent",
         cascade="all, delete-orphan"
     )
-    
-    # Relación con el usuario que creó la cuenta
+      # Relación con el usuario que creó la cuenta
     created_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_id])
-      # Relación con movimientos contables (forward reference)
+    
+    # Relación con diarios que usan esta cuenta como predeterminada
+    journals_as_default: Mapped[List["Journal"]] = relationship(
+        "Journal",
+        back_populates="default_account"
+    )
+    
+    # Relación con movimientos contables (forward reference)
     # journal_entry_lines: Mapped[List["JournalEntryLine"]] = relationship(
     #     "JournalEntryLine", 
     #     back_populates="account"

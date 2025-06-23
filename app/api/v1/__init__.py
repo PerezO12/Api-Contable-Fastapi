@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     accounts, auth, users, journal_entries, reports, report_api, 
     import_data, export_templates, export, cost_centers, third_parties, cost_center_reports,
-    products
+    products, journals
 )
 from app.api import payment_terms, payments, invoices, bank_extracts, bank_reconciliation
 
@@ -23,6 +23,9 @@ api_router.include_router(accounts.router, prefix="/accounts", tags=["accounts"]
 
 # Journal entry routes
 api_router.include_router(journal_entries.router, prefix="/journal-entries", tags=["journal-entries"])
+
+# Journal routes
+api_router.include_router(journals.router, prefix="/journals", tags=["journals"])
 
 # Cost center routes
 api_router.include_router(cost_centers.router, prefix="/cost-centers", tags=["cost-centers"])

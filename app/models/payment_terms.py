@@ -31,8 +31,7 @@ class PaymentTerms(Base):
     payment_schedules: Mapped[List["PaymentSchedule"]] = relationship(
         "PaymentSchedule",
         back_populates="payment_terms",
-        cascade="all, delete-orphan",
-        order_by="PaymentSchedule.sequence"
+        cascade="all, delete-orphan",        order_by="PaymentSchedule.sequence"
     )
 
     def __repr__(self) -> str:
@@ -48,7 +47,7 @@ class PaymentTerms(Base):
         """Verifica si las condiciones de pago son válidas"""
         return (
             len(self.payment_schedules) > 0 and
-            self.total_percentage == Decimal('100.00') and
+            abs(self.total_percentage - Decimal('100.000000')) <= Decimal('0.000001') and
             all(schedule.is_valid for schedule in self.payment_schedules)
         )
 
@@ -84,11 +83,10 @@ class PaymentSchedule(Base):
     """
     __tablename__ = "payment_schedules"    # Relación con condiciones de pago
     payment_terms_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payment_terms.id"), nullable=False)
-    
-    # Información del período
+      # Información del período
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)  # Orden del pago
     days: Mapped[int] = mapped_column(Integer, nullable=False)  # Días desde la fecha de factura
-    percentage: Mapped[Decimal] = mapped_column(Numeric(precision=5, scale=2), nullable=False)  # Porcentaje a pagar
+    percentage: Mapped[Decimal] = mapped_column(Numeric(precision=11, scale=6), nullable=False)  # Porcentaje a pagar (hasta 6 decimales)
     description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     
     # Relationships
