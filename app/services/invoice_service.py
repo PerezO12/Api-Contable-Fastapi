@@ -254,8 +254,7 @@ class InvoiceService:
             
             # 4. Crear asiento contable automáticamente
             journal_entry = self._create_journal_entry_for_invoice(invoice, posted_by_id)
-            
-            # 5. Actualizar estado de la factura
+              # 5. Actualizar estado de la factura
             invoice.status = InvoiceStatus.POSTED
             invoice.posted_by_id = posted_by_id
             invoice.posted_at = datetime.utcnow()
@@ -263,10 +262,10 @@ class InvoiceService:
             invoice.updated_at = datetime.utcnow()
             
             self.db.commit()
-
+            
             logger.info(f"Invoice {invoice.number} posted successfully with journal entry {journal_entry.number}")
             return InvoiceResponse.from_orm(invoice)
-
+            
         except Exception as e:
             logger.error(f"Error posting invoice {invoice_id}: {str(e)}")
             self.db.rollback()
@@ -275,7 +274,11 @@ class InvoiceService:
     def cancel_invoice(self, invoice_id: uuid.UUID, cancelled_by_id: uuid.UUID, reason: Optional[str] = None) -> InvoiceResponse:
         """
         Cancelar factura: POSTED → CANCELLED
-        Crea asiento de reversión y marca la factura como cancelada
+        Flujo similar a Odoo:
+        1. Marca el journal entry original como CANCELLED (sin eliminarlo)
+        2. Deshace conciliaciones si las hay
+        3. Marca la factura como CANCELLED
+        4. NO crea asientos de reversión adicionales
         """
         try:
             # 1. Obtener y validar la factura
@@ -287,26 +290,43 @@ class InvoiceService:
             if invoice.status != InvoiceStatus.POSTED:
                 raise BusinessRuleError(f"Invoice cannot be cancelled in current status: {invoice.status}")
             
-            # 2. Crear asiento de reversión si existe el asiento original
-            reversal_entry = None
+            # 2. Cancelar el journal entry original (siguiendo flujo Odoo)
             if invoice.journal_entry_id:
-                reversal_entry = self._create_reversal_journal_entry(invoice, cancelled_by_id, reason)
-            
-            # 3. Actualizar estado de la factura
+                original_entry = self.db.query(JournalEntry).filter(
+                    JournalEntry.id == invoice.journal_entry_id
+                ).first()
+                
+                if original_entry and original_entry.status == JournalEntryStatus.POSTED:
+                    # Marcar el asiento original como cancelado (sin crear reversión)
+                    original_entry.status = JournalEntryStatus.CANCELLED
+                    original_entry.cancelled_by_id = cancelled_by_id
+                    original_entry.cancelled_at = datetime.utcnow()
+                    
+                    # Actualizar notas del asiento
+                    cancel_note = f"Cancelled due to invoice cancellation: {reason or 'No reason provided'}"
+                    if original_entry.notes:
+                        original_entry.notes += f"\n\n{cancel_note}"
+                    else:
+                        original_entry.notes = cancel_note
+                    
+                    # TODO: Aquí se podrían deshacer conciliaciones si existen
+                    # self._undo_reconciliations(original_entry)
+                    
+                    logger.info(f"Journal entry {original_entry.number} marked as cancelled for invoice {invoice.number}")
+              # 3. Actualizar estado de la factura
             invoice.status = InvoiceStatus.CANCELLED
             invoice.cancelled_by_id = cancelled_by_id
             invoice.cancelled_at = datetime.utcnow()
-            invoice.updated_at = datetime.utcnow()            
+            invoice.updated_at = datetime.utcnow()
+            
             # Agregar nota sobre la cancelación
             if reason:
                 invoice.notes = (invoice.notes or "") + f"\n[CANCELLED] {reason}"
             
             self.db.commit()
-
-            reversal_msg = f" with reversal entry {reversal_entry.number}" if reversal_entry else ""
-            logger.info(f"Invoice {invoice.number} cancelled{reversal_msg}")
-            return InvoiceResponse.from_orm(invoice)
-
+            
+            logger.info(f"Invoice {invoice.number} cancelled following Odoo pattern")
+            return InvoiceResponse.from_orm(invoice)            
         except Exception as e:
             logger.error(f"Error cancelling invoice {invoice_id}: {str(e)}")
             self.db.rollback()
@@ -316,7 +336,10 @@ class InvoiceService:
         """
         Resetear factura a DRAFT desde POSTED o CANCELLED
         - POSTED → DRAFT: Elimina el asiento contable asociado
-        - CANCELLED → DRAFT: Elimina el asiento de reversión si existe
+        - CANCELLED → DRAFT: Elimina el asiento contable asociado (mismo comportamiento)
+        
+        En ambos casos, el journal entry se elimina completamente para permitir 
+        regeneración cuando la factura se contabilice nuevamente.
         """
         try:
             # 1. Obtener y validar la factura
@@ -330,50 +353,53 @@ class InvoiceService:
             
             # Validar que no hay pagos aplicados (implementar cuando exista el módulo de pagos)
             # TODO: Validar pagos cuando se implemente el módulo correspondiente
+              # 2. Guardar referencia al journal entry antes de modificar
+            journal_entry_id = invoice.journal_entry_id
+            journal_entry = None
             
-            # 2. Manejar asientos contables según el estado actual
-            if invoice.journal_entry_id:
+            if journal_entry_id:
                 journal_entry = self.db.query(JournalEntry).filter(
-                    JournalEntry.id == invoice.journal_entry_id
+                    JournalEntry.id == journal_entry_id
                 ).first()
-                
-                if journal_entry:
-                    if invoice.status == InvoiceStatus.POSTED and journal_entry.status == JournalEntryStatus.POSTED:
-                        # Factura POSTED: Eliminar asiento contable original
-                        self.db.query(JournalEntryLine).filter(
-                            JournalEntryLine.journal_entry_id == journal_entry.id
-                        ).delete()
-                        self.db.delete(journal_entry)
-                        logger.info(f"Deleted original journal entry {journal_entry.number} for reset invoice {invoice.number}")
-                        
-                    elif invoice.status == InvoiceStatus.CANCELLED:
-                        # Factura CANCELLED: Buscar y eliminar asiento de reversión
-                        # En facturas canceladas, el journal_entry_id puede apuntar al asiento de reversión
-                        # Eliminar líneas del asiento de reversión
-                        self.db.query(JournalEntryLine).filter(
-                            JournalEntryLine.journal_entry_id == journal_entry.id
-                        ).delete()
-                        self.db.delete(journal_entry)
-                        logger.info(f"Deleted reversal journal entry {journal_entry.number} for reset cancelled invoice {invoice.number}")
             
-            # 3. Resetear campos de contabilización y cancelación
+            # 3. Resetear campos de contabilización y cancelación PRIMERO
+            previous_status = invoice.status
             invoice.status = InvoiceStatus.DRAFT
             invoice.posted_by_id = None
             invoice.posted_at = None
             invoice.cancelled_by_id = None
             invoice.cancelled_at = None
-            invoice.journal_entry_id = None
             invoice.updated_at = datetime.utcnow()
-              # Log de auditoría
-            previous_status = "CANCELLED" if invoice.status == InvoiceStatus.CANCELLED else "POSTED"
+              # 4. Limpiar la referencia al journal entry en la factura 
+            # Tanto para POSTED como CANCELLED: eliminar la referencia porque se borra el journal entry
+            invoice.journal_entry_id = None
+            
+            # 5. Hacer flush para persistir los cambios de la factura antes de manejar journal entries
+            self.db.flush()
+              # 6. Manejar asientos contables: SIEMPRE eliminar cuando se resetea a DRAFT
+            if journal_entry:
+                # Sin importar el estado anterior (POSTED o CANCELLED), 
+                # al resetear a DRAFT se debe eliminar el journal entry
+                
+                # Eliminar líneas del journal entry primero
+                self.db.query(JournalEntryLine).filter(
+                    JournalEntryLine.journal_entry_id == journal_entry.id
+                ).delete()
+                
+                # Luego eliminar el journal entry
+                self.db.delete(journal_entry)
+                
+                logger.info(f"Deleted journal entry {journal_entry.number} for reset invoice {invoice.number} (was {previous_status})")
+            # 7. Log de auditoría
+            status_name = "CANCELLED" if previous_status == InvoiceStatus.CANCELLED else "POSTED"
             if reason:
-                invoice.notes = (invoice.notes or "") + f"\n[RESET TO DRAFT FROM {previous_status}] {reason}"
+                invoice.notes = (invoice.notes or "") + f"\n[RESET TO DRAFT FROM {status_name}] {reason}"
             else:
-                invoice.notes = (invoice.notes or "") + f"\n[RESET TO DRAFT FROM {previous_status}] Reset by user {reset_by_id}"
+                invoice.notes = (invoice.notes or "") + f"\n[RESET TO DRAFT FROM {status_name}] Reset by user {reset_by_id}"
             
             self.db.commit()
 
-            logger.info(f"Invoice {invoice.number} reset from {previous_status} to DRAFT")
+            logger.info(f"Invoice {invoice.number} reset from {status_name} to DRAFT")
             return InvoiceResponse.from_orm(invoice)
 
         except Exception as e:
@@ -708,9 +734,11 @@ class InvoiceService:
         
         self.db.add(journal_entry)
         self.db.flush()
-        
-        # Crear líneas del asiento
+          # Crear líneas del asiento
         self._create_journal_entry_lines(journal_entry, invoice)
+        
+        # CRÍTICO: Calcular totales del journal entry después de crear las líneas
+        journal_entry.calculate_totals()
         
         # CRÍTICO: Actualizar saldos de las cuentas ya que se creó con status POSTED
         for line in journal_entry.lines:
@@ -768,8 +796,7 @@ class InvoiceService:
         due_lines, _ = self.payment_terms_processor.process_invoice_payment_terms(
             invoice, third_party_account, line_counter
         )
-        
-        # Agregar las líneas de vencimiento al asiento
+          # Agregar las líneas de vencimiento al asiento
         for due_line in due_lines:
             due_line.journal_entry_id = journal_entry.id
             self.db.add(due_line)
@@ -790,7 +817,8 @@ class InvoiceService:
                 # IVA deducible
                 tax_account = self.db.query(Account).filter(
                     Account.code.like('1365%'),
-                    Account.is_active == True                ).first()
+                    Account.is_active == True
+                ).first()
             
             if tax_account:
                 if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
@@ -798,7 +826,7 @@ class InvoiceService:
                     debit = Decimal('0')
                     credit = invoice.tax_amount
                 else:
-                    # IVA deducible: debitar                    debit = invoice.tax_amount
+                    # IVA deducible: debitar
                     debit = invoice.tax_amount
                     credit = Decimal('0')
                 
@@ -820,6 +848,12 @@ class InvoiceService:
     def _create_reversal_journal_entry(self, invoice: Invoice, created_by_id: uuid.UUID, reason: Optional[str] = None) -> JournalEntry:
         """
         Crear asiento de reversión para cancelación de factura
+        
+        DEPRECATED: Este método ya no se usa en el flujo principal de cancelación de facturas.
+        El nuevo flujo sigue el patrón de Odoo: marca el journal entry original como CANCELLED
+        en lugar de crear asientos de reversión.
+        
+        Se mantiene por compatibilidad pero puede ser removido en futuras versiones.
         """
         original_entry = self.db.query(JournalEntry).filter(
             JournalEntry.id == invoice.journal_entry_id
@@ -869,9 +903,11 @@ class InvoiceService:
                 line_number=line_counter            )
             self.db.add(reversal_line)
             line_counter += 1
-        
-        # CRÍTICO: Actualizar saldos de las cuentas ya que se creó con status POSTED
+          # CRÍTICO: Actualizar saldos de las cuentas ya que se creó con status POSTED
         self.db.flush()  # Asegurar que las líneas estén persistidas
+        
+        # CRÍTICO: Calcular totales del journal entry de reversión
+        reversal_entry.calculate_totals()
         
         # Cargar las líneas con sus cuentas para actualizar saldos
         reversal_lines = self.db.query(JournalEntryLine).filter(
@@ -1302,7 +1338,8 @@ class InvoiceService:
                     "id": str(invoice_id),
                     "error": "Invoice not found"
                 })
-              # 2. Validar estados
+            
+            # 2. Validar estados
             valid_invoices = []
             for invoice in invoices:
                 if invoice.status not in [InvoiceStatus.POSTED, InvoiceStatus.CANCELLED]:
