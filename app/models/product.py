@@ -63,8 +63,8 @@ class Product(Base):
     Maneja el catálogo de productos/servicios de la empresa
     """
     __tablename__ = "products"    # Información básica
-    code: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False,
-                                     comment="Código único del producto")
+    code: Mapped[Optional[str]] = mapped_column(String(50), unique=True, index=True, nullable=True,
+                                               comment="Código único del producto (se genera automáticamente si no se proporciona)")
     name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True,
                                      comment="Nombre único del producto (case-sensitive)")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True,

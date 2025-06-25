@@ -2,6 +2,7 @@
 Schemas for Third Party functionality.
 Includes customers, suppliers, employees and other business partners.
 """
+import re
 import uuid
 from decimal import Decimal
 from typing import Optional, List
@@ -72,10 +73,10 @@ class ThirdPartyBase(BaseModel):
         if not v or not v.strip():
             raise ValueError("El código no puede estar vacío")
         
-        # Permitir solo caracteres alfanuméricos, puntos y guiones
-        allowed_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_')
-        if not all(c in allowed_chars for c in v):
-            raise ValueError("El código solo puede contener letras, números, puntos, guiones y guiones bajos")
+        # Permitir caracteres alfanuméricos Unicode, puntos, guiones y guiones bajos
+        # Excluir solo caracteres de control y espacios en blanco
+        if not re.match(r'^[^\s\x00-\x1f\x7f-\x9f]+$', v.strip()):
+            raise ValueError("El código no puede contener caracteres de control o espacios")
         
         return v.strip().upper()
 

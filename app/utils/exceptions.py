@@ -52,6 +52,22 @@ class PasswordValidationError(AccountingSystemException):
         super().__init__(message, "PASSWORD_VALIDATION_ERROR", {"issues": issues})
 
 
+class ModelNotFoundError(AccountingSystemException):
+    """Exception for when a model is not found in the metadata registry"""
+    def __init__(self, model_name: str):
+        message = f"Model '{model_name}' not found in metadata registry"
+        super().__init__(message, "MODEL_NOT_FOUND", {"model_name": model_name})
+
+
+class ImportSessionNotFoundError(AccountingSystemException):
+    """Exception for when an import session is not found or expired"""
+    def __init__(self, session_token: str):
+        message = f"Import session not found or expired: {session_token}"
+        super().__init__(message, "IMPORT_SESSION_NOT_FOUND", {"session_token": session_token})
+
+
+
+
 class SessionError(AccountingSystemException):
     """Exception for session errors"""
     def __init__(self, reason: str = "Session error", session_id: Optional[str] = None):

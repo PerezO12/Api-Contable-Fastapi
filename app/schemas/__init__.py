@@ -66,18 +66,9 @@ from app.schemas.reports import (
 
 from app.schemas.audit import (
     AuditAction, AuditLogLevel, AuditLogBase, AuditLogCreate,
-    AuditLogRead, AuditLogFilter, AuditLogList, UserActivitySummary,
-    SystemActivityReport, SecurityReport, ChangeTrackingBase,
+    AuditLogRead, AuditLogFilter, AuditLogList, UserActivitySummary,    SystemActivityReport, SecurityReport, ChangeTrackingBase,
     ChangeTrackingCreate, ChangeTrackingRead, RecordChangeHistory,
     AuditConfiguration, AuditStats
-)
-
-from app.schemas.import_data import (
-    ImportFormat, ImportDataType, ImportValidationLevel, AccountImportRow,
-    JournalEntryLineImportRow, JournalEntryImportRow, ImportConfiguration,
-    ImportError, ImportRowResult, ImportSummary, ImportResult,
-    ImportRequest, ImportPreviewRequest, ImportPreviewResponse,
-    ImportStatusResponse, ImportTemplate, ImportTemplateResponse
 )
 
 # Exportar para facilitar importaciones
@@ -130,18 +121,11 @@ __all__ = [
     
     # Report schemas
     "BalanceSheetItem", "BalanceSheetSection", "BalanceSheet",
-    "IncomeStatementItem", "IncomeStatementSection", "IncomeStatement",
-    "TrialBalanceItem", "TrialBalance", "LedgerMovement",
+    "IncomeStatementItem", "IncomeStatementSection", "IncomeStatement",    "TrialBalanceItem", "TrialBalance", "LedgerMovement",
     "LedgerAccount", "GeneralLedger", "FinancialRatio",
     "FinancialAnalysis", "ReportColumn", "CustomReportFilter",
     "CustomReportDefinition", "CustomReportResult",
     "ReportExportRequest", "ReportExportResponse",
-      # Import schemas
-    "ImportFormat", "ImportDataType", "ImportValidationLevel", "AccountImportRow",
-    "JournalEntryLineImportRow", "JournalEntryImportRow", "ImportConfiguration",
-    "ImportError", "ImportRowResult", "ImportSummary", "ImportResult",
-    "ImportRequest", "ImportPreviewRequest", "ImportPreviewResponse",
-    "ImportStatusResponse", "ImportTemplate", "ImportTemplateResponse",
     
     # Audit schemas
     "AuditAction", "AuditLogLevel", "AuditLogBase", "AuditLogCreate",

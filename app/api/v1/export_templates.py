@@ -6,15 +6,22 @@ import io
 import csv
 import pandas as pd
 from typing import Dict, Any
+from enum import Enum
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.api.deps import get_current_active_user
 from app.models.user import User
-from app.schemas.import_data import ImportFormat
 from app.utils.exceptions import raise_insufficient_permissions
 
 router = APIRouter()
+
+
+class ImportFormat(str, Enum):
+    """Formatos de importación disponibles"""
+    CSV = "csv"
+    XLSX = "xlsx"
+    JSON = "json"
 
 
 @router.get(

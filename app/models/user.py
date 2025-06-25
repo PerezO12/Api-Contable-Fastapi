@@ -55,7 +55,9 @@ class User(Base):
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Metadatos adicionales
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)    # Relationships
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Relationships
     created_by: Mapped[Optional["User"]] = relationship(
         "User", 
         remote_side="User.id",
@@ -65,23 +67,13 @@ class User(Base):
         "User", 
         back_populates="created_by",
         cascade="all, delete-orphan"
-    )    
+    )
+    
     sessions: Mapped[List["UserSession"]] = relationship(
         "UserSession", 
         back_populates="user",
         cascade="all, delete-orphan"
-    )    
-    # Audit relationships (forward references para evitar imports circulares)
-    # audit_logs: Mapped[List["AuditLog"]] = relationship(
-    #     "AuditLog", 
-    #     back_populates="user",
-    #     cascade="all, delete-orphan"
-    # )
-    # change_tracking_entries: Mapped[List["ChangeTracking"]] = relationship(
-    #     "ChangeTracking", 
-    #     back_populates="user",
-    #     cascade="all, delete-orphan"
-    # )
+    )
 
     def __repr__(self) -> str:
         return f"<User(email='{self.email}', role='{self.role}', full_name='{self.full_name}')>"
@@ -127,6 +119,16 @@ class User(Base):
     def can_manage_users(self) -> bool:
         """Verifica si el usuario puede gestionar otros usuarios"""
         return self.role == UserRole.ADMIN
+
+    @property
+    def can_create_third_parties(self) -> bool:
+        """Verifica si el usuario puede crear terceros"""
+        return self.role in [UserRole.ADMIN, UserRole.CONTADOR]
+
+    @property
+    def can_create_products(self) -> bool:
+        """Verifica si el usuario puede crear productos"""
+        return self.role in [UserRole.ADMIN, UserRole.CONTADOR]
 
     def reset_login_attempts(self) -> None:
         """Reinicia el contador de intentos de login"""

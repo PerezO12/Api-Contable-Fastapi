@@ -5,8 +5,8 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     accounts, auth, users, journal_entries, reports, report_api, 
-    import_data, export_templates, export, cost_centers, third_parties, cost_center_reports,
-    products, journals
+    export_templates, export, cost_centers, third_parties, cost_center_reports,
+    products, journals, generic_import
 )
 from app.api import payment_terms, payments, invoices, bank_extracts, bank_reconciliation
 
@@ -54,9 +54,6 @@ api_router.include_router(bank_reconciliation.router, prefix="/bank-reconciliati
 # Cost center reports routes
 api_router.include_router(cost_center_reports.router, prefix="/cost-center-reports", tags=["cost-center-reports"])
 
-# Data import routes
-api_router.include_router(import_data.router, prefix="/import", tags=["import"])
-
 # Export templates routes
 api_router.include_router(export_templates.router, prefix="/templates", tags=["export-templates"])
 
@@ -69,5 +66,5 @@ api_router.include_router(reports.router, prefix="/reports/legacy", tags=["repor
 # New unified report API - Especificación exacta del endpoint /reports
 api_router.include_router(report_api.router, prefix="/reports", tags=["report-api"])
 
-# Import data routes - Professional import system for accounts and journal entries
-api_router.include_router(import_data.router, prefix="/import", tags=["import-data"])
+# Generic import system - Metadata-driven import assistant
+api_router.include_router(generic_import.router, prefix="/generic-import", tags=["generic-import"])
