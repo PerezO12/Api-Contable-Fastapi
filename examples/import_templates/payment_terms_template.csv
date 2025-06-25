@@ -1,0 +1,9 @@
+code,name,description,is_active,notes,payment_schedule_days,payment_schedule_percentages,payment_schedule_descriptions
+CONT,Contado,Pago inmediato al contado,true,Pago en el momento de la entrega,0,100.0,Pago inmediato
+30D,30 Días,Pago a 30 días,true,Crédito estándar a 30 días,30,100.0,Pago a 30 días
+60D,60 Días,Pago a 60 días,true,Crédito extendido a 60 días,60,100.0,Pago a 60 días
+30-60,30/60 Días,Pago en dos cuotas,true,Pago dividido en dos partes iguales,"30,60","50.0,50.0",Primera cuota|Segunda cuota
+ANTIC,50% Anticipo,50% anticipo 50% entrega,true,Modalidad con anticipo,"0,30","50.0,50.0",Anticipo|Saldo final
+TRIM,Trimestral,Pago en tres cuotas trimestrales,true,Pago dividido en tres meses,"30,60,90","33.33,33.33,33.34",Primer mes|Segundo mes|Tercer mes
+SEM,Semanal,Pago semanal en 4 cuotas,true,Pagos semanales,"7,14,21,28","25.0,25.0,25.0,25.0",Semana 1|Semana 2|Semana 3|Semana 4
+90D,90 Días,Pago a 90 días,true,Crédito largo plazo,90,100.0,Pago a 90 días

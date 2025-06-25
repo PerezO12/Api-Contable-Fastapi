@@ -1,0 +1,11 @@
+code,name,description,parent_code,manager_name,budget_code,is_active,allows_direct_assignment,notes
+ADM,Administración,Centro de costo administrativo,,Juan Pérez,PRES-ADM,true,true,Centro principal de administración
+VEN,Ventas,Centro de costo de ventas,,María García,PRES-VEN,true,true,Todas las actividades de ventas
+VEN-NAC,Ventas Nacionales,Ventas del mercado nacional,VEN,Carlos López,PRES-VEN-NAC,true,true,Ventas dentro del país
+VEN-INT,Ventas Internacionales,Ventas del mercado internacional,VEN,Ana Martínez,PRES-VEN-INT,true,true,Exportaciones y ventas internacionales
+PROD,Producción,Centro de costo de producción,,Luis Rodríguez,PRES-PROD,true,true,Todas las actividades productivas
+PROD-L1,Línea 1,Primera línea de producción,PROD,José Fernández,PRES-PROD-L1,true,true,Línea de producción principal
+PROD-L2,Línea 2,Segunda línea de producción,PROD,Carmen Silva,PRES-PROD-L2,true,true,Línea de producción secundaria
+MKT,Marketing,Centro de costo de marketing,,Elena Torres,PRES-MKT,true,true,Actividades de mercadeo y publicidad
+IT,Tecnología,Centro de costo de TI,,Miguel Herrera,PRES-IT,true,true,Sistemas e infraestructura tecnológica
+RRHH,Recursos Humanos,Centro de costo de RRHH,,Patricia Díaz,PRES-RRHH,true,true,Gestión del talento humano

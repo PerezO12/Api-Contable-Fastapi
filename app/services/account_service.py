@@ -598,6 +598,7 @@ class AccountService:
             validation = await self.validate_account_for_deletion(account_id)
             validations[account_id] = validation
             
+            # Solo agregar a failed_to_delete si realmente no se puede eliminar
             if not validation.can_delete and not delete_request.force_delete:
                 result.failed_to_delete.append({
                     "account_id": str(account_id),
@@ -609,58 +610,70 @@ class AccountService:
                     f"Cuenta {account_id}: {warning}" for warning in validation.warnings
                 ])
         
-        # Si force_delete es False y hay errores, no proceder
-        if not delete_request.force_delete and result.failed_to_delete:
-            result.validation_errors.append({
-                "error": "Hay cuentas que no pueden eliminarse. Use force_delete=true para forzar la eliminación de las que sí pueden eliminarse."
-            })
-            return result
+        # Proceder con la eliminación de las cuentas que SÍ se pueden eliminar
+        # Ya no bloqueamos todo el proceso si hay algunas que no se pueden eliminar
         
-        # Proceder con la eliminación
+        # Proceder con la eliminación de cuentas que sí se pueden eliminar
         accounts_to_delete = []
         for account_id in delete_request.account_ids:
             validation = validations[account_id]
             
-            if validation.can_delete or (delete_request.force_delete and not any("no encontrada" in reason for reason in validation.blocking_reasons)):
-                if validation.can_delete:
+            if validation.can_delete:
+                accounts_to_delete.append(account_id)
+            elif delete_request.force_delete and not any("no encontrada" in reason for reason in validation.blocking_reasons):
+                # Con force_delete, evaluar si se puede forzar la eliminación
+                has_critical_blocks = any(
+                    "movimientos" in reason or "hijas" in reason or "sistema" in reason 
+                    for reason in validation.blocking_reasons
+                )
+                if not has_critical_blocks:
                     accounts_to_delete.append(account_id)
-                elif delete_request.force_delete:
-                    # Con force_delete, solo eliminar si no tiene movimientos ni hijos
-                    has_critical_blocks = any(
-                        "movimientos" in reason or "hijas" in reason or "sistema" in reason 
-                        for reason in validation.blocking_reasons
-                    )
-                    if not has_critical_blocks:
-                        accounts_to_delete.append(account_id)
-                    else:
+                else:
+                    # Solo agregar a failed si no estaba ya agregado
+                    if not any(item["account_id"] == str(account_id) for item in result.failed_to_delete):
                         result.failed_to_delete.append({
                             "account_id": str(account_id),
                             "reason": "No se puede forzar la eliminación: " + "; ".join(validation.blocking_reasons),
                             "details": validation.dependencies
                         })
         
-        # Eliminar las cuentas validadas
-        for account_id in accounts_to_delete:
-            try:
-                success = await self.delete_account(account_id)
-                if success:
-                    result.successfully_deleted.append(account_id)
-                else:
+        # Eliminar las cuentas en chunks para mejorar rendimiento con grandes volúmenes
+        chunk_size = 50  # Procesar de a 50 cuentas por vez
+        for i in range(0, len(accounts_to_delete), chunk_size):
+            chunk = accounts_to_delete[i:i + chunk_size]
+            
+            for account_id in chunk:
+                try:
+                    success = await self.delete_account(account_id)
+                    if success:
+                        result.successfully_deleted.append(account_id)
+                    else:
+                        result.failed_to_delete.append({
+                            "account_id": str(account_id),
+                            "reason": "Error desconocido durante la eliminación",
+                            "details": {}
+                        })
+                except Exception as e:
                     result.failed_to_delete.append({
                         "account_id": str(account_id),
-                        "reason": "Error desconocido durante la eliminación",
+                        "reason": str(e),
                         "details": {}
                     })
-            except Exception as e:
-                result.failed_to_delete.append({
-                    "account_id": str(account_id),
-                    "reason": str(e),
-                    "details": {}
-                })
+            
+            # Commit intermedio después de cada chunk para evitar transacciones muy largas
+            await self.db.commit()
         
         # Añadir información sobre la razón de eliminación si se proporcionó
         if delete_request.delete_reason and result.successfully_deleted:
             result.warnings.append(f"Razón de eliminación: {delete_request.delete_reason}")
+        
+        # Agregar información útil al resultado
+        if len(accounts_to_delete) < len(delete_request.account_ids):
+            skipped_count = len(delete_request.account_ids) - len(accounts_to_delete)
+            result.warnings.append(f"Se omitieron {skipped_count} cuentas que no cumplían los criterios de eliminación")
+        
+        if result.successfully_deleted:
+            result.warnings.append(f"Se eliminaron exitosamente {len(result.successfully_deleted)} de {len(delete_request.account_ids)} cuentas solicitadas")
         
         return result
     

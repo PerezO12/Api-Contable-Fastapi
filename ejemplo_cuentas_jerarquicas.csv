@@ -1,0 +1,34 @@
+code,name,account_type,category,parent_code,description,is_active,allows_movements,requires_third_party,requires_cost_center,notes
+1111,CAJA GENERAL,activo,activo_corriente,1110,Dinero en efectivo en caja principal,true,true,false,false,Cuenta hoja para movimientos de efectivo
+1000,ACTIVOS,activo,activo_corriente,,Grupo principal de activos,true,false,false,false,Cuenta padre - no permite movimientos
+1110,DISPONIBLE,activo,activo_corriente,1100,Efectivo y equivalentes,true,false,false,false,Subcuenta padre para efectivo
+1100,ACTIVOS CORRIENTES,activo,activo_corriente,1000,Activos de corto plazo,true,false,false,false,Subcuenta padre para activos corrientes
+1112,CAJA MENOR,activo,activo_corriente,1110,Efectivo para gastos menores,true,true,false,false,Cuenta hoja para gastos menores
+1120,BANCOS,activo,activo_corriente,1100,Depósitos en bancos,true,false,false,false,Subcuenta padre para bancos
+1121,BANCO NACIONAL,activo,activo_corriente,1120,Cuenta corriente banco nacional,true,true,true,false,Requiere especificar el banco como tercero
+1122,BANCO COMERCIAL,activo,activo_corriente,1120,Cuenta corriente banco comercial,true,true,true,false,Requiere especificar el banco como tercero
+1130,CLIENTES,activo,activo_corriente,1100,Cuentas por cobrar a clientes,true,false,false,false,Subcuenta padre para clientes
+1131,CLIENTES NACIONALES,activo,activo_corriente,1130,Clientes del mercado nacional,true,true,true,false,Requiere especificar el cliente como tercero
+1132,CLIENTES EXTRANJEROS,activo,activo_corriente,1130,Clientes del mercado internacional,true,true,true,false,Requiere especificar el cliente como tercero
+2000,PASIVOS,pasivo,pasivo_corriente,,Grupo principal de pasivos,true,false,false,false,Cuenta padre - no permite movimientos
+2100,PASIVOS CORRIENTES,pasivo,pasivo_corriente,2000,Pasivos de corto plazo,true,false,false,false,Subcuenta padre para pasivos corrientes
+2110,PROVEEDORES,pasivo,pasivo_corriente,2100,Cuentas por pagar a proveedores,true,false,false,false,Subcuenta padre para proveedores
+2111,PROVEEDORES NACIONALES,pasivo,pasivo_corriente,2110,Proveedores del mercado nacional,true,true,true,false,Requiere especificar el proveedor como tercero
+2112,PROVEEDORES EXTRANJEROS,pasivo,pasivo_corriente,2110,Proveedores del mercado internacional,true,true,true,false,Requiere especificar el proveedor como tercero
+3000,PATRIMONIO,patrimonio,capital,,Grupo principal de patrimonio,true,false,false,false,Cuenta padre - no permite movimientos
+3100,CAPITAL SOCIAL,patrimonio,capital,3000,Capital aportado por socios,true,false,false,false,Subcuenta padre para capital
+3101,CAPITAL AUTORIZADO,patrimonio,capital,3100,Capital autorizado por la junta,true,true,false,false,Capital máximo autorizado
+3102,CAPITAL SUSCRITO,patrimonio,capital,3100,Capital comprometido por socios,true,true,false,false,Capital comprometido pero no pagado
+3103,CAPITAL PAGADO,patrimonio,capital,3100,Capital efectivamente pagado,true,true,false,false,Capital realmente aportado
+4000,INGRESOS,ingreso,ingresos_operacionales,,Grupo principal de ingresos,true,false,false,false,Cuenta padre - no permite movimientos
+4100,INGRESOS OPERACIONALES,ingreso,ingresos_operacionales,4000,Ingresos del giro ordinario,true,false,false,false,Subcuenta padre para ingresos operacionales
+4101,VENTAS DE PRODUCTOS,ingreso,ingresos_operacionales,4100,Ingresos por venta de productos,true,true,false,true,Requiere centro de costo
+4102,PRESTACION DE SERVICIOS,ingreso,ingresos_operacionales,4100,Ingresos por servicios prestados,true,true,false,true,Requiere centro de costo
+5000,GASTOS,gasto,gastos_operacionales,,Grupo principal de gastos,true,false,false,false,Cuenta padre - no permite movimientos
+5100,GASTOS OPERACIONALES,gasto,gastos_operacionales,5000,Gastos del giro ordinario,true,false,false,false,Subcuenta padre para gastos operacionales
+5110,GASTOS DE PERSONAL,gasto,gastos_operacionales,5100,Gastos relacionados con personal,true,false,false,false,Subcuenta padre para gastos de personal
+5111,SUELDOS Y SALARIOS,gasto,gastos_operacionales,5110,Remuneraciones básicas del personal,true,true,false,true,Requiere centro de costo
+5112,PRESTACIONES SOCIALES,gasto,gastos_operacionales,5110,Prestaciones laborales del personal,true,true,false,true,Requiere centro de costo
+6000,COSTOS,costos,costo_ventas,,Grupo principal de costos,true,false,false,false,Cuenta padre - no permite movimientos
+6100,COSTO DE VENTAS,costos,costo_ventas,6000,Costos directos de productos vendidos,true,false,false,false,Subcuenta padre para costos de ventas
+6101,COSTO MERCADERIA VENDIDA,costos,costo_ventas,6100,Costo directo de mercadería vendida,true,true,false,true,Requiere centro de costo

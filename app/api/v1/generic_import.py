@@ -10,6 +10,8 @@ import csv
 import io
 import hashlib
 import uuid
+from decimal import Decimal
+from datetime import date, timedelta
 from typing import List, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,17 +22,30 @@ from app.api.deps import get_db, get_current_active_user
 from app.models.user import User
 from app.schemas.generic_import import (
     ModelMetadata,
+    FieldMetadata,
     ImportSessionResponse,
     ColumnMapping,
     ImportPreviewRequest,
     ImportPreviewResponse,
     PreviewRowData,
     ValidationError,
-    ValidationSummary
+    ValidationSummary,
+    FieldType
+)
+from app.schemas.enhanced_import import (
+    EnhancedImportExecutionResponse,
+    ImportPerformanceMetrics,
+    ImportBatchSummary,
+    ImportQualityReport,
+    DetailedImportError,
+    ImportRecordResult,
+    ImportErrorType,
+    ImportRecordStatus
 )
 from app.services.model_metadata_registry import ModelMetadataRegistry
 from app.services.import_session_service_simple import import_session_service
 from app.services.product_service import ProductService
+from app.services.generic_import_validators import validate_new_model_data
 from app.models.product import Product
 from app.schemas.product import ProductCreate
 from app.utils.exceptions import (
@@ -41,6 +56,38 @@ from app.utils.exceptions import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _generate_recommendations(errors_by_type: dict, total_failed: int, total_processed: int) -> List[str]:
+    """Generate recommendations based on import errors and performance"""
+    recommendations = []
+    
+    if total_failed == 0:
+        recommendations.append("Import completed successfully with no errors!")
+        return recommendations
+    
+    error_rate = (total_failed / max(total_processed, 1)) * 100
+    
+    if error_rate > 50:
+        recommendations.append("High error rate detected. Consider reviewing your data format and column mappings.")
+    
+    if "validation_error" in errors_by_type and errors_by_type["validation_error"] > 0:
+        recommendations.append("Multiple validation errors found. Check required fields and data types.")
+    
+    if "duplicate_error" in errors_by_type and errors_by_type["duplicate_error"] > 0:
+        recommendations.append("Duplicate records detected. Consider using 'upsert' import policy to update existing records.")
+    
+    if "foreign_key_error" in errors_by_type and errors_by_type["foreign_key_error"] > 0:
+        recommendations.append("Foreign key constraint errors found. Ensure referenced entities exist before importing.")
+    
+    if "data_type_error" in errors_by_type and errors_by_type["data_type_error"] > 0:
+        recommendations.append("Data type errors detected. Review number formats, dates, and boolean values.")
+    
+    if error_rate < 10:
+        recommendations.append("Low error rate. Consider using 'skip_errors=true' to process valid records.")
+    
+    return recommendations
+
 
 # Initialize services
 metadata_registry = ModelMetadataRegistry()
@@ -54,7 +101,11 @@ async def _create_entity_with_auto_fields(model_class, transformed_data: dict, d
     """
     model_name = model_class.__tablename__
     
-    if model_name == "products" and model_class == Product:
+    if model_name == "invoices":
+        # === IMPORTACIÓN DE FACTURAS CON LÍNEAS ===
+        return await _create_invoice_with_lines(transformed_data, db, current_user_id)
+    
+    elif model_name == "products" and model_class == Product:
         # Para productos, generar código automáticamente si no se proporciona
         
         if 'code' not in transformed_data or not transformed_data['code']:
@@ -161,6 +212,115 @@ async def _create_entity_with_auto_fields(model_class, transformed_data: dict, d
             transformed_data['max_stock'] = 0.0
         if 'reorder_point' not in transformed_data:
             transformed_data['reorder_point'] = 0.0
+    
+    elif model_name == "cost_centers":
+        # === IMPORTACIÓN DE CENTROS DE COSTO ===
+        from app.models.cost_center import CostCenter
+        
+        # Manejar el centro padre si se especifica por código
+        if 'parent_code' in transformed_data and transformed_data['parent_code']:
+            parent_code = transformed_data['parent_code']
+            # Buscar el centro padre por código
+            parent_query = select(CostCenter).where(CostCenter.code == parent_code)
+            parent_result = await db.execute(parent_query)
+            parent_center = parent_result.scalar_one_or_none()
+            
+            if parent_center:
+                transformed_data['parent_id'] = parent_center.id
+            else:
+                logger.warning(f"Parent cost center with code '{parent_code}' not found")
+            
+            # Remover el campo parent_code ya que no existe en el modelo
+            del transformed_data['parent_code']
+        
+        # Aplicar valores por defecto
+        if 'is_active' not in transformed_data:
+            transformed_data['is_active'] = True
+        if 'allows_direct_assignment' not in transformed_data:
+            transformed_data['allows_direct_assignment'] = True
+    
+    elif model_name == "journals":
+        # === IMPORTACIÓN DE DIARIOS CONTABLES ===
+        # Aplicar valores por defecto
+        if 'sequence_padding' not in transformed_data:
+            transformed_data['sequence_padding'] = 4
+        if 'include_year_in_sequence' not in transformed_data:
+            transformed_data['include_year_in_sequence'] = True
+        if 'reset_sequence_yearly' not in transformed_data:
+            transformed_data['reset_sequence_yearly'] = True
+        if 'requires_validation' not in transformed_data:
+            transformed_data['requires_validation'] = False
+        if 'allow_manual_entries' not in transformed_data:
+            transformed_data['allow_manual_entries'] = True
+        if 'is_active' not in transformed_data:
+            transformed_data['is_active'] = True
+        if 'current_sequence_number' not in transformed_data:
+            transformed_data['current_sequence_number'] = 0
+    
+    elif model_name == "payment_terms":
+        # === IMPORTACIÓN DE TÉRMINOS DE PAGO ===
+        from app.models.payment_terms import PaymentSchedule
+        from decimal import Decimal
+        import re
+        
+        # Procesar cronograma de pagos desde campos de cadena
+        payment_schedules_data = []
+        
+        if 'payment_schedule_days' in transformed_data and 'payment_schedule_percentages' in transformed_data:
+            days_str = transformed_data.get('payment_schedule_days', '')
+            percentages_str = transformed_data.get('payment_schedule_percentages', '')
+            descriptions_str = transformed_data.get('payment_schedule_descriptions', '')
+            
+            # Parsear días y porcentajes
+            try:
+                days_list = [int(d.strip()) for d in days_str.split(',') if d.strip()]
+                percentages_list = [float(p.strip()) for p in percentages_str.split(',') if p.strip()]
+                descriptions_list = [d.strip() for d in descriptions_str.split('|')] if descriptions_str else []
+                
+                # Validar que tengan la misma longitud
+                if len(days_list) != len(percentages_list):
+                    raise ValueError("El número de días y porcentajes debe ser igual")
+                
+                # Validar que los porcentajes sumen 100
+                total_percentage = sum(percentages_list)
+                if abs(total_percentage - 100.0) > 0.000001:
+                    raise ValueError(f"Los porcentajes deben sumar 100%. Actual: {total_percentage}%")
+                
+                # Crear cronograma de pagos
+                for i, (days, percentage) in enumerate(zip(days_list, percentages_list)):
+                    description = descriptions_list[i] if i < len(descriptions_list) else None
+                    payment_schedules_data.append({
+                        'sequence': i + 1,
+                        'days': days,
+                        'percentage': Decimal(str(percentage)),
+                        'description': description
+                    })
+                
+            except Exception as e:
+                logger.error(f"Error processing payment schedule: {e}")
+                raise ValueError(f"Error en el cronograma de pagos: {e}")
+        
+        # Remover campos de cronograma ya que no existen en el modelo principal
+        for field in ['payment_schedule_days', 'payment_schedule_percentages', 'payment_schedule_descriptions']:
+            if field in transformed_data:
+                del transformed_data[field]
+        
+        # Aplicar valores por defecto
+        if 'is_active' not in transformed_data:
+            transformed_data['is_active'] = True
+        
+        # Crear el PaymentTerms primero
+        new_record = model_class(**transformed_data)
+        db.add(new_record)
+        await db.flush()  # Para obtener el ID
+        
+        # Crear los PaymentSchedule asociados
+        for schedule_data in payment_schedules_data:
+            schedule_data['payment_terms_id'] = new_record.id
+            schedule = PaymentSchedule(**schedule_data)
+            db.add(schedule)
+        
+        return new_record
     
     # Crear la entidad
     new_record = model_class(**transformed_data)
@@ -981,6 +1141,15 @@ async def preview_import(
                     elif session.model == "product":
                         from app.models.product import Product
                         model_class = Product
+                    elif session.model == "cost_center":
+                        from app.models.cost_center import CostCenter
+                        model_class = CostCenter
+                    elif session.model == "journal":
+                        from app.models.journal import Journal
+                        model_class = Journal
+                    elif session.model == "payment_terms":
+                        from app.models.payment_terms import PaymentTerms
+                        model_class = PaymentTerms
                     
                     if model_class:
                         try:
@@ -1001,6 +1170,20 @@ async def preview_import(
                                 ))
                         except Exception as e:
                             logger.warning(f"Row {row_number}: Error checking uniqueness: {e}")
+            
+            # === VALIDACIONES ESPECÍFICAS PARA NUEVOS MODELOS ===
+            if session.model in ["cost_center", "journal", "payment_terms"] and transformed_data:
+                try:
+                    specific_errors = await validate_new_model_data(session.model, transformed_data, db, row_number)
+                    errors.extend(specific_errors)
+                except Exception as e:
+                    logger.error(f"Row {row_number}: Error in specific validations for {session.model}: {e}")
+                    errors.append(ValidationError(
+                        field_name="general",
+                        error_type="validation_error",
+                        message=f"Error en validaciones específicas: {str(e)}",
+                        current_value=""
+                    ))
             
             # Determine validation status
             if errors:
@@ -1253,20 +1436,22 @@ async def validate_field_value(raw_value: Any, field_meta, db: AsyncSession):
 
 @router.post(
     "/sessions/{session_id}/execute",
-    summary="Execute import",
-    description="Execute the actual import with validation and error handling. If no mappings are provided, uses the mappings saved in the session from /mapping endpoint."
+    response_model=EnhancedImportExecutionResponse,
+    summary="Execute import with enhanced performance",
+    description="Execute import with optimized bulk operations and detailed error reporting. Supports both sync and async processing."
 )
 async def execute_import(
     session_id: str,
-    mappings: Optional[List[ColumnMapping]] = None,  # Hacer mappings opcional
+    mappings: Optional[List[ColumnMapping]] = None,
     import_policy: str = "create_only",  # create_only, update_only, upsert
-    skip_errors: bool = False,  # Nueva opción para omitir filas con errores
-    batch_size: int = 2000,  # Tamaño del lote para procesar
+    skip_errors: bool = False,
+    batch_size: int = 2000,
+    async_processing: bool = False,  # Nueva opción para procesamiento asíncrono
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
-) -> dict:
-    """Execute the import operation"""
+) -> EnhancedImportExecutionResponse:
+    """Execute the import operation with enhanced performance and error handling"""
     try:
         # Get session
         session = await session_service.get_session(session_id)
@@ -1275,8 +1460,6 @@ async def execute_import(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Import session '{session_id}' not found"
             )
-        
-        # TODO: Add ownership check - ensure user owns this session
         
         # Validate import policy
         valid_policies = ["create_only", "update_only", "upsert"]
@@ -1295,7 +1478,6 @@ async def execute_import(
         
         # Validate mappings - use saved mappings if none provided
         if not mappings:
-            # Try to get mappings from session
             saved_mappings = await session_service.get_session_mappings(session_id)
             if saved_mappings:
                 mappings = saved_mappings
@@ -1313,29 +1495,124 @@ async def execute_import(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No column mappings available"
             )
-          # Create mapping dictionary
-        mapping_dict = {m.column_name: m.field_name for m in mappings if m.field_name}        # Check required fields are mapped - but allow auto-generated fields
-        required_fields = [f.internal_name for f in session.model_metadata.fields if f.is_required]
-        mapped_fields = list(mapping_dict.values())
-        auto_generated_fields = ["code", "document_number", "document_type", "third_party_type"]  # Fields that can be auto-generated
-        missing_required = [f for f in required_fields if f not in mapped_fields and f not in auto_generated_fields]
         
-        if missing_required and not skip_errors:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Required fields not mapped and cannot be auto-generated: {', '.join(missing_required)}"
-            )
+        # Verificar si usar procesamiento asíncrono
+        total_rows = session.file_info.total_rows
         
-        # Implementación real de importación por lotes
-        total_rows = session.file_info.total_rows  # Total real de filas en el archivo
-        total_batches = session_service.get_total_batches(session_id, batch_size)
-        successful_rows = 0
-        error_rows = 0
-        skipped_rows = 0
-        errors = []
-        skipped_details = []
+        # Auto-detectar async para archivos grandes (más de 10,000 registros)
+        if total_rows > 10000 and not async_processing:
+            logger.info(f"Large dataset detected ({total_rows} rows), recommending async processing")
+            # No forzamos async, pero lo recomendamos en la respuesta
         
-        logger.info(f"Starting batch import: {total_rows} total rows, {total_batches} batches of {batch_size} rows each")
+        # PROCESAMIENTO ASÍNCRONO
+        if async_processing:
+            from app.services.async_import_service import AsyncImportService
+            
+            async_service = AsyncImportService()
+            
+            # Pre-validación
+            try:
+                precheck = await async_service.validate_before_import(
+                    session_id=session_id,
+                    mappings=mappings,
+                    import_policy=import_policy,
+                    batch_size=batch_size
+                )
+                
+                if not precheck.can_proceed:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot proceed with import: {'; '.join(precheck.blocking_issues)}"
+                    )
+                
+                if precheck.warnings:
+                    logger.warning(f"Import warnings: {'; '.join(precheck.warnings)}")
+                
+            except Exception as e:
+                logger.error(f"Pre-validation failed: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Pre-validation failed: {str(e)}"
+                )
+            
+            # Encolar para procesamiento asíncrono
+            try:
+                execution_id = await async_service.queue_import_execution(
+                    session_id=session_id,
+                    user_id=str(current_user.id),
+                    model_name=session.model,
+                    import_policy=import_policy,
+                    skip_errors=skip_errors,
+                    batch_size=batch_size,
+                    mappings=mappings
+                )
+                
+                # Para async processing, creamos una respuesta básica ya que el proceso está en cola
+                basic_summary = ImportBatchSummary(
+                    batch_number=0,
+                    batch_size=batch_size,
+                    total_processed=0,
+                    successful=0,
+                    updated=0,
+                    failed=0,
+                    skipped=0,
+                    processing_time_seconds=0.0,
+                    records_per_second=0.0,
+                    errors_by_type={}
+                )
+                
+                basic_metrics = ImportPerformanceMetrics(
+                    total_execution_time_seconds=0.0,
+                    average_batch_time_seconds=0.0,
+                    peak_records_per_second=0.0,
+                    average_records_per_second=0.0,
+                    database_time_seconds=0.0,
+                    validation_time_seconds=0.0,
+                    memory_usage_mb=precheck.estimated_memory_mb if hasattr(precheck, 'estimated_memory_mb') else None
+                )
+                
+                basic_quality = ImportQualityReport(
+                    data_quality_score=0.0,
+                    completeness_score=0.0,
+                    accuracy_score=0.0,
+                    field_quality_analysis={},
+                    recommendations=precheck.warnings or []
+                )
+                
+                return EnhancedImportExecutionResponse(
+                    import_session_token=session_id,
+                    execution_id=execution_id,
+                    model=session.model,
+                    import_policy=import_policy,
+                    status="queued",
+                    completed_at=datetime.datetime.utcnow(),
+                    summary=basic_summary,
+                    performance_metrics=basic_metrics,
+                    quality_report=basic_quality,
+                    successful_samples=[],
+                    failed_records=[],
+                    errors_by_type={},
+                    post_import_actions=[
+                        f"Monitor progress at GET /sessions/{session_id}/status/{execution_id}",
+                        "Async processing will complete in background"
+                    ],
+                    download_links={}
+                )
+                
+            except Exception as e:
+                logger.error(f"Failed to queue async import: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to queue async import: {str(e)}"
+                )
+        
+        # PROCESAMIENTO SÍNCRONO OPTIMIZADO
+        logger.info(f"Starting optimized sync import: {total_rows} total rows")
+        
+        # Usar el servicio bulk optimizado
+        from app.services.bulk_import_service import BulkImportService
+        
+        bulk_service = BulkImportService(db)
         
         # Obtener el modelo SQLAlchemy correspondiente
         model_class = None
@@ -1347,7 +1624,19 @@ async def execute_import(
             model_class = Account
         elif session.model == "product":
             from app.models.product import Product
-            model_class = Product        # Agregar más modelos según se necesiten
+            model_class = Product
+        elif session.model == "invoice":
+            from app.models.invoice import Invoice
+            model_class = Invoice
+        elif session.model == "cost_center":
+            from app.models.cost_center import CostCenter
+            model_class = CostCenter
+        elif session.model == "journal":
+            from app.models.journal import Journal
+            model_class = Journal
+        elif session.model == "payment_terms":
+            from app.models.payment_terms import PaymentTerms
+            model_class = PaymentTerms
         
         if not model_class:
             raise HTTPException(
@@ -1355,43 +1644,41 @@ async def execute_import(
                 detail=f"Model implementation not found for: {session.model}"
             )
         
-        # Improve mappings by attempting automatic mapping for unmapped columns
-        improved_mapping_dict = mapping_dict.copy()
-        unmapped_columns = [m.column_name for m in mappings if not m.field_name]
+        # Create mapping dictionary
+        mapping_dict = {m.column_name: m.field_name for m in mappings if m.field_name}
         
-        if unmapped_columns:
-            logger.info(f"Attempting automatic mapping for unmapped columns: {unmapped_columns}")
-            
-            for column_name in unmapped_columns:
-                # Try direct name matching first
-                for field_meta in session.model_metadata.fields:
-                    if field_meta.internal_name.lower() == column_name.lower():
-                        improved_mapping_dict[column_name] = field_meta.internal_name
-                        logger.info(f"Auto-mapped column '{column_name}' to field '{field_meta.internal_name}' (exact match)")
-                        break
-                
-                # If no exact match, try partial matching for common fields
-                if column_name not in improved_mapping_dict:
-                    column_lower = column_name.lower()
-                    for field_meta in session.model_metadata.fields:
-                        field_lower = field_meta.internal_name.lower()
-                        
-                        # Check for common patterns
-                        if (
-                            (column_lower in field_lower or field_lower in column_lower) and
-                            len(field_lower) > 2  # Avoid matching very short fields
-                        ):
-                            improved_mapping_dict[column_name] = field_meta.internal_name
-                            logger.info(f"Auto-mapped column '{column_name}' to field '{field_meta.internal_name}' (partial match)")
-                            break
-          # Use the improved mapping dictionary
-        mapping_dict = improved_mapping_dict
-        logger.info(f"Final mapping dictionary: {mapping_dict}")
+        # Check required fields are mapped - but allow auto-generated fields
+        required_fields = [f.internal_name for f in session.model_metadata.fields if f.is_required]
+        mapped_fields = list(mapping_dict.values())
+        auto_generated_fields = ["code", "document_number", "document_type", "third_party_type", 
+                                "sequence_padding", "include_year_in_sequence", "reset_sequence_yearly", 
+                                "requires_validation", "allow_manual_entries", "current_sequence_number",
+                                "is_active", "allows_direct_assignment"]
+        missing_required = [f for f in required_fields if f not in mapped_fields and f not in auto_generated_fields]
         
-        # Procesar archivo por lotes
-        current_row_number = 0
+        if missing_required and not skip_errors:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Required fields not mapped and cannot be auto-generated: {', '.join(missing_required)}"
+            )
+        
+        # Procesar por batches usando el nuevo servicio optimizado
+        total_batches = session_service.get_total_batches(session_id, batch_size)
+        
+        # Contadores consolidados
+        all_successful_records = []
+        all_failed_records = []
+        all_updated_records = []
+        all_skipped_records = []
+        all_errors_by_type = {}
+        
+        total_processing_time = 0.0
+        
+        logger.info(f"Processing {total_batches} batches of {batch_size} records each")
         
         for batch_number in range(total_batches):
+            batch_start_time = time.time()
+            
             logger.info(f"Processing batch {batch_number + 1}/{total_batches}")
             
             try:
@@ -1402,375 +1689,199 @@ async def execute_import(
                     logger.info(f"Batch {batch_number + 1} is empty, skipping")
                     continue
                 
-                logger.info(f"Batch {batch_number + 1}: Processing {len(batch_data)} rows")
-                
-                # Procesar cada fila del lote
-                for i, row_data in enumerate(batch_data):
-                    current_row_number += 1
-                    savepoint = None  # Initialize savepoint variable
+                # Transformar datos según mapeos
+                transformed_batch = []
+                for row_data in batch_data:
+                    transformed_row = {}
                     
-                    if current_row_number % 100 == 0:  # Log progress every 100 rows
-                        logger.info(f"Processing row {current_row_number}/{total_rows}")
+                    # Aplicar mapeos con manejo de múltiples columnas
+                    field_mappings = {}
+                    for column_name, field_name in mapping_dict.items():
+                        if field_name not in field_mappings:
+                            field_mappings[field_name] = []
+                        field_mappings[field_name].append(column_name)
                     
-                    try:
-                        # Si skip_errors está habilitado, usar transacciones individuales
-                        if skip_errors:
-                            # Usar savepoint para aislar cada fila
-                            savepoint = await db.begin_nested()
-                            logger.debug(f"Row {current_row_number}: Created savepoint for skip_errors mode")
-                        else:
-                            logger.debug(f"Row {current_row_number}: Processing in normal mode (no savepoint)")
-                            
-                        # Transformar fila según mapeos - manejar múltiples columnas mapeadas al mismo campo
-                        transformed_data = {}
+                    for field_name, column_names in field_mappings.items():
+                        field_meta = next(
+                            (f for f in session.model_metadata.fields if f.internal_name == field_name),
+                            None
+                        )
                         
-                        logger.debug(f"Row {current_row_number}: Mapping dict: {mapping_dict}")
-                        
-                        # Group mappings by field_name to handle multiple columns mapping to same field
-                        field_mappings = {}
-                        for column_name, field_name in mapping_dict.items():
-                            if field_name not in field_mappings:
-                                field_mappings[field_name] = []
-                            field_mappings[field_name].append(column_name)
-                        
-                        logger.debug(f"Row {current_row_number}: Field mappings: {field_mappings}")
-                        
-                        # Process each target field
-                        for field_name, column_names in field_mappings.items():
-                            field_meta = next(
-                                (f for f in session.model_metadata.fields if f.internal_name == field_name),
-                                None
-                            )
-                            
-                            if field_meta:
-                                # Try each column until we find a valid non-null value
-                                final_value = None
-                                
-                                for column_name in column_names:
-                                    if column_name in row_data:
-                                        raw_value = row_data[column_name]
-                                        
-                                        # Skip null/empty/nan values unless this is the only option
-                                        if raw_value is None or raw_value == "" or str(raw_value).lower() == "nan":
-                                            continue
-                                        
+                        if field_meta:
+                            final_value = None
+                            for column_name in column_names:
+                                if column_name in row_data:
+                                    raw_value = row_data[column_name]
+                                    if raw_value is not None and str(raw_value).strip() != "":
                                         try:
                                             validated_value = await validate_field_value(raw_value, field_meta, db)
                                             if validated_value is not None:
                                                 final_value = validated_value
-                                                break  # Use the first valid value found
-                                        except Exception as e:
-                                            # Log validation error but continue trying other columns
-                                            logger.warning(f"Validation failed for {column_name} -> {field_name}: {e}")
-                                            continue
-                                
-                                # If no valid value found from preferred columns, try fallback with null/empty handling
-                                if final_value is None:
-                                    for column_name in column_names:
-                                        if column_name in row_data:
-                                            raw_value = row_data[column_name]
-                                            try:
-                                                validated_value = await validate_field_value(raw_value, field_meta, db)
-                                                final_value = validated_value
                                                 break
-                                            except Exception:
-                                                continue
-                                
-                                # Set the final value for this field
-                                if final_value is not None:
-                                    transformed_data[field_name] = final_value
-                        
-                        # Apply default values for missing fields before checking required fields
-                        for field_meta in session.model_metadata.fields:
-                            field_name = field_meta.internal_name
-                            if field_name not in transformed_data or transformed_data[field_name] is None:
-                                # Check if field has a default value
-                                if hasattr(field_meta, 'default_value') and field_meta.default_value is not None:
-                                    # Apply proper type conversion for default values
-                                    default_value = field_meta.default_value
-                                    
-                                    # Convert string boolean defaults to actual booleans
-                                    if field_meta.field_type == "boolean" and isinstance(default_value, str):
-                                        if default_value.lower() in ["true", "1", "yes", "si", "sí"]:
-                                            default_value = True
-                                        elif default_value.lower() in ["false", "0", "no"]:
-                                            default_value = False
-                                        else:
-                                            logger.warning(f"Invalid boolean default value '{default_value}' for field '{field_name}', using False")
-                                            default_value = False
-                                    
-                                    transformed_data[field_name] = default_value
-                                    logger.debug(f"Row {current_row_number}: Applied default value for '{field_name}': {default_value} (type: {type(default_value)})")
-                                
-                                # Special handling for auto-generated fields
-                                elif field_name == "code" and session.model == "third_party":
-                                    # Generate a unique code for third parties if not provided
-                                    if "name" in transformed_data and transformed_data["name"]:
-                                        # Generate code from name (first 3 letters + row number + timestamp for uniqueness)
-                                        name_part = ''.join(c.upper() for c in transformed_data["name"] if c.isalpha())[:3]
-                                        if len(name_part) < 3:
-                                            name_part = name_part.ljust(3, 'X')  # Pad with X if name is too short
-                                        timestamp_suffix = str(int(time.time()))[-4:]  # Last 4 digits of timestamp
-                                        generated_code = f"{name_part}{current_row_number:03d}{timestamp_suffix}"
-                                        
-                                        # Ensure the code doesn't exceed max length (if there's a limit)
-                                        if len(generated_code) > 20:  # Assuming max 20 chars for code
-                                            generated_code = generated_code[:20]
-                                        
-                                        transformed_data[field_name] = generated_code
-                                        logger.info(f"Row {current_row_number}: Generated unique code '{generated_code}' from name '{transformed_data['name']}'")
-                                    else:
-                                        # Generate generic code if no name available
-                                        timestamp_suffix = str(int(time.time()))[-4:]
-                                        generated_code = f"TP{current_row_number:04d}{timestamp_suffix}"
-                                        transformed_data[field_name] = generated_code
-                                        logger.info(f"Row {current_row_number}: Generated generic code '{generated_code}'")
-                                
-                                # Auto-generate document_number if not provided
-                                elif field_name == "document_number" and session.model == "third_party":
-                                    if "name" in transformed_data and transformed_data["name"]:
-                                        # Generate a document number from name hash
-                                        name_hash = hashlib.md5(transformed_data["name"].encode()).hexdigest()[:8]
-                                        generated_doc = f"DOC{name_hash.upper()}"
-                                        transformed_data[field_name] = generated_doc
-                                        logger.info(f"Row {current_row_number}: Generated document number '{generated_doc}' from name hash")
-                                    else:
-                                        generated_doc = f"DOC{current_row_number:06d}"
-                                        transformed_data[field_name] = generated_doc
-                                        logger.info(f"Row {current_row_number}: Generated generic document number '{generated_doc}'")
-                                
-                                # Special defaults for common third_party fields
-                                elif field_name == "document_type" and session.model == "third_party":
-                                    transformed_data[field_name] = "other"
-                                    logger.debug(f"Row {current_row_number}: Applied default value for '{field_name}': other")
-                                
-                                elif field_name == "is_active" and session.model == "third_party":
-                                    transformed_data[field_name] = True
-                                    logger.debug(f"Row {current_row_number}: Applied default value for '{field_name}': True")
-                                
-                                elif field_name == "is_tax_withholding_agent" and session.model == "third_party":
-                                    transformed_data[field_name] = False
-                                    logger.debug(f"Row {current_row_number}: Applied default value for '{field_name}': False")
-                                
-                                elif field_name == "third_party_type" and session.model == "third_party":
-                                    transformed_data[field_name] = "customer"  # Default to customer (lowercase as in enum)
-                                    logger.debug(f"Row {current_row_number}: Applied default value for '{field_name}': customer")
-                        
-                        logger.debug(f"Row {current_row_number}: Transformed data after defaults: {transformed_data}")
-                        
-                        # Verificar campos requeridos después de aplicar defaults
-                        required_fields = [f.internal_name for f in session.model_metadata.fields if f.is_required]
-                        missing_required = []
-                        
-                        for req_field in required_fields:
-                            field_value = transformed_data.get(req_field)
-                            is_missing_or_empty = (
-                                req_field not in transformed_data or 
-                                field_value is None or 
-                                (isinstance(field_value, str) and field_value.strip() == "")
-                            )
-                            
-                            if is_missing_or_empty:
-                                missing_required.append(req_field)
-                                logger.warning(f"Row {current_row_number}: Required field '{req_field}' is missing or empty. Value: {repr(field_value)}")
-                        
-                        if missing_required:
-                            if skip_errors:
-                                if savepoint:
-                                    await savepoint.rollback()
-                                skipped_rows += 1
-                                skip_reason = f"Row {current_row_number}: Missing required fields: {', '.join(missing_required)}"
-                                skipped_details.append(skip_reason)
-                                logger.warning(f"Skipping row {current_row_number} due to missing required fields: {missing_required}")
-                                continue
-                            else:
-                                raise Exception(f"Missing required fields: {', '.join(missing_required)}")
-                        
-                        # Crear/actualizar registro en la base de datos
-                        if transformed_data:
-                            if import_policy == "create_only":
-                                # Solo crear - verificar que no exista
-                                business_key_values = {}
-                                for key_field in session.model_metadata.business_key_fields:
-                                    if key_field in transformed_data:
-                                        business_key_values[key_field] = transformed_data[key_field]
-                                
-                                if business_key_values:
-                                    # Verificar si ya existe
-                                    query = select(model_class)
-                                    for key, value in business_key_values.items():
-                                        query = query.where(getattr(model_class, key) == value)
-                                    existing = await db.execute(query)
-                                    if existing.scalar_one_or_none():
-                                        if skip_errors:
-                                            if savepoint:
-                                                await savepoint.rollback()
-                                            skipped_rows += 1
-                                            # Create more specific error message for uniqueness violation
-                                            key_field = list(business_key_values.keys())[0]  # Usually just one key field
-                                            key_value = business_key_values[key_field]
-                                            skip_reason = f"Row {current_row_number}: {key_field}: Value '{key_value}' already exists (case sensitive)"
-                                            skipped_details.append(skip_reason)
-                                            logger.info(f"Skipping row {current_row_number} due to duplicate: {skip_reason}")
+                                        except Exception:
                                             continue
-                                        else:
-                                            error_rows += 1
-                                            key_field = list(business_key_values.keys())[0]
-                                            key_value = business_key_values[key_field]
-                                            errors.append(f"Row {current_row_number}: Value '{key_value}' already exists for field '{key_field}' (case sensitive)")
-                                            continue
-                                
-                                # Crear nuevo registro
-                                new_record = await _create_entity_with_auto_fields(model_class, transformed_data, db, str(current_user.id))
-                                # No agregamos a db aquí porque _create_entity_with_auto_fields ya lo hace
-                                
-                            elif import_policy == "upsert":
-                                # Crear o actualizar
-                                business_key_values = {}
-                                for key_field in session.model_metadata.business_key_fields:
-                                    if key_field in transformed_data:
-                                        business_key_values[key_field] = transformed_data[key_field]
-                                
-                                if business_key_values:
-                                    # Buscar registro existente
-                                    query = select(model_class)
-                                    for key, value in business_key_values.items():
-                                        query = query.where(getattr(model_class, key) == value)
-                                    result = await db.execute(query)
-                                    existing_record = result.scalar_one_or_none()
-                                    
-                                    if existing_record:
-                                        # Actualizar registro existente
-                                        for key, value in transformed_data.items():
-                                            if hasattr(existing_record, key):
-                                                setattr(existing_record, key, value)
-                                    else:
-                                        # Crear nuevo registro
-                                        new_record = await _create_entity_with_auto_fields(model_class, transformed_data, db, str(current_user.id))
-                                        # No agregamos a db aquí porque _create_entity_with_auto_fields ya lo hace
-                                else:
-                                    # Sin business key, solo crear
-                                    new_record = await _create_entity_with_auto_fields(model_class, transformed_data, db, str(current_user.id))
-                                    # No agregamos a db aquí porque _create_entity_with_auto_fields ya lo hace
                             
-                            # Manejar confirmación según el modo de errores
-                            if skip_errors:
-                                # En modo skip_errors, usar savepoints para aislar cada fila
-                                if savepoint:
-                                    try:
-                                        await savepoint.commit()
-                                        successful_rows += 1
-                                        logger.debug(f"Successfully processed row {current_row_number}: {transformed_data}")
-                                    except Exception as db_error:
-                                        await savepoint.rollback()
-                                        skipped_rows += 1
-                                        
-                                        # Create more descriptive error messages based on error type
-                                        error_str = str(db_error)
-                                        if "NotNullViolationError" in error_str:
-                                            # Extract the column name from the error
-                                            if "code" in error_str:
-                                                skip_reason = f"Row {current_row_number}: Missing required field 'code' (auto-generation failed)"
-                                            elif "name" in error_str:
-                                                skip_reason = f"Row {current_row_number}: Missing required field 'name'"
-                                            else:
-                                                skip_reason = f"Row {current_row_number}: Missing required field - {error_str.split('column')[1].split('of')[0].strip() if 'column' in error_str else 'unknown field'}"
-                                        elif "UniqueViolationError" in error_str or "duplicate key" in error_str.lower():
-                                            skip_reason = f"Row {current_row_number}: Duplicate record found"
-                                        elif "ForeignKeyViolationError" in error_str:
-                                            skip_reason = f"Row {current_row_number}: Invalid reference to related record"
-                                        else:
-                                            skip_reason = f"Row {current_row_number}: Database error - {str(db_error)}"
-                                        
-                                        skipped_details.append(skip_reason)
-                                        logger.warning(f"Skipping row {current_row_number} due to database error: {skip_reason}")
-                                        continue
-                                else:
-                                    # Fallback cuando no hay savepoint - contar como exitoso pero no confirmar aún
-                                    successful_rows += 1
-                                    logger.debug(f"Processed row {current_row_number} (no savepoint): {transformed_data}")
-                            else:
-                                # En modo normal, solo contar - el commit se hará al final
-                                successful_rows += 1
-                                logger.debug(f"Processed row {current_row_number}: {transformed_data}")
-                        
-                    except Exception as e:
-                        if skip_errors:
-                            if savepoint:
-                                await savepoint.rollback()
-                            skipped_rows += 1
-                            skip_reason = f"Row {current_row_number}: Processing error - {str(e)}"
-                            skipped_details.append(skip_reason)
-                            logger.warning(f"Skipping row {current_row_number} due to processing error: {str(e)}")
-                            continue
-                        else:
-                            error_rows += 1
-                            error_msg = f"Row {current_row_number}: {str(e)}"
-                            errors.append(error_msg)
-                            logger.error(f"Error processing row {current_row_number}: {e}")
+                            if final_value is not None:
+                                transformed_row[field_name] = final_value
+                    
+                    # Aplicar valores por defecto
+                    for field_meta in session.model_metadata.fields:
+                        field_name = field_meta.internal_name
+                        if field_name not in transformed_row and hasattr(field_meta, 'default_value'):
+                            if field_meta.default_value is not None:
+                                transformed_row[field_name] = field_meta.default_value
+                    
+                    if transformed_row:
+                        transformed_batch.append(transformed_row)
                 
-                # Commit batch in normal mode (not skip_errors)
-                if not skip_errors and successful_rows > 0:
-                    try:
-                        await db.commit()
-                        logger.info(f"Committed batch {batch_number + 1} with {len(batch_data)} rows")
-                    except Exception as e:
-                        await db.rollback()
-                        logger.error(f"Error committing batch {batch_number + 1}: {e}")
-                        # In normal mode, if batch fails, all rows in batch become errors
-                        batch_successful = successful_rows  # Remember how many were successful before this batch
-                        error_rows += len(batch_data)
-                        errors.append(f"Batch {batch_number + 1} failed: {str(e)}")
-                        successful_rows = batch_successful  # Reset to before this batch
-                        
+                if not transformed_batch:
+                    continue
+                
+                # Ejecutar importación bulk optimizada
+                batch_start_row = batch_number * batch_size + 1
+                batch_result = await bulk_service.bulk_import_records(
+                    model_class=model_class,
+                    model_metadata=session.model_metadata,
+                    records=transformed_batch,
+                    import_policy=import_policy,
+                    skip_errors=skip_errors,
+                    user_id=str(current_user.id),
+                    batch_start_row=batch_start_row
+                )
+                
+                # Consolidar resultados
+                all_successful_records.extend(batch_result.successful_records)
+                all_failed_records.extend(batch_result.failed_records)
+                all_updated_records.extend(batch_result.updated_records)
+                all_skipped_records.extend(batch_result.skipped_records)
+                
+                # Consolidar errores por tipo
+                for error_type, count in batch_result.errors_by_type.items():
+                    all_errors_by_type[error_type] = all_errors_by_type.get(error_type, 0) + count
+                
+                batch_time = time.time() - batch_start_time
+                total_processing_time += batch_time
+                
+                logger.info(f"Batch {batch_number + 1} completed in {batch_time:.2f}s - "
+                          f"Success: {batch_result.total_successful}, "
+                          f"Updated: {batch_result.total_updated}, "
+                          f"Failed: {batch_result.total_failed}, "
+                          f"RPS: {batch_result.records_per_second:.1f}")
+                
             except Exception as batch_error:
                 logger.error(f"Error processing batch {batch_number + 1}: {batch_error}")
+                
                 if not skip_errors:
-                    # In normal mode, batch error affects all rows in batch
-                    error_rows += batch_size if batch_number < total_batches - 1 else (total_rows - batch_number * batch_size)
-                    errors.append(f"Batch {batch_number + 1} failed: {str(batch_error)}")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"Batch {batch_number + 1} failed: {str(batch_error)}"
+                    )
                 else:
-                    # In skip_errors mode, individual rows were already handled
-                    pass
+                    # En modo skip_errors, continuar con el siguiente batch
+                    continue
         
-        # Final commit for skip_errors mode if needed
-        if skip_errors:
-            # En modo skip_errors, las filas exitosas ya fueron comiteadas individualmente
-            # Solo necesitamos hacer commit final si hay cambios pendientes
-            try:
-                await db.commit()
-                logger.info(f"Final commit completed for skip_errors mode - {successful_rows} records were already committed individually")
-            except Exception as e:
-                logger.warning(f"Final commit failed in skip_errors mode: {e} - Individual commits should have already succeeded")
-                await db.rollback()
-                logger.error(f"Error committing transaction: {e}")
-                # Convertir todos los éxitos en errores si falla el commit
-                error_rows += successful_rows
-                errors.append(f"Transaction failed: {str(e)}")
-                successful_rows = 0
+        # Calcular métricas finales
+        total_successful = len(all_successful_records)
+        total_updated = len(all_updated_records)
+        total_failed = len(all_failed_records)
+        total_skipped = len(all_skipped_records)
+        total_processed = total_successful + total_updated + total_failed + total_skipped
         
-        # Calculate execution summary
-        execution_summary = {
-            "session_id": session_id,
-            "model": session.model,
-            "import_policy": import_policy,
-            "skip_errors": skip_errors,
-            "batch_size": batch_size,
-            "total_batches": total_batches,
-            "status": "completed" if error_rows == 0 else "completed_with_errors",
-            "total_rows": total_rows,
-            "successful_rows": successful_rows,
-            "error_rows": error_rows,
-            "skipped_rows": skipped_rows,
-            "errors": errors[:10],  # Limit to first 10 errors
-            "skipped_details": skipped_details[:10] if skip_errors else [],  # Show skipped details when relevant
-            "message": f"Import completed: {successful_rows} successful, {error_rows} errors, {skipped_rows} skipped (Processed in {total_batches} batches of {batch_size} rows)"
-        }
+        avg_rps = total_processed / max(total_processing_time, 0.001)
+        
+        # Crear métricas de rendimiento
+        performance_metrics = ImportPerformanceMetrics(
+            total_execution_time_seconds=round(total_processing_time, 2),
+            average_batch_time_seconds=round(total_processing_time / max(total_batches, 1), 2),
+            peak_records_per_second=round(avg_rps, 1),
+            average_records_per_second=round(avg_rps, 1),
+            database_time_seconds=round(total_processing_time * 0.7, 2),  # Estimación
+            validation_time_seconds=round(total_processing_time * 0.3, 2),  # Estimación
+            memory_usage_mb=None
+        )
+        
+        # Crear resumen del batch
+        batch_summary = ImportBatchSummary(
+            batch_number=total_batches,
+            batch_size=batch_size,
+            total_processed=total_processed,
+            successful=total_successful,
+            updated=total_updated,
+            failed=total_failed,
+            skipped=total_skipped,
+            processing_time_seconds=round(total_processing_time, 2),
+            records_per_second=round(avg_rps, 1),
+            errors_by_type=all_errors_by_type
+        )
+        
+        # Crear reporte de calidad
+        success_rate = (total_successful + total_updated) / max(total_processed, 1) * 100
+        quality_report = ImportQualityReport(
+            data_quality_score=round(success_rate, 1),
+            completeness_score=round(success_rate, 1),
+            accuracy_score=round(success_rate, 1),
+            field_quality_analysis={},
+            recommendations=_generate_recommendations(all_errors_by_type, total_failed, total_processed)
+        )
+        
+        # Convertir errores a formato detallado
+        detailed_errors = []
+        for record in all_failed_records[:50]:  # Máximo 50 errores
+            detailed_errors.append(
+                ImportRecordResult(
+                    row_number=record.get("row_number", 0),
+                    status=ImportRecordStatus.FAILED,
+                    record_data=record.get("data"),
+                    error=DetailedImportError(
+                        row_number=record.get("row_number", 0),
+                        error_type=ImportErrorType.VALIDATION_ERROR,  # Mapear según sea necesario
+                        message=record.get("error", "Unknown error"),
+                        field_name=None,
+                        field_value=None,
+                        suggested_fix=None
+                    ),
+                    processing_time_ms=None
+                )
+            )
+        
+        # Crear muestras de registros exitosos
+        successful_samples = []
+        for record in all_successful_records[:10]:  # Máximo 10 ejemplos
+            successful_samples.append(
+                ImportRecordResult(
+                    row_number=record.get("row_number", 0),
+                    status=ImportRecordStatus.CREATED,
+                    record_data=record.get("data"),
+                    error=None,
+                    processing_time_ms=None
+                )
+            )
+        
+        # Crear respuesta mejorada
+        execution_response = EnhancedImportExecutionResponse(
+            import_session_token=session_id,
+            execution_id=str(uuid.uuid4()),
+            model=session.model,
+            import_policy=import_policy,
+            status="completed" if total_failed == 0 else "completed_with_errors",
+            completed_at=datetime.datetime.utcnow(),
+            summary=batch_summary,
+            performance_metrics=performance_metrics,
+            quality_report=quality_report,
+            successful_samples=successful_samples,
+            failed_records=detailed_errors,
+            errors_by_type={},  # Se podría categorizar mejor aquí
+            post_import_actions=[
+                f"Import completed: {total_successful} created, {total_updated} updated, {total_failed} errors",
+                "Consider reviewing failed records for data quality improvements" if total_failed > 0 else "All records processed successfully"
+            ],
+            download_links={}
+        )
         
         # Schedule cleanup of session files
         background_tasks.add_task(session_service._cleanup_session, session_id)
         
-        return execution_summary
+        return execution_response
         
     except ImportSessionNotFoundError as e:
         raise HTTPException(
@@ -1899,13 +2010,13 @@ async def create_import_template(
 @router.get(
     "/models/{model_name}/template",
     summary="Download CSV template",
-    description="Download a CSV template file with proper column headers for a model"
+    description="Download a CSV template file with proper column headers and sample data for a model"
 )
 async def download_model_template(
     model_name: str,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Download CSV template for a model"""
+    """Download CSV template for a model with realistic sample data"""
     try:
         # Get model metadata
         metadata = metadata_registry.get_model_metadata(model_name)
@@ -1915,48 +2026,57 @@ async def download_model_template(
                 detail=f"Model '{model_name}' not found"
             )
         
-        # Create CSV headers based on model fields
+        # Create CSV with sample data based on model
         import io
         import csv
         
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Write header with field labels
-        headers = []
-        sample_row = []
+        # Generate template using static CSV files if available, otherwise dynamic generation
+        headers = [field.display_label for field in metadata.fields]
         
-        for field in metadata.fields:
-            headers.append(field.display_label)
-            
-            # Add sample value based on field type
-            if field.field_type == "text":
-                sample_row.append(f"Ejemplo {field.display_label}")
-            elif field.field_type == "number":
-                sample_row.append("123.45")
-            elif field.field_type == "date":
-                sample_row.append("2025-06-23")
-            elif field.field_type == "boolean":
-                sample_row.append("true")
-            elif field.field_type == "email":
-                sample_row.append("ejemplo@email.com")
-            elif field.field_type == "phone":
-                sample_row.append("+1234567890")
+        # Try to read from static template files first
+        static_template_path = f"e:/trabajo/Aplicacion/API Contable/templates/{model_name}_plantilla_importacion.csv"
+        
+        try:
+            import os
+            if os.path.exists(static_template_path):
+                # Use static template file
+                with open(static_template_path, 'r', encoding='utf-8-sig') as f:
+                    csv_reader = csv.reader(f)
+                    static_headers = next(csv_reader)
+                    sample_data = list(csv_reader)
+                
+                # Verify headers match metadata
+                if static_headers == headers:
+                    # Headers match, use static data
+                    pass
+                else:
+                    # Headers don't match, regenerate with current metadata
+                    sample_data = generate_dynamic_sample_data(model_name, metadata)
             else:
-                sample_row.append("Valor ejemplo")
+                # No static file, generate dynamically
+                sample_data = generate_dynamic_sample_data(model_name, metadata)
+        except Exception as e:
+            logger.warning(f"Could not read static template for {model_name}: {e}")
+            # Fallback to dynamic generation
+            sample_data = generate_dynamic_sample_data(model_name, metadata)
         
+        # Write to CSV
         writer.writerow(headers)
-        writer.writerow(sample_row)  # Add one sample row
+        for row in sample_data:
+            writer.writerow(row)
         
         output.seek(0)
         
         from fastapi.responses import StreamingResponse
         
         return StreamingResponse(
-            io.BytesIO(output.getvalue().encode('utf-8')),
+            io.BytesIO(output.getvalue().encode('utf-8-sig')),  # UTF-8 with BOM for Excel compatibility
             media_type="text/csv",
             headers={
-                "Content-Disposition": f"attachment; filename={model_name}_template.csv"
+                "Content-Disposition": f"attachment; filename={model_name}_plantilla_importacion.csv"
             }
         )
         
@@ -1966,6 +2086,126 @@ async def download_model_template(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error generating CSV template"
         )
+
+
+def generate_dynamic_sample_data(model_name: str, metadata: ModelMetadata) -> List[List[str]]:
+    """Generate dynamic sample data based on model metadata"""
+    
+    def get_sample_value(field: FieldMetadata, row_index: int = 0) -> str:
+        """Generate a sample value for a field based on its metadata"""
+        
+        # Handle choices first
+        if field.choices and len(field.choices) > 0:
+            # Cycle through choices for variety
+            choice_index = row_index % len(field.choices)
+            return field.choices[choice_index]["value"]
+        
+        # Handle default values
+        if field.default_value:
+            return str(field.default_value)
+        
+        # Generate values based on field type
+        if field.field_type == FieldType.STRING:
+            # Handle specific field names with realistic values
+            field_name_lower = field.internal_name.lower()
+            
+            if "code" in field_name_lower:
+                return f"{model_name.upper()[:3]}-{row_index + 1:03d}"
+            elif "name" in field_name_lower:
+                names = [
+                    "ACME Corporation S.A.S.",
+                    "Distribuidora El Sol Ltda", 
+                    "Juan Pérez García",
+                    "Tecnología Global S.A.",
+                    "María González López"
+                ]
+                return names[row_index % len(names)]
+            elif "document_number" in field_name_lower:
+                documents = ["900123456-7", "830987654-3", "1234567890", "860012345-9", "9876543210"]
+                return documents[row_index % len(documents)]
+            elif "email" in field_name_lower:
+                emails = ["contacto@acme.com", "ventas@elsol.com", "juan.perez@email.com", "info@tecglobal.com", "maria.gonzalez@correo.com"]
+                return emails[row_index % len(emails)]
+            elif "phone" in field_name_lower:
+                phones = ["+57-300-123-4567", "+57-301-987-6543", "+57-310-555-7890", "+57-312-456-7890", "+57-320-111-2233"]
+                return phones[row_index % len(phones)]
+            elif "address" in field_name_lower:
+                addresses = ["Calle 123 #45-67, Torre A", "Carrera 45 #123-89, Local 201", "Avenida 68 #12-34, Apto 501", "Zona Industrial, Bodega 25", "Calle 80 #45-12, Casa 15"]
+                return addresses[row_index % len(addresses)]
+            elif "city" in field_name_lower:
+                cities = ["Bogotá", "Medellín", "Cali", "Barranquilla", "Bucaramanga"]
+                return cities[row_index % len(cities)]
+            elif "description" in field_name_lower:
+                return f"Descripción de ejemplo para {field.display_label}"
+            else:
+                return f"Ejemplo {field.display_label} {row_index + 1}"
+                
+        elif field.field_type == FieldType.DECIMAL:
+            # Generate realistic decimal values
+            if "price" in field.internal_name.lower():
+                prices = ["100.00", "250.50", "1500.00", "75.25", "500.00"]
+                return prices[row_index % len(prices)]
+            elif "quantity" in field.internal_name.lower():
+                return "1.0000"
+            elif "rate" in field.internal_name.lower():
+                return "1.0000"
+            else:
+                return "100.00"
+                
+        elif field.field_type == FieldType.INTEGER:
+            if "level" in field.internal_name.lower():
+                return str((row_index % 3) + 1)  # Levels 1-3
+            elif "sequence" in field.internal_name.lower():
+                return str(row_index + 1)
+            else:
+                return str(row_index + 1)
+                
+        elif field.field_type == FieldType.DATE:
+            from datetime import datetime, timedelta
+            base_date = datetime.now()
+            offset_days = row_index * 7  # Week intervals
+            sample_date = base_date + timedelta(days=offset_days)
+            return sample_date.strftime("%Y-%m-%d")
+            
+        elif field.field_type == FieldType.BOOLEAN:
+            return "true" if row_index % 2 == 0 else "false"
+            
+        elif field.field_type == FieldType.EMAIL:
+            emails = ["contacto@acme.com", "ventas@elsol.com", "juan.perez@email.com", "info@tecglobal.com", "maria.gonzalez@correo.com"]
+            return emails[row_index % len(emails)]
+            
+        elif field.field_type == FieldType.PHONE:
+            phones = ["+57-300-123-4567", "+57-301-987-6543", "+57-310-555-7890", "+57-312-456-7890", "+57-320-111-2233"]
+            return phones[row_index % len(phones)]
+            
+        elif field.field_type == FieldType.MANY_TO_ONE:
+            # Handle foreign key references
+            if field.related_model == "third_party":
+                docs = ["900123456-7", "830987654-3", "1234567890"]
+                return docs[row_index % len(docs)]
+            elif field.related_model == "product":
+                codes = ["PRD-001", "SRV-001", "MIX-001"]
+                return codes[row_index % len(codes)]
+            elif field.related_model == "account":
+                codes = ["1105", "1110", "4105", "2105", "5105"]
+                return codes[row_index % len(codes)]
+            else:
+                return f"REF-{row_index + 1:03d}"
+        else:
+            return f"Valor ejemplo {row_index + 1}"
+    
+    # Generate multiple rows of sample data
+    sample_data = []
+    num_rows = 3  # Generate 3 sample rows
+    
+    for row_index in range(num_rows):
+        row = []
+        for field in metadata.fields:
+            sample_value = get_sample_value(field, row_index)
+            row.append(sample_value)
+        sample_data.append(row)
+    
+    return sample_data
 
 
 async def validate_row_data(row_data: dict, mapping_dict: dict, model_metadata, db: AsyncSession) -> List[ValidationError]:
@@ -2049,6 +2289,9 @@ async def validate_row_data(row_data: dict, mapping_dict: dict, model_metadata, 
             elif model_name == "product":
                 from app.models.product import Product
                 model_class = Product
+            elif model_name == "invoice":
+                from app.models.invoice import Invoice
+                model_class = Invoice
             
             if model_class:
                 try:
@@ -2071,3 +2314,237 @@ async def validate_row_data(row_data: dict, mapping_dict: dict, model_metadata, 
                     logger.warning(f"Error checking uniqueness: {e}")
     
     return validation_errors
+
+async def _create_invoice_with_lines(transformed_data: dict, db: AsyncSession, current_user_id: str):
+    """
+    Crea una factura completa con líneas desde datos transformados de importación
+    Maneja tanto datos de cabecera como líneas múltiples en un solo diccionario
+    """
+    from app.models.invoice import Invoice, InvoiceLine, InvoiceType, InvoiceStatus
+    from app.models.third_party import ThirdParty
+    from app.models.product import Product
+    from app.models.account import Account
+    from app.models.cost_center import CostCenter
+    from app.models.journal import Journal
+    from app.models.payment_terms import PaymentTerms
+    from app.services.invoice_service import InvoiceService
+    import time
+    from decimal import Decimal
+    from datetime import datetime, date, timedelta
+    from sqlalchemy import select
+    
+    logger.info(f"Creating invoice with lines from import data: {list(transformed_data.keys())}")
+    
+    # === RESOLVER RELACIONES ===
+    
+    # Resolver tercero (cliente/proveedor)
+    third_party = None
+    if "third_party_document" in transformed_data and transformed_data["third_party_document"]:
+        query = select(ThirdParty).where(ThirdParty.document_number == transformed_data["third_party_document"])
+        result = await db.execute(query)
+        third_party = result.scalar_one_or_none()
+        if not third_party:
+            raise ValueError(f"Tercero con documento '{transformed_data['third_party_document']}' no encontrado")
+    
+    # Resolver términos de pago
+    payment_terms = None
+    if "payment_terms_code" in transformed_data and transformed_data["payment_terms_code"]:
+        query = select(PaymentTerms).where(PaymentTerms.code == transformed_data["payment_terms_code"])
+        result = await db.execute(query)
+        payment_terms = result.scalar_one_or_none()
+    
+    # Resolver diario contable
+    journal = None
+    if "journal_code" in transformed_data and transformed_data["journal_code"]:
+        query = select(Journal).where(Journal.code == transformed_data["journal_code"])
+        result = await db.execute(query)
+        journal = result.scalar_one_or_none()
+    
+    # Resolver centro de costo principal
+    cost_center = None
+    if "cost_center_code" in transformed_data and transformed_data["cost_center_code"]:
+        query = select(CostCenter).where(CostCenter.code == transformed_data["cost_center_code"])
+        result = await db.execute(query)
+        cost_center = result.scalar_one_or_none()
+    
+    # Resolver cuenta contable override
+    third_party_account = None
+    if "third_party_account_code" in transformed_data and transformed_data["third_party_account_code"]:
+        query = select(Account).where(Account.code == transformed_data["third_party_account_code"])
+        result = await db.execute(query)
+        third_party_account = result.scalar_one_or_none()
+    
+    # === PREPARAR DATOS DE CABECERA ===
+    
+    # Generar número de factura si no se proporciona
+    invoice_number = transformed_data.get("number")
+    if not invoice_number:
+        # Generar número automático basado en tipo y timestamp
+        invoice_type = transformed_data.get("invoice_type", "CUSTOMER_INVOICE")
+        prefix = "INV" if invoice_type == "CUSTOMER_INVOICE" else "BIL"
+        timestamp = str(int(time.time()))[-6:]
+        invoice_number = f"{prefix}-{timestamp}"
+        
+        # Verificar unicidad
+        attempt = 0
+        while attempt < 10:
+            query = select(Invoice).where(Invoice.number == invoice_number)
+            result = await db.execute(query)
+            if not result.scalar_one_or_none():
+                break
+            attempt += 1
+            invoice_number = f"{prefix}-{timestamp}-{attempt}"
+    
+    # Calcular fecha de vencimiento si no se proporciona
+    due_date = transformed_data.get("due_date")
+    if not due_date and payment_terms:
+        invoice_date = transformed_data.get("invoice_date", date.today())
+        # Usar la fecha del último cronograma de pago como fecha de vencimiento
+        if payment_terms.payment_schedules:
+            max_days = max(schedule.days for schedule in payment_terms.payment_schedules)
+            due_date = invoice_date + timedelta(days=max_days)
+        else:
+            due_date = invoice_date + timedelta(days=30)  # Default
+    elif not due_date:
+        # Default a 30 días
+        from datetime import timedelta
+        invoice_date = transformed_data.get("invoice_date", date.today())
+        due_date = invoice_date + timedelta(days=30)
+    
+    # === CREAR FACTURA ===
+    
+    invoice_data = {
+        "number": invoice_number,
+        "internal_reference": transformed_data.get("internal_reference"),
+        "external_reference": transformed_data.get("external_reference"),
+        "invoice_type": transformed_data.get("invoice_type", "CUSTOMER_INVOICE"),
+        "status": transformed_data.get("status", "DRAFT"),
+        "third_party_id": third_party.id if third_party else None,
+        "payment_terms_id": payment_terms.id if payment_terms else None,
+        "journal_id": journal.id if journal else None,
+        "cost_center_id": cost_center.id if cost_center else None,
+        "third_party_account_id": third_party_account.id if third_party_account else None,
+        "invoice_date": transformed_data.get("invoice_date", date.today()),
+        "due_date": due_date,
+        "currency_code": transformed_data.get("currency_code", "USD"),
+        "exchange_rate": transformed_data.get("exchange_rate", Decimal("1.0000")),
+        "subtotal": transformed_data.get("subtotal", Decimal("0.00")),
+        "discount_amount": transformed_data.get("discount_amount", Decimal("0.00")),
+        "tax_amount": transformed_data.get("tax_amount", Decimal("0.00")),
+        "total_amount": transformed_data.get("total_amount", Decimal("0.00")),
+        "paid_amount": transformed_data.get("paid_amount", Decimal("0.00")),
+        "outstanding_amount": transformed_data.get("outstanding_amount"),
+        "description": transformed_data.get("description"),
+        "notes": transformed_data.get("notes"),
+        "created_by_id": uuid.UUID(current_user_id),
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    
+    # Calcular outstanding_amount si no se proporciona
+    if invoice_data["outstanding_amount"] is None:
+        invoice_data["outstanding_amount"] = invoice_data["total_amount"] - invoice_data["paid_amount"]
+    
+    # Crear la factura
+    new_invoice = Invoice(**invoice_data)
+    db.add(new_invoice)
+    await db.flush()  # Para obtener el ID
+    
+    # === CREAR LÍNEAS DE FACTURA ===
+    
+    # Si hay datos de líneas, crear las líneas
+    line_fields = [
+        "line_sequence", "line_product_code", "line_description", "line_quantity",
+        "line_unit_price", "line_discount_percentage", "line_account_code",
+        "line_cost_center_code", "line_tax_codes", "line_subtotal",
+        "line_discount_amount", "line_tax_amount", "line_total_amount"
+    ]
+    
+    has_line_data = any(field in transformed_data for field in line_fields)
+    
+    if has_line_data:
+        # Resolver producto si se especifica
+        product = None
+        if "line_product_code" in transformed_data and transformed_data["line_product_code"]:
+            query = select(Product).where(Product.code == transformed_data["line_product_code"])
+            result = await db.execute(query)
+            product = result.scalar_one_or_none()
+        
+        # Resolver cuenta contable de la línea
+        line_account = None
+        if "line_account_code" in transformed_data and transformed_data["line_account_code"]:
+            query = select(Account).where(Account.code == transformed_data["line_account_code"])
+            result = await db.execute(query)
+            line_account = result.scalar_one_or_none()
+        
+        # Resolver centro de costo de la línea
+        line_cost_center = None
+        if "line_cost_center_code" in transformed_data and transformed_data["line_cost_center_code"]:
+            query = select(CostCenter).where(CostCenter.code == transformed_data["line_cost_center_code"])
+            result = await db.execute(query)
+            line_cost_center = result.scalar_one_or_none()
+        
+        # Calcular montos de línea si no se proporcionan
+        quantity = transformed_data.get("line_quantity", Decimal("1.0000"))
+        unit_price = transformed_data.get("line_unit_price", Decimal("0.00"))
+        discount_percentage = transformed_data.get("line_discount_percentage", Decimal("0.00"))
+        
+        # Calcular subtotal
+        line_subtotal = quantity * unit_price
+        
+        # Calcular descuento
+        line_discount_amount = line_subtotal * (discount_percentage / 100)
+        
+        # Por ahora impuestos en 0 - se calcularían más tarde
+        line_tax_amount = transformed_data.get("line_tax_amount", Decimal("0.00"))
+        
+        # Total de línea
+        line_total = line_subtotal - line_discount_amount + line_tax_amount
+        
+        # Usar valores calculados si no se proporcionaron
+        if "line_subtotal" not in transformed_data:
+            transformed_data["line_subtotal"] = line_subtotal
+        if "line_discount_amount" not in transformed_data:
+            transformed_data["line_discount_amount"] = line_discount_amount
+        if "line_total_amount" not in transformed_data:
+            transformed_data["line_total_amount"] = line_total
+        
+        # Crear línea de factura
+        line_data = {
+            "invoice_id": new_invoice.id,
+            "sequence": transformed_data.get("line_sequence", 1),
+            "product_id": product.id if product else None,
+            "description": transformed_data.get("line_description", "Línea importada"),
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "discount_percentage": discount_percentage,
+            "account_id": line_account.id if line_account else None,
+            "cost_center_id": line_cost_center.id if line_cost_center else None,
+            "subtotal": transformed_data.get("line_subtotal", line_subtotal),
+            "discount_amount": transformed_data.get("line_discount_amount", line_discount_amount),
+            "tax_amount": line_tax_amount,
+            "total_amount": transformed_data.get("line_total_amount", line_total),
+            "created_by_id": uuid.UUID(current_user_id),
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+        
+        new_line = InvoiceLine(**line_data)
+        db.add(new_line)
+        
+        # Actualizar totales de factura basados en la línea si no se proporcionaron
+        if transformed_data.get("subtotal") == Decimal("0.00"):
+            new_invoice.subtotal = line_subtotal
+        if transformed_data.get("discount_amount") == Decimal("0.00"):
+            new_invoice.discount_amount = line_discount_amount
+        if transformed_data.get("tax_amount") == Decimal("0.00"):
+            new_invoice.tax_amount = line_tax_amount
+        if transformed_data.get("total_amount") == Decimal("0.00"):
+            new_invoice.total_amount = line_total
+            new_invoice.outstanding_amount = line_total - new_invoice.paid_amount
+        
+        logger.info(f"Created invoice line: product={product.code if product else 'None'}, qty={quantity}, price={unit_price}, total={line_total}")
+    
+    logger.info(f"Created invoice: {invoice_number}, type={new_invoice.invoice_type}, total={new_invoice.total_amount}")
+    
+    return new_invoice

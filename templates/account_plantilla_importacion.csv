@@ -1,0 +1,14 @@
+Código,Nombre,Tipo de Cuenta,Categoría,Categoría de Flujo de Efectivo,Cuenta Padre,Nivel,Permite Movimientos,Requiere Tercero,Requiere Centro de Costo,Permite Conciliación,Descripción,Notas,Activa
+1105,Caja General,activo,activo_corriente,cash,1100,2,true,false,false,false,Dinero en efectivo en caja principal,Cuenta para manejo de efectivo - Efectivo y equivalentes,true
+1110,Bancos Moneda Nacional,activo,activo_corriente,cash,1100,2,true,true,false,true,Depósitos en bancos en moneda nacional,Requiere especificar el banco como tercero - Efectivo y equivalentes,true
+1120,Clientes Nacionales,activo,activo_corriente,operating,1100,2,true,true,false,true,Cuentas por cobrar a clientes nacionales,Requiere especificar el cliente - Actividades operativas,true
+1205,Equipos de Oficina,activo,activo_no_corriente,investing,1200,2,true,false,true,false,Mobiliario y equipos para oficina,Activos fijos - Actividades de inversión,true
+2105,Proveedores Nacionales,pasivo,pasivo_corriente,operating,2100,2,true,true,false,true,Cuentas por pagar a proveedores nacionales,Requiere especificar el proveedor - Actividades operativas,true
+2110,Impuestos por Pagar,pasivo,pasivo_corriente,operating,2100,2,true,false,false,false,Impuestos generados por pagar,Obligaciones tributarias pendientes,true
+2205,Préstamos Bancarios LP,pasivo,pasivo_no_corriente,financing,2200,2,true,true,false,false,Préstamos bancarios a largo plazo,Requiere especificar el banco - Actividades de financiamiento,true
+3105,Capital Social,patrimonio,capital,financing,3100,2,true,false,false,false,Aportes de capital de los socios,Capital inicial de la empresa - Actividades de financiamiento,true
+4105,Comercio al por Mayor y Menor,ingreso,ingresos_operacionales,operating,4100,2,true,true,true,false,Ingresos por ventas al por mayor y menor,Ingresos principales del negocio - Actividades operativas,true
+4205,Ingresos Financieros,ingreso,ingresos_no_operacionales,operating,4200,2,true,false,false,false,Rendimientos financieros e intereses,Ingresos por inversiones y depósitos,true
+5105,Gastos de Personal,gasto,gastos_operacionales,operating,5100,2,true,true,true,false,Sueldos salarios y prestaciones sociales,Gastos de personal - Actividades operativas,true
+5205,Servicios Públicos,gasto,gastos_operacionales,operating,5200,2,true,false,true,false,Energía agua teléfono internet,Servicios básicos para operación,true
+6105,Costo de Mercadería Vendida,costos,costo_ventas,operating,6100,2,true,false,true,false,Costo directo de productos vendidos,Costo directo de ventas - Actividades operativas,true

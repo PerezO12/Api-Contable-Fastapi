@@ -235,7 +235,7 @@ class BulkAccountOperation(BaseModel):
 
 class BulkAccountDelete(BaseModel):
     """Schema específico para borrado múltiple de cuentas"""
-    account_ids: List[uuid.UUID] = Field(min_length=1, max_length=100, description="Lista de IDs de cuentas a eliminar")
+    account_ids: List[uuid.UUID] = Field(min_length=1, description="Lista de IDs de cuentas a eliminar")
     force_delete: bool = Field(default=False, description="Forzar eliminación (requiere confirmación)")
     delete_reason: Optional[str] = Field(default=None, max_length=500, description="Razón para la eliminación")
     

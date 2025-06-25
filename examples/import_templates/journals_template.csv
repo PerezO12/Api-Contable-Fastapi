@@ -1,0 +1,9 @@
+name,code,type,sequence_prefix,sequence_padding,include_year_in_sequence,reset_sequence_yearly,requires_validation,allow_manual_entries,is_active,description
+Diario de Ventas,VEN,sale,VEN,4,true,true,false,true,true,Diario para registrar todas las ventas
+Diario de Compras,COM,purchase,COM,4,true,true,false,true,true,Diario para registrar todas las compras
+Diario de Caja,CAJ,cash,CAJ,4,true,true,false,true,true,Diario para movimientos de efectivo
+Diario Banco Principal,BAN,bank,BAN,4,true,true,false,true,true,Diario para movimientos bancarios
+Diario Banco Secundario,BAN2,bank,BAN2,4,true,true,false,true,true,Diario para segundo banco
+Diario de Varios,VAR,miscellaneous,VAR,4,true,true,true,true,true,Diario para asientos diversos
+Diario de Nómina,NOM,miscellaneous,NOM,3,true,true,false,false,true,Diario específico para nómina
+Diario de Depreciaciones,DEP,miscellaneous,DEP,3,true,true,false,false,true,Diario para depreciaciones automáticas

@@ -80,7 +80,7 @@ def list_products(
     min_price: Optional[Decimal] = Query(None, description="Precio mínimo"),
     max_price: Optional[Decimal] = Query(None, description="Precio máximo"),
     page: int = Query(1, ge=1, description="Número de página"),
-    size: int = Query(50, ge=1, le=100, description="Tamaño de página")
+    size: int = Query(50, ge=1, le=1000, description="Tamaño de página")
 ):
     """
     Listar productos con filtros y paginación
@@ -138,7 +138,7 @@ def search_products(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     q: str = Query(..., min_length=1, description="Término de búsqueda"),
-    limit: int = Query(20, ge=1, le=100, description="Límite de resultados")
+    limit: int = Query(20, ge=1, le=1000, description="Límite de resultados")
 ):
     """
     Buscar productos por término
@@ -160,7 +160,7 @@ def get_active_products(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    limit: Optional[int] = Query(None, ge=1, le=500, description="Límite de resultados")
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="Límite de resultados")
 ):
     """
     Obtener productos activos
@@ -533,7 +533,7 @@ def get_product_movements(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     product_id: uuid.UUID,
-    limit: int = Query(50, ge=1, le=200, description="Límite de resultados")
+    limit: int = Query(50, ge=1, le=1000, description="Límite de resultados")
 ):
     """
     Obtener movimientos contables del producto

@@ -1,0 +1,9 @@
+Código,Nombre Completo,Número de Documento,Tipo de Documento,Correo Electrónico,Teléfono,Dirección,Ciudad,Tipo de Tercero,Activo,Agente de Retención
+TP001,ACME Corporation S.A.S.,900123456-7,nit,contacto@acme.com,+57-300-123-4567,"Calle 123 #45-67, Torre A, Piso 10",Bogotá,customer,true,false
+TP002,Distribuidora El Sol Ltda,830987654-3,nit,ventas@elsol.com,+57-301-987-6543,"Carrera 45 #123-89, Local 201",Medellín,supplier,true,true
+TP003,Juan Pérez García,1234567890,dni,juan.perez@email.com,+57-310-555-7890,"Avenida 68 #12-34, Apto 501",Cali,employee,true,false
+TP004,Banco Nacional S.A.,860012345-9,nit,servicios@banconacional.com,+57-1-234-5678,"Carrera 7 #32-16, Edificio Bancario",Bogotá,bank,true,true
+TP005,María González López,9876543210,dni,maria.gonzalez@correo.com,+57-320-111-2233,"Calle 80 #45-12, Casa 15",Barranquilla,customer,true,false
+TP006,Suministros Industriales Ltda,890555666-2,nit,compras@suministros.com,+57-2-345-6789,"Zona Industrial, Bodega 25",Cali,supplier,true,false
+TP007,Carlos Rodríguez Martín,5555666777,dni,carlos.rodriguez@empresa.com,+57-315-444-5566,"Transversal 23 #67-89",Medellín,employee,true,false
+TP008,Gobierno Municipal,899999888-0,nit,tesoreria@alcaldia.gov.co,+57-1-111-2222,"Plaza Principal, Edificio Alcaldía",Bogotá,government,true,true

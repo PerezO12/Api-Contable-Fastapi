@@ -560,13 +560,14 @@ class ModelMetadataRegistry:
             import_permissions=["can_create_accounts", "can_update_accounts"]
         )
         
-        # Modelo Invoice
+        # Modelo Invoice - Definición completa con todos los campos disponibles
         invoice_metadata = ModelMetadata(
             model_name="invoice",
             display_name="Factura",
-            description="Facturas de venta y compra",
+            description="Facturas de venta y compra con líneas de detalle",
             table_name="invoices",
             fields=[
+                # === CAMPOS BÁSICOS DE IDENTIFICACIÓN ===
                 FieldMetadata(
                     internal_name="number",
                     display_label="Número de Factura",
@@ -574,8 +575,101 @@ class ModelMetadataRegistry:
                     is_required=True,
                     is_unique=True,
                     max_length=50,
-                    description="Número único de la factura"
+                    description="Número único de la factura (auto-generado si no se especifica)"
                 ),
+                FieldMetadata(
+                    internal_name="internal_reference",
+                    display_label="Referencia Interna",
+                    field_type=FieldType.STRING,
+                    max_length=100,
+                    description="Referencia interna de la empresa"
+                ),
+                FieldMetadata(
+                    internal_name="external_reference",
+                    display_label="Referencia Externa",
+                    field_type=FieldType.STRING,
+                    max_length=100,
+                    description="Referencia externa o número de factura del proveedor"
+                ),
+                
+                # === TIPO Y ESTADO ===
+                FieldMetadata(
+                    internal_name="invoice_type",
+                    display_label="Tipo de Factura",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    choices=[
+                        {"value": "CUSTOMER_INVOICE", "label": "Factura de Cliente"},
+                        {"value": "SUPPLIER_INVOICE", "label": "Factura de Proveedor"},
+                        {"value": "CREDIT_NOTE", "label": "Nota de Crédito"},
+                        {"value": "DEBIT_NOTE", "label": "Nota de Débito"}
+                    ],
+                    description="Tipo de documento de facturación"
+                ),
+                FieldMetadata(
+                    internal_name="status",
+                    display_label="Estado",
+                    field_type=FieldType.STRING,
+                    default_value="DRAFT",
+                    choices=[
+                        {"value": "DRAFT", "label": "Borrador"},
+                        {"value": "PENDING", "label": "Pendiente"},
+                        {"value": "APPROVED", "label": "Aprobada"},
+                        {"value": "POSTED", "label": "Contabilizada"},
+                        {"value": "PAID", "label": "Pagada"},
+                        {"value": "PARTIALLY_PAID", "label": "Pagada Parcialmente"},
+                        {"value": "OVERDUE", "label": "Vencida"},
+                        {"value": "CANCELLED", "label": "Cancelada"}
+                    ],
+                    description="Estado actual de la factura"
+                ),
+                
+                # === RELACIONES PRINCIPALES ===
+                FieldMetadata(
+                    internal_name="third_party_document",
+                    display_label="Documento del Tercero",
+                    field_type=FieldType.MANY_TO_ONE,
+                    is_required=True,
+                    related_model="third_party",
+                    search_field="document_number",
+                    description="Documento del cliente o proveedor"
+                ),
+                FieldMetadata(
+                    internal_name="payment_terms_code",
+                    display_label="Código Términos de Pago",
+                    field_type=FieldType.MANY_TO_ONE,
+                    related_model="payment_terms",
+                    search_field="code",
+                    description="Términos de pago (opcional)"
+                ),
+                FieldMetadata(
+                    internal_name="journal_code",
+                    display_label="Código Diario Contable",
+                    field_type=FieldType.MANY_TO_ONE,
+                    related_model="journal",
+                    search_field="code",
+                    description="Diario contable para numeración automática"
+                ),
+                FieldMetadata(
+                    internal_name="cost_center_code",
+                    display_label="Código Centro de Costo",
+                    field_type=FieldType.MANY_TO_ONE,
+                    related_model="cost_center",
+                    search_field="code",
+                    description="Centro de costo principal de la factura"
+                ),
+                
+                # === CUENTAS CONTABLES (OVERRIDES) ===
+                FieldMetadata(
+                    internal_name="third_party_account_code",
+                    display_label="Cuenta Cliente/Proveedor",
+                    field_type=FieldType.MANY_TO_ONE,
+                    related_model="account",
+                    search_field="code",
+                    description="Override cuenta por cobrar/pagar (opcional)"
+                ),
+                
+                # === FECHAS ===
                 FieldMetadata(
                     internal_name="invoice_date",
                     display_label="Fecha de Emisión",
@@ -587,60 +681,191 @@ class ModelMetadataRegistry:
                     internal_name="due_date",
                     display_label="Fecha de Vencimiento",
                     field_type=FieldType.DATE,
-                    description="Fecha límite de pago"
+                    description="Fecha límite de pago (calculada si hay términos de pago)"
                 ),
+                
+                # === MONEDA Y CONVERSIÓN ===
                 FieldMetadata(
-                    internal_name="customer_document",
-                    display_label="Documento del Cliente",
-                    field_type=FieldType.MANY_TO_ONE,
-                    is_required=True,
-                    related_model="third_party",
-                    search_field="document_number",
-                    description="Documento del cliente"
-                ),
-                FieldMetadata(
-                    internal_name="invoice_type",
-                    display_label="Tipo de Factura",
+                    internal_name="currency_code",
+                    display_label="Código de Moneda",
                     field_type=FieldType.STRING,
-                    is_required=True,
-                    description="sale, purchase"
+                    max_length=3,
+                    default_value="USD",
+                    description="Código ISO de la moneda (USD, EUR, COP, etc.)"
                 ),
+                FieldMetadata(
+                    internal_name="exchange_rate",
+                    display_label="Tasa de Cambio",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    default_value="1.0000",
+                    description="Tasa de cambio aplicada"
+                ),
+                
+                # === MONTOS PRINCIPALES ===
                 FieldMetadata(
                     internal_name="subtotal",
                     display_label="Subtotal",
                     field_type=FieldType.DECIMAL,
-                    is_required=True,
                     min_value=0,
-                    description="Valor antes de impuestos"
+                    description="Subtotal antes de descuentos e impuestos"
+                ),
+                FieldMetadata(
+                    internal_name="discount_amount",
+                    display_label="Descuento Total",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    default_value="0.00",
+                    description="Total de descuentos aplicados"
                 ),
                 FieldMetadata(
                     internal_name="tax_amount",
-                    display_label="Valor de Impuestos",
+                    display_label="Impuestos Total",
                     field_type=FieldType.DECIMAL,
                     min_value=0,
+                    default_value="0.00",
                     description="Total de impuestos"
                 ),
                 FieldMetadata(
                     internal_name="total_amount",
-                    display_label="Valor Total",
+                    display_label="Total",
                     field_type=FieldType.DECIMAL,
                     is_required=True,
                     min_value=0,
                     description="Valor total de la factura"
                 ),
+                
+                # === CONTROL DE PAGOS ===
                 FieldMetadata(
-                    internal_name="status",
-                    display_label="Estado",
-                    field_type=FieldType.STRING,
-                    default_value="draft",
-                    description="draft, confirmed, paid, cancelled"
+                    internal_name="paid_amount",
+                    display_label="Monto Pagado",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    default_value="0.00",
+                    description="Monto ya pagado de la factura"
                 ),
                 FieldMetadata(
-                    internal_name="reference",
-                    display_label="Referencia",
+                    internal_name="outstanding_amount",
+                    display_label="Saldo Pendiente",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    description="Monto pendiente por pagar (calculado automáticamente)"
+                ),
+                
+                # === INFORMACIÓN DESCRIPTIVA ===
+                FieldMetadata(
+                    internal_name="description",
+                    display_label="Descripción",
                     field_type=FieldType.STRING,
-                    max_length=100,
-                    description="Referencia externa o número de orden"
+                    description="Descripción general de la factura"
+                ),
+                FieldMetadata(
+                    internal_name="notes",
+                    display_label="Notas",
+                    field_type=FieldType.STRING,
+                    description="Notas adicionales"
+                ),
+                
+                # === LÍNEAS DE FACTURA (DETALLE) ===
+                FieldMetadata(
+                    internal_name="line_sequence",
+                    display_label="Línea - Secuencia",
+                    field_type=FieldType.INTEGER,
+                    description="Orden de la línea en la factura"
+                ),
+                FieldMetadata(
+                    internal_name="line_product_code",
+                    display_label="Línea - Código Producto",
+                    field_type=FieldType.MANY_TO_ONE,
+                    related_model="product",
+                    search_field="code",
+                    description="Código del producto o servicio"
+                ),
+                FieldMetadata(
+                    internal_name="line_description",
+                    display_label="Línea - Descripción",
+                    field_type=FieldType.STRING,
+                    description="Descripción del item de la línea"
+                ),
+                FieldMetadata(
+                    internal_name="line_quantity",
+                    display_label="Línea - Cantidad",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    default_value="1.0000",
+                    description="Cantidad del producto/servicio"
+                ),
+                FieldMetadata(
+                    internal_name="line_unit_price",
+                    display_label="Línea - Precio Unitario",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    description="Precio unitario del producto/servicio"
+                ),
+                FieldMetadata(
+                    internal_name="line_discount_percentage",
+                    display_label="Línea - % Descuento",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    max_value=100,
+                    default_value="0.00",
+                    description="Porcentaje de descuento aplicado a la línea"
+                ),
+                
+                # === CUENTAS CONTABLES POR LÍNEA ===
+                FieldMetadata(
+                    internal_name="line_account_code",
+                    display_label="Línea - Cuenta Contable",
+                    field_type=FieldType.MANY_TO_ONE,
+                    related_model="account",
+                    search_field="code",
+                    description="Override cuenta ingreso/gasto para la línea"
+                ),
+                FieldMetadata(
+                    internal_name="line_cost_center_code",
+                    display_label="Línea - Centro de Costo",
+                    field_type=FieldType.MANY_TO_ONE,
+                    related_model="cost_center",
+                    search_field="code",
+                    description="Centro de costo específico de la línea"
+                ),
+                
+                # === IMPUESTOS POR LÍNEA ===
+                FieldMetadata(
+                    internal_name="line_tax_codes",
+                    display_label="Línea - Códigos Impuestos",
+                    field_type=FieldType.STRING,
+                    description="Códigos de impuestos separados por coma (ej: IVA19,RET01)"
+                ),
+                
+                # === MONTOS CALCULADOS POR LÍNEA ===
+                FieldMetadata(
+                    internal_name="line_subtotal",
+                    display_label="Línea - Subtotal",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    description="Subtotal de la línea (cantidad × precio)"
+                ),
+                FieldMetadata(
+                    internal_name="line_discount_amount",
+                    display_label="Línea - Descuento",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    description="Monto de descuento de la línea"
+                ),
+                FieldMetadata(
+                    internal_name="line_tax_amount",
+                    display_label="Línea - Impuestos",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    description="Total impuestos de la línea"
+                ),
+                FieldMetadata(
+                    internal_name="line_total_amount",
+                    display_label="Línea - Total",
+                    field_type=FieldType.DECIMAL,
+                    min_value=0,
+                    description="Total de la línea (subtotal - descuento + impuestos)"
                 )
             ],
             business_key_fields=["number"],
@@ -652,6 +877,287 @@ class ModelMetadataRegistry:
         self._models["product"] = product_metadata
         self._models["account"] = account_metadata
         self._models["invoice"] = invoice_metadata
+        
+        # === NUEVOS MODELOS ===
+        
+        # Modelo Cost Center (Centros de Costo)
+        cost_center_metadata = ModelMetadata(
+            model_name="cost_center",
+            display_name="Centro de Costo",
+            description="Centros de costo para análisis de rentabilidad",
+            table_name="cost_centers",
+            fields=[
+                FieldMetadata(
+                    internal_name="code",
+                    display_label="Código",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    is_unique=True,
+                    max_length=20,
+                    description="Código único del centro de costo"
+                ),
+                FieldMetadata(
+                    internal_name="name",
+                    display_label="Nombre",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    is_unique=True,
+                    max_length=200,
+                    description="Nombre único del centro de costo"
+                ),
+                FieldMetadata(
+                    internal_name="description",
+                    display_label="Descripción",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=1000,
+                    description="Descripción detallada del centro de costo"
+                ),
+                FieldMetadata(
+                    internal_name="parent_code",
+                    display_label="Código del Centro Padre",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=20,
+                    description="Código del centro de costo padre para estructura jerárquica"
+                ),
+                FieldMetadata(
+                    internal_name="manager_name",
+                    display_label="Responsable",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=200,
+                    description="Nombre del responsable del centro de costo"
+                ),
+                FieldMetadata(
+                    internal_name="budget_code",
+                    display_label="Código Presupuestario",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=50,
+                    description="Código para control presupuestario"
+                ),
+                FieldMetadata(
+                    internal_name="is_active",
+                    display_label="Activo",
+                    field_type=FieldType.BOOLEAN,
+                    is_required=False,
+                    default_value="true",
+                    description="Si el centro de costo está activo"
+                ),
+                FieldMetadata(
+                    internal_name="allows_direct_assignment",
+                    display_label="Permite Asignación Directa",
+                    field_type=FieldType.BOOLEAN,
+                    is_required=False,
+                    default_value="true",
+                    description="Si permite asignación directa de transacciones o solo es agrupador"
+                ),
+                FieldMetadata(
+                    internal_name="notes",
+                    display_label="Notas",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=1000,
+                    description="Notas adicionales del centro de costo"
+                )
+            ],
+            business_key_fields=["code"],
+            import_permissions=["can_create_cost_centers", "can_update_cost_centers"]
+        )
+        
+        # Modelo Journal (Diarios Contables)
+        journal_metadata = ModelMetadata(
+            model_name="journal",
+            display_name="Diario Contable",
+            description="Diarios contables para agrupación de asientos",
+            table_name="journals",
+            fields=[
+                FieldMetadata(
+                    internal_name="name",
+                    display_label="Nombre",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    max_length=100,
+                    description="Nombre descriptivo del diario"
+                ),
+                FieldMetadata(
+                    internal_name="code",
+                    display_label="Código",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    is_unique=True,
+                    max_length=10,
+                    description="Código único del diario"
+                ),
+                FieldMetadata(
+                    internal_name="type",
+                    display_label="Tipo de Diario",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    description="Tipo de diario contable",
+                    choices=[
+                        {"value": "sale", "label": "Ventas"},
+                        {"value": "purchase", "label": "Compras"},
+                        {"value": "cash", "label": "Efectivo"},
+                        {"value": "bank", "label": "Banco"},
+                        {"value": "miscellaneous", "label": "Varios"}
+                    ]
+                ),
+                FieldMetadata(
+                    internal_name="sequence_prefix",
+                    display_label="Prefijo de Secuencia",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    is_unique=True,
+                    max_length=10,
+                    description="Prefijo único para la secuencia de numeración"
+                ),
+                FieldMetadata(
+                    internal_name="sequence_padding",
+                    display_label="Relleno de Secuencia",
+                    field_type=FieldType.INTEGER,
+                    is_required=False,
+                    min_value=1,
+                    max_value=10,
+                    default_value="4",
+                    description="Número de dígitos para rellenar con ceros (ej: 0001)"
+                ),
+                FieldMetadata(
+                    internal_name="include_year_in_sequence",
+                    display_label="Incluir Año en Secuencia",
+                    field_type=FieldType.BOOLEAN,
+                    is_required=False,
+                    default_value="true",
+                    description="Si incluir el año en la secuencia (ej: VEN/2025/0001)"
+                ),
+                FieldMetadata(
+                    internal_name="reset_sequence_yearly",
+                    display_label="Resetear Secuencia Anualmente",
+                    field_type=FieldType.BOOLEAN,
+                    is_required=False,
+                    default_value="true",
+                    description="Si resetear la secuencia cada año"
+                ),
+                FieldMetadata(
+                    internal_name="requires_validation",
+                    display_label="Requiere Validación",
+                    field_type=FieldType.BOOLEAN,
+                    is_required=False,
+                    default_value="false",
+                    description="Si los asientos en este diario requieren validación"
+                ),
+                FieldMetadata(
+                    internal_name="allow_manual_entries",
+                    display_label="Permite Asientos Manuales",
+                    field_type=FieldType.BOOLEAN,
+                    is_required=False,
+                    default_value="true",
+                    description="Si permite asientos manuales en este diario"
+                ),
+                FieldMetadata(
+                    internal_name="is_active",
+                    display_label="Activo",
+                    field_type=FieldType.BOOLEAN,
+                    is_required=False,
+                    default_value="true",
+                    description="Si el diario está activo"
+                ),
+                FieldMetadata(
+                    internal_name="description",
+                    display_label="Descripción",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=1000,
+                    description="Descripción del propósito del diario"
+                )
+            ],
+            business_key_fields=["code"],
+            import_permissions=["can_create_journals", "can_update_journals"]
+        )
+        
+        # Modelo Payment Terms (Términos de Pago)
+        payment_terms_metadata = ModelMetadata(
+            model_name="payment_terms",
+            display_name="Términos de Pago",
+            description="Condiciones y plazos de pago",
+            table_name="payment_terms",
+            fields=[
+                FieldMetadata(
+                    internal_name="code",
+                    display_label="Código",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    is_unique=True,
+                    max_length=20,
+                    description="Código único de los términos de pago"
+                ),
+                FieldMetadata(
+                    internal_name="name",
+                    display_label="Nombre",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    max_length=100,
+                    description="Nombre descriptivo de los términos de pago"
+                ),
+                FieldMetadata(
+                    internal_name="description",
+                    display_label="Descripción",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=1000,
+                    description="Descripción detallada de los términos de pago"
+                ),
+                FieldMetadata(
+                    internal_name="is_active",
+                    display_label="Activo",
+                    field_type=FieldType.BOOLEAN,
+                    is_required=False,
+                    default_value="true",
+                    description="Si los términos de pago están activos"
+                ),
+                FieldMetadata(
+                    internal_name="notes",
+                    display_label="Notas",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=1000,
+                    description="Notas adicionales de los términos de pago"
+                ),
+                # Campos para cronograma de pagos - formato simplificado para importación
+                FieldMetadata(
+                    internal_name="payment_schedule_days",
+                    display_label="Días de Pago (separados por coma)",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    max_length=500,
+                    description="Días desde la fecha de factura separados por comas (ej: 0,30,60)"
+                ),
+                FieldMetadata(
+                    internal_name="payment_schedule_percentages",
+                    display_label="Porcentajes de Pago (separados por coma)",
+                    field_type=FieldType.STRING,
+                    is_required=True,
+                    max_length=500,
+                    description="Porcentajes a pagar separados por comas (ej: 50.0,30.0,20.0)"
+                ),
+                FieldMetadata(
+                    internal_name="payment_schedule_descriptions",
+                    display_label="Descripciones de Pago (separadas por |)",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=1000,
+                    description="Descripciones opcionales separadas por | (ej: Anticipo|Intermedio|Final)"
+                )
+            ],
+            business_key_fields=["code"],
+            import_permissions=["can_create_payment_terms", "can_update_payment_terms"]
+        )
+        
+        # Registrar nuevos modelos
+        self._models["cost_center"] = cost_center_metadata
+        self._models["journal"] = journal_metadata
+        self._models["payment_terms"] = payment_terms_metadata
     
     def get_model_metadata(self, model_name: str) -> ModelMetadata:
         """Obtiene los metadatos de un modelo"""
@@ -713,7 +1219,26 @@ class ModelMetadataRegistry:
             "invoice_date": ["fecha", "fecha_factura", "date"],
             "due_date": ["fecha_vencimiento", "vencimiento"],
             "total_amount": ["total", "valor_total", "amount"],
-            "subtotal": ["subtotal", "sub_total"]
+            "subtotal": ["subtotal", "sub_total"],
+            # Sinónimos para centros de costo
+            "parent_code": ["codigo_padre", "padre", "parent", "centro_padre"],
+            "manager_name": ["responsable", "manager", "jefe", "encargado"],
+            "budget_code": ["codigo_presupuesto", "presupuesto", "budget"],
+            "allows_direct_assignment": ["asignacion_directa", "permite_asignar", "direct_assignment"],
+            "notes": ["notas", "observaciones", "comentarios"],
+            # Sinónimos para diarios
+            "type": ["tipo", "tipo_diario", "journal_type"],
+            "sequence_prefix": ["prefijo", "prefix", "prefijo_secuencia"],
+            "sequence_padding": ["relleno", "padding", "digitos", "ceros"],
+            "include_year_in_sequence": ["incluir_año", "año_secuencia", "year_sequence"],
+            "reset_sequence_yearly": ["resetear_anual", "reset_anual", "yearly_reset"],
+            "requires_validation": ["requiere_validacion", "validacion", "validation"],
+            "allow_manual_entries": ["asientos_manuales", "manual_entries", "permite_manual"],
+            "is_active": ["activo", "active", "estado", "habilitado"],
+            # Sinónimos para términos de pago
+            "payment_schedule_days": ["dias_pago", "dias", "days", "schedule_days"],
+            "payment_schedule_percentages": ["porcentajes", "percentages", "%", "porcentajes_pago"],
+            "payment_schedule_descriptions": ["descripciones", "descriptions", "desc_pago"]
         }
         
         for column in column_names:

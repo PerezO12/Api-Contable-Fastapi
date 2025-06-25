@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     accounts, auth, users, journal_entries, reports, report_api, 
     export_templates, export, cost_centers, third_parties, cost_center_reports,
-    products, journals, generic_import
+    products, journals, generic_import, import_templates
 )
 from app.api import payment_terms, payments, invoices, bank_extracts, bank_reconciliation
 
@@ -68,3 +68,6 @@ api_router.include_router(report_api.router, prefix="/reports", tags=["report-ap
 
 # Generic import system - Metadata-driven import assistant
 api_router.include_router(generic_import.router, prefix="/generic-import", tags=["generic-import"])
+
+# Import templates system - CSV template downloads
+api_router.include_router(import_templates.router, prefix="/import", tags=["import-templates"])
