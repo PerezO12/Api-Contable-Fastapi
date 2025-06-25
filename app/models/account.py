@@ -91,6 +91,7 @@ class Account(Base):
     # Configuración de la cuenta
     requires_third_party: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Requiere terceros
     requires_cost_center: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Requiere centro de costo
+    allows_reconciliation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Permite conciliación
     
     # Saldos (se calculan dinámicamente pero se pueden cachear)
     balance: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)

@@ -73,6 +73,91 @@ def generate_uuid_code() -> str:
     return str(uuid.uuid4())
 
 
+def generate_product_code(
+    db: Session,
+    name: str,
+    product_type: str = "product"
+) -> str:
+    """
+    Generate a unique product code with sequential numbering and random suffix.
+    
+    Args:
+        db: Database session
+        name: Product name
+        product_type: Product type (product, service, both)
+        
+    Returns:
+        Generated unique code string
+        
+    Example:
+        generate_product_code(db, "Laptop Dell", "product")  # PRD-LAPTOP-001-A4B
+    """
+    # Import here to avoid circular imports
+    from app.models.product import Product
+    
+    # Determine prefix based on product type
+    if product_type == 'service':
+        prefix = "SRV"
+    elif product_type == 'both':
+        prefix = "MIX"
+    else:  # 'product' or None
+        prefix = "PRD"
+    
+    # Clean name to create base code (take first meaningful part)
+    clean_name = ''.join(c.upper() for c in name if c.isalnum())[:6]
+    if len(clean_name) < 3:
+        clean_name = clean_name.ljust(3, 'X')
+    
+    # Use sequential numbering for this prefix
+    base_pattern = f"{prefix}-{clean_name}-"
+    
+    # Get the highest existing number for this pattern
+    query = db.query(Product.code).filter(Product.code.like(f"{base_pattern}%"))
+    existing_codes = [str(code[0]) for code in query.all() if code[0]]
+    
+    # Extract numeric parts and find the maximum
+    max_number = 0
+    for code in existing_codes:
+        if code.startswith(base_pattern):
+            try:
+                # Extract the numeric part after the base pattern
+                remaining = code[len(base_pattern):]
+                # Split by '-' to get the number part (before any additional suffix)
+                parts = remaining.split('-')
+                if parts[0].isdigit():
+                    max_number = max(max_number, int(parts[0]))
+            except (ValueError, IndexError):
+                continue
+    
+    # Generate next sequential number
+    next_number = max_number + 1
+    
+    # Generate random suffix to ensure uniqueness (3 characters)
+    import random
+    import string
+    random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
+    
+    # Final code format: PREFIX-NAMEPART-SEQUENCE-RANDOM
+    final_code = f"{prefix}-{clean_name}-{next_number:03d}-{random_suffix}"
+    
+    # Double-check uniqueness (should be extremely rare to collide)
+    max_attempts = 10
+    attempt = 0
+    while attempt < max_attempts:
+        existing = db.query(Product).filter(Product.code == final_code).first()
+        if not existing:
+            return final_code
+        
+        # Generate new random suffix if collision
+        random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
+        final_code = f"{prefix}-{clean_name}-{next_number:03d}-{random_suffix}"
+        attempt += 1
+    
+    # If still colliding after max attempts, use timestamp
+    timestamp = str(int(datetime.now().timestamp()))[-6:]
+    return f"{prefix}-{clean_name}-{timestamp}"
+
+
 def generate_reference(prefix: str = "REF", separator: str = "-") -> str:
     """
     Generate a reference code with timestamp.

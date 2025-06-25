@@ -11,7 +11,7 @@ import pandas as pd
 from fastapi import UploadFile
 
 from app.schemas.generic_import import (
-    ImportSession, FileInfo, DetectedColumn
+    ImportSession, FileInfo, DetectedColumn, ColumnMapping
 )
 from app.services.model_metadata_registry import ModelMetadataRegistry
 
@@ -102,6 +102,46 @@ class ImportSessionService:
             
             # Remove session
             del self._sessions[session_token]
+
+    async def update_session_mappings(
+        self, 
+        session_token: str, 
+        mappings: List[ColumnMapping]
+    ) -> bool:
+        """
+        Update column mappings for an existing session
+        
+        Args:
+            session_token: The session token
+            mappings: List of column mappings to store
+            
+        Returns:
+            True if successful, False if session not found
+        """
+        session = self._sessions.get(session_token)
+        if not session:
+            return False
+        
+        # Update the session's column mappings
+        session.column_mappings = mappings
+        
+        return True
+    
+    async def get_session_mappings(self, session_token: str) -> Optional[List[ColumnMapping]]:
+        """
+        Get stored column mappings for a session
+        
+        Args:
+            session_token: The session token
+            
+        Returns:
+            List of column mappings if found, None if session not found or no mappings stored
+        """
+        session = self._sessions.get(session_token)
+        if not session:
+            return None
+        
+        return session.column_mappings
     
     async def read_file_batch(self, session_token: str, batch_size: int = 2000, batch_number: int = 0) -> List[Dict[str, Any]]:
         """

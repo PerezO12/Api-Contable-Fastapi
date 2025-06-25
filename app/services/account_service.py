@@ -63,6 +63,7 @@ class AccountService:
             allows_movements=account_data.allows_movements,
             requires_third_party=account_data.requires_third_party,
             requires_cost_center=account_data.requires_cost_center,
+            allows_reconciliation=account_data.allows_reconciliation,
             notes=account_data.notes,
             created_by_id=created_by_id
         )
@@ -222,6 +223,7 @@ class AccountService:
                 balance=account.balance,
                 is_active=account.is_active,
                 allows_movements=account.allows_movements,
+                allows_reconciliation=account.allows_reconciliation,
                 children=children
             )
         
@@ -260,7 +262,8 @@ class AccountService:
                     account_type=acc.account_type,
                     balance=acc.balance,
                     is_active=acc.is_active,
-                    allows_movements=acc.allows_movements
+                    allows_movements=acc.allows_movements,
+                    allows_reconciliation=acc.allows_reconciliation
                 ) for acc in accounts
             ]
             total_balance = sum((acc.balance for acc in accounts), Decimal('0'))
@@ -367,7 +370,8 @@ class AccountService:
                 account_type=account.account_type,
                 balance=account.balance,
                 is_active=account.is_active,
-                allows_movements=account.allows_movements
+                allows_movements=account.allows_movements,
+                allows_reconciliation=account.allows_reconciliation
             ),
             movements=[],  # TODO: Mapear a AccountMovement schema
             period_start=start_date or date.today(),
@@ -674,7 +678,8 @@ class AccountService:
                     account_type=acc.account_type,
                     balance=acc.balance,
                     is_active=acc.is_active,
-                    allows_movements=acc.allows_movements
+                    allows_movements=acc.allows_movements,
+                    allows_reconciliation=acc.allows_reconciliation
                 ) for acc in accounts
             ],
             total_balance=sum((acc.balance for acc in accounts), Decimal('0'))
@@ -744,6 +749,7 @@ class AccountService:
                 balance=account.balance,
                 is_active=account.is_active,
                 allows_movements=account.allows_movements,
+                allows_reconciliation=account.allows_reconciliation,
                 children=children
             )
         

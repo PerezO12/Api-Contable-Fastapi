@@ -58,11 +58,11 @@ async def _create_entity_with_auto_fields(model_class, transformed_data: dict, d
         # Para productos, generar código automáticamente si no se proporciona
         
         if 'code' not in transformed_data or not transformed_data['code']:
-            # Generar código automáticamente
+            # Generar código automáticamente usando método mejorado
             name = transformed_data.get('name', 'UNNAMED')
             product_type = transformed_data.get('product_type', 'product')
             
-            # Lógica de generación de código (copiada del ProductService)
+            # Determinar prefijo según tipo de producto
             if product_type == 'service':
                 prefix = "SRV"
             elif product_type == 'both':
@@ -75,38 +75,92 @@ async def _create_entity_with_auto_fields(model_class, transformed_data: dict, d
             if len(clean_name) < 3:
                 clean_name = clean_name.ljust(3, 'X')
             
-            # Buscar el siguiente número disponible
-            base_code = f"{prefix}-{clean_name}"
-            counter = 1
+            # Buscar el siguiente número secuencial para este patrón
+            base_pattern = f"{prefix}-{clean_name}-"
             
-            while True:
-                if counter == 1:
-                    candidate_code = base_code
-                else:
-                    candidate_code = f"{base_code}-{counter:02d}"
-                
-                # Verificar si el código ya existe (usando AsyncSession)
-                query = select(Product).where(Product.code == candidate_code)
-                result = await db.execute(query)
-                existing = result.scalar_one_or_none()
+            # Consultar códigos existentes con este patrón
+            query = select(Product.code).where(Product.code.like(f"{base_pattern}%"))
+            result = await db.execute(query)
+            existing_codes = [row[0] for row in result.fetchall()]
+            
+            # Extraer números secuenciales y encontrar el máximo
+            max_number = 0
+            for code in existing_codes:
+                if code.startswith(base_pattern):
+                    try:
+                        # Extraer la parte numérica después del patrón base
+                        remaining = code[len(base_pattern):]
+                        # Dividir por '-' para obtener la parte numérica (antes de cualquier sufijo adicional)
+                        parts = remaining.split('-')
+                        if parts[0].isdigit():
+                            max_number = max(max_number, int(parts[0]))
+                    except (ValueError, IndexError):
+                        continue
+            
+            # Generar siguiente número secuencial
+            next_number = max_number + 1
+            
+            # Generar sufijo aleatorio para garantizar unicidad (3 caracteres)
+            import random
+            import string
+            random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
+            
+            # Código final: PREFIX-NAMEPART-SEQUENCE-RANDOM
+            final_code = f"{prefix}-{clean_name}-{next_number:03d}-{random_suffix}"
+            
+            # Verificar unicidad (debería ser extremadamente raro que colisione)
+            max_attempts = 10
+            attempt = 0
+            while attempt < max_attempts:
+                check_query = select(Product).where(Product.code == final_code)
+                check_result = await db.execute(check_query)
+                existing = check_result.scalar_one_or_none()
                 
                 if not existing:
-                    transformed_data['code'] = candidate_code
+                    transformed_data['code'] = final_code
+                    logger.info(f"Generated unique product code: {final_code} for product: {name}")
                     break
                 
-                counter += 1
-                # Evitar bucle infinito
-                if counter > 999:
-                    # Usar timestamp como fallback
-                    timestamp = str(int(time.time()))[-6:]
-                    transformed_data['code'] = f"{prefix}-{timestamp}"
-                    break
+                # Generar nuevo sufijo aleatorio si hay colisión
+                random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
+                final_code = f"{prefix}-{clean_name}-{next_number:03d}-{random_suffix}"
+                attempt += 1
+            
+            # Si aún hay colisión después de intentos máximos, usar timestamp
+            if attempt >= max_attempts:
+                timestamp = str(int(time.time()))[-8:]
+                transformed_data['code'] = f"{prefix}-{clean_name}-{timestamp}"
+                logger.warning(f"Used timestamp fallback code: {transformed_data['code']}")
         
         # Aplicar valores por defecto para productos
         if 'product_type' not in transformed_data:
             transformed_data['product_type'] = 'product'
-        if 'is_active' not in transformed_data:
-            transformed_data['is_active'] = True
+        if 'status' not in transformed_data:
+            transformed_data['status'] = 'active'  # Product usa 'status', no 'is_active'
+        if 'measurement_unit' not in transformed_data:
+            transformed_data['measurement_unit'] = 'unit'
+        if 'purchase_price' not in transformed_data:
+            transformed_data['purchase_price'] = 0.0
+        if 'sale_price' not in transformed_data:
+            transformed_data['sale_price'] = 0.0
+        if 'min_sale_price' not in transformed_data:
+            transformed_data['min_sale_price'] = 0.0
+        if 'suggested_price' not in transformed_data:
+            transformed_data['suggested_price'] = 0.0
+        if 'tax_category' not in transformed_data:
+            transformed_data['tax_category'] = 'EXEMPT'
+        if 'tax_rate' not in transformed_data:
+            transformed_data['tax_rate'] = 0.0
+        if 'manage_inventory' not in transformed_data:
+            transformed_data['manage_inventory'] = False
+        if 'current_stock' not in transformed_data:
+            transformed_data['current_stock'] = 0.0
+        if 'min_stock' not in transformed_data:
+            transformed_data['min_stock'] = 0.0
+        if 'max_stock' not in transformed_data:
+            transformed_data['max_stock'] = 0.0
+        if 'reorder_point' not in transformed_data:
+            transformed_data['reorder_point'] = 0.0
     
     # Crear la entidad
     new_record = model_class(**transformed_data)
@@ -517,11 +571,16 @@ async def set_column_mappings(
                 detail=f"Invalid field mappings: {', '.join(validation_errors)}"
             )
         
-        # Store mappings in session (simplified - in production you'd store this in database)
-        # For now, we'll just validate and return success
+        # Store mappings in session
+        mapping_saved = await session_service.update_session_mappings(session_id, mappings)
+        if not mapping_saved:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save column mappings to session"
+            )
         
         return {
-            "message": "Column mappings configured successfully",
+            "message": "Column mappings configured and saved successfully",
             "session_id": session_id,
             "mappings_count": len(mappings),
             "mapped_fields": [m.field_name for m in mappings if m.field_name],
@@ -1195,11 +1254,11 @@ async def validate_field_value(raw_value: Any, field_meta, db: AsyncSession):
 @router.post(
     "/sessions/{session_id}/execute",
     summary="Execute import",
-    description="Execute the actual import with validation and error handling"
+    description="Execute the actual import with validation and error handling. If no mappings are provided, uses the mappings saved in the session from /mapping endpoint."
 )
 async def execute_import(
     session_id: str,
-    mappings: List[ColumnMapping],
+    mappings: Optional[List[ColumnMapping]] = None,  # Hacer mappings opcional
     import_policy: str = "create_only",  # create_only, update_only, upsert
     skip_errors: bool = False,  # Nueva opción para omitir filas con errores
     batch_size: int = 2000,  # Tamaño del lote para procesar
@@ -1234,11 +1293,25 @@ async def execute_import(
                 detail="Batch size must be between 1 and 10000"
             )
         
-        # Validate mappings
+        # Validate mappings - use saved mappings if none provided
+        if not mappings:
+            # Try to get mappings from session
+            saved_mappings = await session_service.get_session_mappings(session_id)
+            if saved_mappings:
+                mappings = saved_mappings
+                logger.info(f"Using saved column mappings from session: {len(mappings)} mappings")
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No column mappings provided and no saved mappings found in session. Please configure column mappings first using /sessions/{session_id}/mapping endpoint."
+                )
+        else:
+            logger.info(f"Using provided column mappings: {len(mappings)} mappings")
+        
         if not mappings:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No column mappings provided"
+                detail="No column mappings available"
             )
           # Create mapping dictionary
         mapping_dict = {m.column_name: m.field_name for m in mappings if m.field_name}        # Check required fields are mapped - but allow auto-generated fields

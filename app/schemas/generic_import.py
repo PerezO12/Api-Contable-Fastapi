@@ -290,6 +290,7 @@ class ImportSession(BaseModel):
     created_at: datetime
     expires_at: datetime
     file_path: str  # Ruta temporal del archivo
+    column_mappings: Optional[List[ColumnMapping]] = None  # Mapeo de columnas configurado por el usuario
 
 
 class ImportProgress(BaseModel):

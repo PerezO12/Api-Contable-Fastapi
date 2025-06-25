@@ -147,8 +147,7 @@ class ModelMetadataRegistry:
                     is_required=False,  # No obligatorio, se genera automáticamente
                     is_unique=True,
                     max_length=50,
-                    description="Código único del producto (se genera automáticamente si no se proporciona)",
-                    default_value="AUTO_GENERATED"
+                    description="Código único del producto (se genera automáticamente si no se proporciona)"
                 ),
                 FieldMetadata(
                     internal_name="name",
@@ -156,7 +155,7 @@ class ModelMetadataRegistry:
                     field_type=FieldType.STRING,
                     is_required=True,  # ÚNICO campo obligatorio
                     is_unique=True,    # Único y case sensitive
-                    max_length=255,
+                    max_length=200,
                     description="Nombre único del producto (case sensitive)"
                 ),
                 FieldMetadata(
@@ -168,39 +167,146 @@ class ModelMetadataRegistry:
                     description="Descripción detallada del producto"
                 ),
                 FieldMetadata(
-                    internal_name="unit_price",
-                    display_label="Precio Unitario",
-                    field_type=FieldType.DECIMAL,
-                    is_required=False,  # Opcional
-                    min_value=0,
-                    default_value="0.00",
-                    description="Precio de venta por unidad"
-                ),
-                FieldMetadata(
-                    internal_name="cost_price",
-                    display_label="Precio de Costo",
-                    field_type=FieldType.DECIMAL,
-                    is_required=False,  # Opcional
-                    min_value=0,
-                    default_value="0.00",
-                    description="Costo del producto"
-                ),
-                FieldMetadata(
-                    internal_name="unit_of_measure",
-                    display_label="Unidad de Medida",
-                    field_type=FieldType.STRING,
-                    is_required=False,  # Opcional
-                    max_length=20,
-                    default_value="unidad",
-                    description="Unidad de medida (unidad, kg, litro, etc.)"
-                ),
-                FieldMetadata(
                     internal_name="product_type",
                     display_label="Tipo de Producto",
                     field_type=FieldType.STRING,
                     is_required=False,  # No obligatorio, tiene valor por defecto
                     default_value="product",
-                    description="Tipo: 'product' (producto físico) o 'service' (servicio)"
+                    description="Tipo de producto",
+                    choices=[
+                        {"value": "product", "label": "Producto físico"},
+                        {"value": "service", "label": "Servicio"},
+                        {"value": "both", "label": "Ambos"}
+                    ]
+                ),
+                FieldMetadata(
+                    internal_name="status",
+                    display_label="Estado",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    default_value="active",
+                    description="Estado del producto",
+                    choices=[
+                        {"value": "active", "label": "Activo"},
+                        {"value": "inactive", "label": "Inactivo"},
+                        {"value": "discontinued", "label": "Descontinuado"}
+                    ]
+                ),
+                FieldMetadata(
+                    internal_name="measurement_unit",
+                    display_label="Unidad de Medida",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    default_value="unit",
+                    description="Unidad de medida principal",
+                    choices=[
+                        {"value": "unit", "label": "Unidad"},
+                        {"value": "kg", "label": "Kilogramo"},
+                        {"value": "gram", "label": "Gramo"},
+                        {"value": "liter", "label": "Litro"},
+                        {"value": "meter", "label": "Metro"},
+                        {"value": "cm", "label": "Centímetro"},
+                        {"value": "m2", "label": "Metro cuadrado"},
+                        {"value": "m3", "label": "Metro cúbico"},
+                        {"value": "hour", "label": "Hora"},
+                        {"value": "day", "label": "Día"},
+                        {"value": "month", "label": "Mes"},
+                        {"value": "year", "label": "Año"},
+                        {"value": "dozen", "label": "Docena"},
+                        {"value": "pack", "label": "Paquete"},
+                        {"value": "box", "label": "Caja"}
+                    ]
+                ),
+                FieldMetadata(
+                    internal_name="category",
+                    display_label="Categoría",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    max_length=100,
+                    description="Categoría del producto"
+                ),
+                FieldMetadata(
+                    internal_name="subcategory",
+                    display_label="Subcategoría",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    max_length=100,
+                    description="Subcategoría del producto"
+                ),
+                FieldMetadata(
+                    internal_name="brand",
+                    display_label="Marca",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    max_length=100,
+                    description="Marca del producto"
+                ),
+                FieldMetadata(
+                    internal_name="weight",
+                    display_label="Peso (kg)",
+                    field_type=FieldType.DECIMAL,
+                    is_required=False,  # Opcional
+                    min_value=0,
+                    description="Peso en kilogramos"
+                ),
+                FieldMetadata(
+                    internal_name="dimensions",
+                    display_label="Dimensiones",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    max_length=100,
+                    description="Dimensiones (LxAxA)"
+                ),
+                FieldMetadata(
+                    internal_name="purchase_price",
+                    display_label="Precio de Compra",
+                    field_type=FieldType.DECIMAL,
+                    is_required=False,  # Opcional
+                    min_value=0,
+                    default_value="0.00",
+                    description="Precio de compra del producto"
+                ),
+                FieldMetadata(
+                    internal_name="sale_price",
+                    display_label="Precio de Venta",
+                    field_type=FieldType.DECIMAL,
+                    is_required=False,  # Opcional
+                    min_value=0,
+                    default_value="0.00",
+                    description="Precio de venta del producto"
+                ),
+                FieldMetadata(
+                    internal_name="min_sale_price",
+                    display_label="Precio Mínimo de Venta",
+                    field_type=FieldType.DECIMAL,
+                    is_required=False,  # Opcional
+                    min_value=0,
+                    default_value="0.00",
+                    description="Precio mínimo de venta permitido"
+                ),
+                FieldMetadata(
+                    internal_name="suggested_price",
+                    display_label="Precio Sugerido",
+                    field_type=FieldType.DECIMAL,
+                    is_required=False,  # Opcional
+                    min_value=0,
+                    default_value="0.00",
+                    description="Precio sugerido de venta"
+                ),
+                FieldMetadata(
+                    internal_name="tax_category",
+                    display_label="Categoría de Impuesto",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    default_value="EXEMPT",
+                    description="Categoría fiscal del producto",
+                    choices=[
+                        {"value": "EXEMPT", "label": "Exento"},
+                        {"value": "ZERO_RATE", "label": "Tasa Cero"},
+                        {"value": "REDUCED_RATE", "label": "Tasa Reducida"},
+                        {"value": "STANDARD_RATE", "label": "Tasa Estándar"},
+                        {"value": "SUPER_REDUCED_RATE", "label": "Tasa Súper Reducida"}
+                    ]
                 ),
                 FieldMetadata(
                     internal_name="tax_rate",
@@ -213,12 +319,95 @@ class ModelMetadataRegistry:
                     description="Porcentaje de impuesto aplicable"
                 ),
                 FieldMetadata(
-                    internal_name="is_active",
-                    display_label="Activo",
+                    internal_name="manage_inventory",
+                    display_label="Maneja Inventario",
                     field_type=FieldType.BOOLEAN,
                     is_required=False,  # Opcional
-                    default_value="true",
-                    description="Si el producto está activo"
+                    default_value="false",
+                    description="Indica si se maneja inventario para este producto"
+                ),
+                FieldMetadata(
+                    internal_name="current_stock",
+                    display_label="Stock Actual",
+                    field_type=FieldType.DECIMAL,
+                    is_required=False,  # Opcional
+                    min_value=0,
+                    default_value="0.00",
+                    description="Stock actual del producto"
+                ),
+                FieldMetadata(
+                    internal_name="min_stock",
+                    display_label="Stock Mínimo",
+                    field_type=FieldType.DECIMAL,
+                    is_required=False,  # Opcional
+                    min_value=0,
+                    default_value="0.00",
+                    description="Stock mínimo requerido"
+                ),
+                FieldMetadata(
+                    internal_name="max_stock",
+                    display_label="Stock Máximo",
+                    field_type=FieldType.DECIMAL,
+                    is_required=False,  # Opcional
+                    min_value=0,
+                    default_value="0.00",
+                    description="Stock máximo permitido"
+                ),
+                FieldMetadata(
+                    internal_name="reorder_point",
+                    display_label="Punto de Reorden",
+                    field_type=FieldType.DECIMAL,
+                    is_required=False,  # Opcional
+                    min_value=0,
+                    default_value="0.00",
+                    description="Punto de reorden del producto"
+                ),
+                FieldMetadata(
+                    internal_name="barcode",
+                    display_label="Código de Barras",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    max_length=50,
+                    description="Código de barras del producto"
+                ),
+                FieldMetadata(
+                    internal_name="sku",
+                    display_label="SKU",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    max_length=50,
+                    description="Stock Keeping Unit"
+                ),
+                FieldMetadata(
+                    internal_name="internal_reference",
+                    display_label="Referencia Interna",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    max_length=50,
+                    description="Referencia interna del producto"
+                ),
+                FieldMetadata(
+                    internal_name="supplier_reference",
+                    display_label="Referencia del Proveedor",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    max_length=50,
+                    description="Referencia del proveedor"
+                ),
+                FieldMetadata(
+                    internal_name="notes",
+                    display_label="Notas",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    description="Notas adicionales sobre el producto"
+                ),
+                FieldMetadata(
+                    internal_name="external_reference",
+                    display_label="Referencia Externa",
+                    field_type=FieldType.STRING,
+                    is_required=False,  # Opcional
+                    max_length=100,
+                    description="Referencia externa del producto"
                 )
             ],
             business_key_fields=["name"],  # Cambio: ahora el nombre es la clave de negocio
@@ -254,7 +443,50 @@ class ModelMetadataRegistry:
                     display_label="Tipo de Cuenta",
                     field_type=FieldType.STRING,
                     is_required=True,
-                    description="asset, liability, equity, income, expense"
+                    description="Tipo de cuenta contable",
+                    choices=[
+                        {"value": "activo", "label": "Activo"},
+                        {"value": "pasivo", "label": "Pasivo"},
+                        {"value": "patrimonio", "label": "Patrimonio"},
+                        {"value": "ingreso", "label": "Ingreso"},
+                        {"value": "gasto", "label": "Gasto"},
+                        {"value": "costos", "label": "Costos"}
+                    ]
+                ),
+                FieldMetadata(
+                    internal_name="category",
+                    display_label="Categoría",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    description="Categoría específica de la cuenta",
+                    choices=[
+                        {"value": "activo_corriente", "label": "Activo Corriente"},
+                        {"value": "activo_no_corriente", "label": "Activo No Corriente"},
+                        {"value": "pasivo_corriente", "label": "Pasivo Corriente"},
+                        {"value": "pasivo_no_corriente", "label": "Pasivo No Corriente"},
+                        {"value": "capital", "label": "Capital"},
+                        {"value": "reservas", "label": "Reservas"},
+                        {"value": "resultados", "label": "Resultados"},
+                        {"value": "ingresos_operacionales", "label": "Ingresos Operacionales"},
+                        {"value": "ingresos_no_operacionales", "label": "Ingresos No Operacionales"},
+                        {"value": "gastos_operacionales", "label": "Gastos Operacionales"},
+                        {"value": "gastos_no_operacionales", "label": "Gastos No Operacionales"},
+                        {"value": "costo_ventas", "label": "Costo de Ventas"},
+                        {"value": "costos_produccion", "label": "Costos de Producción"}
+                    ]
+                ),
+                FieldMetadata(
+                    internal_name="cash_flow_category",
+                    display_label="Categoría de Flujo de Efectivo",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    description="Categoría para clasificación en flujo de efectivo",
+                    choices=[
+                        {"value": "operating", "label": "Actividades de Operación"},
+                        {"value": "investing", "label": "Actividades de Inversión"},
+                        {"value": "financing", "label": "Actividades de Financiamiento"},
+                        {"value": "cash", "label": "Efectivo y Equivalentes"}
+                    ]
                 ),
                 FieldMetadata(
                     internal_name="parent_account_code",
@@ -273,11 +505,48 @@ class ModelMetadataRegistry:
                     description="Nivel jerárquico de la cuenta"
                 ),
                 FieldMetadata(
-                    internal_name="is_movement",
-                    display_label="Cuenta de Movimiento",
+                    internal_name="allows_movements",
+                    display_label="Permite Movimientos",
                     field_type=FieldType.BOOLEAN,
                     default_value="true",
-                    description="Si la cuenta permite movimientos"
+                    description="Si la cuenta permite movimientos contables"
+                ),
+                FieldMetadata(
+                    internal_name="requires_third_party",
+                    display_label="Requiere Tercero",
+                    field_type=FieldType.BOOLEAN,
+                    default_value="false",
+                    description="Si la cuenta requiere especificar un tercero"
+                ),
+                FieldMetadata(
+                    internal_name="requires_cost_center",
+                    display_label="Requiere Centro de Costo",
+                    field_type=FieldType.BOOLEAN,
+                    default_value="false",
+                    description="Si la cuenta requiere especificar un centro de costo"
+                ),
+                FieldMetadata(
+                    internal_name="allows_reconciliation",
+                    display_label="Permite Conciliación",
+                    field_type=FieldType.BOOLEAN,
+                    default_value="false",
+                    description="Si la cuenta permite conciliación bancaria o de terceros"
+                ),
+                FieldMetadata(
+                    internal_name="description",
+                    display_label="Descripción",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=1000,
+                    description="Descripción detallada de la cuenta"
+                ),
+                FieldMetadata(
+                    internal_name="notes",
+                    display_label="Notas",
+                    field_type=FieldType.STRING,
+                    is_required=False,
+                    max_length=1000,
+                    description="Notas adicionales sobre la cuenta"
                 ),
                 FieldMetadata(
                     internal_name="is_active",

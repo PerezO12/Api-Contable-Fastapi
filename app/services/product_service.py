@@ -57,42 +57,19 @@ class ProductService:
         Returns:
             Código único generado
         """
-        # Obtener prefijo basado en el tipo de producto
+        from app.utils.codes import generate_product_code
+        
+        # Convertir ProductType enum a string para la función de códigos
+        product_type_str = "product"  # valor por defecto
         if product_type == ProductType.SERVICE:
-            prefix = "SRV"
+            product_type_str = "service"
         elif product_type == ProductType.BOTH:
-            prefix = "MIX"
-        else:  # PRODUCT o None
-            prefix = "PRD"
+            product_type_str = "both"
+        elif product_type == ProductType.PRODUCT:
+            product_type_str = "product"
         
-        # Limpiar el nombre para crear una base del código
-        # Tomar las primeras letras significativas del nombre
-        clean_name = ''.join(c.upper() for c in name if c.isalnum())[:6]
-        if len(clean_name) < 3:
-            clean_name = clean_name.ljust(3, 'X')
-        
-        # Buscar el siguiente número disponible
-        base_code = f"{prefix}-{clean_name}"
-        counter = 1
-        
-        while True:
-            if counter == 1:
-                candidate_code = base_code
-            else:
-                candidate_code = f"{base_code}-{counter:02d}"
-            
-            # Verificar si el código ya existe
-            existing = self.db.query(Product).filter(Product.code == candidate_code).first()
-            if not existing:
-                return candidate_code
-            
-            counter += 1
-            # Evitar bucle infinito
-            if counter > 999:
-                # Usar timestamp como fallback
-                import time
-                timestamp = str(int(time.time()))[-6:]
-                return f"{prefix}-{timestamp}"
+        # Usar la nueva función de generación de códigos mejorada
+        return generate_product_code(self.db, name, product_type_str)
 
     def get_by_id(self, product_id: uuid.UUID) -> Optional[Product]:
         """Obtiene un producto por ID"""

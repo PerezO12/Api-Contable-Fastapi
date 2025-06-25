@@ -21,6 +21,7 @@ class AccountBase(BaseModel):
     allows_movements: bool = Field(True, description="Si permite movimientos contables")
     requires_third_party: bool = Field(False, description="Si requiere especificar terceros")
     requires_cost_center: bool = Field(False, description="Si requiere centro de costo")
+    allows_reconciliation: bool = Field(False, description="Si permite conciliación")
     notes: Optional[str] = Field(None, max_length=1000, description="Notas adicionales")
 
     @field_validator('code')
@@ -54,6 +55,7 @@ class AccountUpdate(BaseModel):
     allows_movements: Optional[bool] = None
     requires_third_party: Optional[bool] = None
     requires_cost_center: Optional[bool] = None
+    allows_reconciliation: Optional[bool] = None
     notes: Optional[str] = Field(None, max_length=1000)
 
     @field_validator('name')
@@ -81,6 +83,7 @@ class AccountRead(BaseModel):
     allows_movements: bool
     requires_third_party: bool
     requires_cost_center: bool
+    allows_reconciliation: bool
     balance: Decimal
     debit_balance: Decimal
     credit_balance: Decimal
@@ -112,6 +115,7 @@ class AccountTree(BaseModel):
     balance: Decimal
     is_active: bool
     allows_movements: bool
+    allows_reconciliation: bool
     children: List['AccountTree'] = Field(default_factory=list)
 
 
@@ -126,6 +130,7 @@ class AccountSummary(BaseModel):
     balance: Decimal
     is_active: bool
     allows_movements: bool
+    allows_reconciliation: bool
 
 
 class AccountListResponse(BaseModel):
