@@ -309,11 +309,26 @@ class InvoiceService:
                     else:
                         original_entry.notes = cancel_note
                     
-                    # TODO: Aquí se podrían deshacer conciliaciones si existen
-                    # self._undo_reconciliations(original_entry)
+                    # CRÍTICO: Revertir los saldos de las cuentas
+                    journal_lines = self.db.query(JournalEntryLine).options(
+                        joinedload(JournalEntryLine.account)
+                    ).filter(
+                        JournalEntryLine.journal_entry_id == original_entry.id
+                    ).all()
+                    
+                    for line in journal_lines:
+                        if line.account:
+                            # Revertir saldos usando los mismos montos pero con signo contrario
+                            # Si antes era débito ahora es crédito y viceversa
+                            line.account.balance -= (line.debit_amount or 0) - (line.credit_amount or 0)
+                            line.account.debit_balance -= (line.debit_amount or 0)
+                            line.account.credit_balance -= (line.credit_amount or 0)
+                            line.account.updated_at = datetime.utcnow()
+                            self.db.add(line.account)
                     
                     logger.info(f"Journal entry {original_entry.number} marked as cancelled for invoice {invoice.number}")
-              # 3. Actualizar estado de la factura
+            
+            # 3. Actualizar estado de la factura
             invoice.status = InvoiceStatus.CANCELLED
             invoice.cancelled_by_id = cancelled_by_id
             invoice.cancelled_at = datetime.utcnow()
@@ -353,7 +368,8 @@ class InvoiceService:
             
             # Validar que no hay pagos aplicados (implementar cuando exista el módulo de pagos)
             # TODO: Validar pagos cuando se implemente el módulo correspondiente
-              # 2. Guardar referencia al journal entry antes de modificar
+            
+            # 2. Guardar referencia al journal entry antes de modificar
             journal_entry_id = invoice.journal_entry_id
             journal_entry = None
             
@@ -370,16 +386,33 @@ class InvoiceService:
             invoice.cancelled_by_id = None
             invoice.cancelled_at = None
             invoice.updated_at = datetime.utcnow()
-              # 4. Limpiar la referencia al journal entry en la factura 
+            
+            # 4. Limpiar la referencia al journal entry en la factura 
             # Tanto para POSTED como CANCELLED: eliminar la referencia porque se borra el journal entry
             invoice.journal_entry_id = None
             
             # 5. Hacer flush para persistir los cambios de la factura antes de manejar journal entries
             self.db.flush()
-              # 6. Manejar asientos contables: SIEMPRE eliminar cuando se resetea a DRAFT
+            
+            # 6. Manejar asientos contables: SIEMPRE eliminar cuando se resetea a DRAFT
             if journal_entry:
-                # Sin importar el estado anterior (POSTED o CANCELLED), 
-                # al resetear a DRAFT se debe eliminar el journal entry
+                # Si el asiento estaba POSTED, revertir los saldos antes de eliminar
+                if journal_entry.status == JournalEntryStatus.POSTED:
+                    journal_lines = self.db.query(JournalEntryLine).options(
+                        joinedload(JournalEntryLine.account)
+                    ).filter(
+                        JournalEntryLine.journal_entry_id == journal_entry.id
+                    ).all()
+                    
+                    for line in journal_lines:
+                        if line.account:
+                            # Revertir saldos usando los mismos montos pero con signo contrario
+                            # Si antes era débito ahora es crédito y viceversa
+                            line.account.balance -= (line.debit_amount or 0) - (line.credit_amount or 0)
+                            line.account.debit_balance -= (line.debit_amount or 0)
+                            line.account.credit_balance -= (line.credit_amount or 0)
+                            line.account.updated_at = datetime.utcnow()
+                            self.db.add(line.account)
                 
                 # Eliminar líneas del journal entry primero
                 self.db.query(JournalEntryLine).filter(
@@ -390,6 +423,7 @@ class InvoiceService:
                 self.db.delete(journal_entry)
                 
                 logger.info(f"Deleted journal entry {journal_entry.number} for reset invoice {invoice.number} (was {previous_status})")
+            
             # 7. Log de auditoría
             status_name = "CANCELLED" if previous_status == InvoiceStatus.CANCELLED else "POSTED"
             if reason:
@@ -705,12 +739,14 @@ class InvoiceService:
         """
         # Determinar tipo de asiento según el origen
         entry_type = JournalEntryType.AUTOMATIC
-          # Determinar origen de transacción
+        
+        # Determinar origen de transacción
         if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
             transaction_origin = TransactionOrigin.SALE
         else:
             transaction_origin = TransactionOrigin.PURCHASE
-          # Generar número para el journal entry usando el diario de la factura
+        
+        # Generar número para el journal entry usando el diario de la factura
         if invoice.journal_id:
             # Usar el mismo diario que la factura
             journal = self.db.query(Journal).filter(Journal.id == invoice.journal_id).first()
@@ -720,7 +756,8 @@ class InvoiceService:
                 entry_number = self._generate_journal_entry_number()
         else:
             entry_number = self._generate_journal_entry_number()
-          # Crear asiento principal
+        
+        # Crear asiento principal
         journal_entry = JournalEntry(
             number=entry_number,
             entry_type=entry_type,
@@ -730,20 +767,42 @@ class InvoiceService:
             reference=invoice.number,
             transaction_origin=transaction_origin,
             journal_id=invoice.journal_id,  # Usar el mismo diario que la factura
-            created_by_id=created_by_id        )
+            created_by_id=created_by_id
+        )
         
         self.db.add(journal_entry)
         self.db.flush()
-          # Crear líneas del asiento
+        
+        # Crear líneas del asiento
         self._create_journal_entry_lines(journal_entry, invoice)
         
         # CRÍTICO: Calcular totales del journal entry después de crear las líneas
         journal_entry.calculate_totals()
         
         # CRÍTICO: Actualizar saldos de las cuentas ya que se creó con status POSTED
-        for line in journal_entry.lines:
+        # Cargar las líneas con sus cuentas para actualizar saldos
+        journal_lines = self.db.query(JournalEntryLine).options(
+            joinedload(JournalEntryLine.account)
+        ).filter(
+            JournalEntryLine.journal_entry_id == journal_entry.id
+        ).all()
+        
+        for line in journal_lines:
             if line.account:
-                line.account.update_balance(line.debit_amount, line.credit_amount)
+                # Actualizar saldos de la cuenta
+                line.account.balance += (line.debit_amount or 0) - (line.credit_amount or 0)
+                line.account.debit_balance += (line.debit_amount or 0)
+                line.account.credit_balance += (line.credit_amount or 0)
+                line.account.updated_at = datetime.utcnow()
+                self.db.add(line.account)
+                
+                # Log para debugging
+                logger.info(f"Updated account {line.account.code} - {line.account.name}: "
+                          f"D: +{line.debit_amount or 0}, C: +{line.credit_amount or 0}, "
+                          f"Balance: {line.account.balance}")
+        
+        # Hacer flush para asegurar que se guarden los cambios en las cuentas
+        self.db.flush()
         
         return journal_entry
 
@@ -754,12 +813,16 @@ class InvoiceService:
         lines = self.db.query(InvoiceLine).filter(InvoiceLine.invoice_id == invoice.id).all()
         line_counter = 1
         
+        # Log para debugging
+        logger.info(f"Creating journal entry lines for invoice {invoice.number} - Type: {invoice.invoice_type}")
+        
         # 1. Líneas por cada línea de factura (ingresos/gastos)
         for line in lines:
             try:
                 account = self.account_determination.determine_line_account(line)
                 line_amount = line.quantity * line.unit_price
-                  # Aplicar descuentos
+                
+                # Aplicar descuentos
                 if line.discount_percentage:
                     line_amount *= (1 - line.discount_percentage / 100)
                 
@@ -771,6 +834,9 @@ class InvoiceService:
                     # Factura de compra: debitar gastos/costos
                     debit = line_amount
                     credit = Decimal('0')
+                
+                # Log para debugging
+                logger.info(f"Line {line_counter}: Account {account.code} - Amount: {line_amount} - D: {debit}, C: {credit}")
                 
                 journal_line = JournalEntryLine(
                     journal_entry_id=journal_entry.id,
@@ -785,21 +851,34 @@ class InvoiceService:
                 line_counter += 1
                 
             except Exception as e:
-                logger.warning(f"Error creating journal line for invoice line {line.id}: {str(e)}")
-                # Continuar con las demás líneas
+                logger.error(f"Error creating journal line for invoice line {line.id}: {str(e)}")
+                raise  # Re-lanzar la excepción para manejarla arriba
         
-        # 2. Línea de impuestos (simplificada por ahora)
+        # 2. Línea de impuestos (si aplica)
         if invoice.tax_amount and invoice.tax_amount > 0:
             self._create_tax_journal_line(journal_entry, invoice, line_counter)
-            line_counter += 1        # 3. Líneas del tercero (cuenta por cobrar/pagar) usando payment terms
+            line_counter += 1
+        
+        # 3. Líneas del tercero (cuenta por cobrar/pagar) usando payment terms
         third_party_account = self.account_determination.determine_third_party_account(invoice)
+        
+        # Log para debugging
+        logger.info(f"Third party account: {third_party_account.code} - {third_party_account.name}")
+        
         due_lines, _ = self.payment_terms_processor.process_invoice_payment_terms(
             invoice, third_party_account, line_counter
         )
-          # Agregar las líneas de vencimiento al asiento
+        
+        # Agregar las líneas de vencimiento al asiento
         for due_line in due_lines:
             due_line.journal_entry_id = journal_entry.id
             self.db.add(due_line)
+            
+            # Log para debugging
+            logger.info(f"Due line: Account {third_party_account.code} - D: {due_line.debit_amount}, C: {due_line.credit_amount}")
+        
+        # Hacer flush para asegurar que todas las líneas se creen antes de calcular totales
+        self.db.flush()
 
     def _create_tax_journal_line(self, journal_entry: JournalEntry, invoice: Invoice, line_number: int):
         """
