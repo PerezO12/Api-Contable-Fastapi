@@ -8,7 +8,7 @@ from app.api.v1 import (
     export_templates, export, cost_centers, third_parties, cost_center_reports,
     products, journals, generic_import, import_templates
 )
-from app.api import payment_terms, payments, invoices, bank_extracts, bank_reconciliation
+from app.api import payment_terms, payments, invoices, bank_extracts, bank_reconciliation, nfe
 
 api_router = APIRouter()
 
@@ -50,6 +50,9 @@ api_router.include_router(bank_extracts.router, prefix="/bank-extracts", tags=["
 
 # Bank reconciliation routes - Bank reconciliation workflow
 api_router.include_router(bank_reconciliation.router, prefix="/bank-reconciliation", tags=["bank-reconciliation"])
+
+# NFe routes - Brazilian electronic invoice bulk import
+api_router.include_router(nfe.router, prefix="/nfe", tags=["nfe"])
 
 # Cost center reports routes
 api_router.include_router(cost_center_reports.router, prefix="/cost-center-reports", tags=["cost-center-reports"])

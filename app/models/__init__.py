@@ -20,6 +20,9 @@ from app.models.invoice import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from app.models.bank_extract import BankExtract, BankExtractLine, BankExtractStatus
 from app.models.bank_reconciliation import BankReconciliation, ReconciliationType
 
+# Importar modelos de NFe
+from app.models.nfe import NFe, NFeItem, NFeStatus, NFeType
+
 # Exportar para facilitar importaciones
 __all__ = [
     "Base",
@@ -67,5 +70,10 @@ __all__ = [
     "BankExtractLine",
     "BankExtractStatus",
     "BankReconciliation",
-    "ReconciliationType"
+    "ReconciliationType",
+    # Modelos de NFe
+    "NFe",
+    "NFeItem", 
+    "NFeStatus",
+    "NFeType"
 ]

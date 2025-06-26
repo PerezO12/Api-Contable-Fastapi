@@ -485,7 +485,7 @@ class InvoiceService:
     def get_invoices(
         self,
         skip: int = 0,
-        limit: int = 100,
+        limit: int = 1000,
         third_party_id: Optional[uuid.UUID] = None,
         status: Optional[InvoiceStatus] = None,
         invoice_type: Optional[InvoiceType] = None,
@@ -1194,7 +1194,8 @@ class InvoiceService:
                 "successful": len(successful_ids),
                 "failed": len(failed_items),
                 "skipped": len(skipped_items),
-                "successful_ids": successful_ids,                "failed_items": failed_items,
+                "successful_ids": successful_ids,                
+                "failed_items": failed_items,
                 "skipped_items": skipped_items,
                 "execution_time_seconds": round(execution_time, 3)
             }
@@ -1460,7 +1461,19 @@ class InvoiceService:
             # 3. Procesar facturas válidas
             for invoice in valid_invoices:
                 try:
-                    # Eliminar líneas primero
+                    # Verificar y desactivar referencias de NFe antes de eliminar
+                    from app.models.nfe import NFe, NFeStatus
+                    
+                    # Buscar NFe que referencian esta factura
+                    nfes = self.db.query(NFe).filter(NFe.invoice_id == invoice.id).all()
+                    
+                    # Desactivar la referencia a la factura en las NFe
+                    for nfe in nfes:
+                        nfe.invoice_id = None
+                        nfe.status = NFeStatus.UNLINKED  # Marcar como desvinculada
+                        logger.info(f"Unlinked NFe {nfe.chave_nfe} from invoice {invoice.id}")
+                    
+                    # Eliminar líneas de factura primero
                     self.db.query(InvoiceLine).filter(
                         InvoiceLine.invoice_id == invoice.id
                     ).delete(synchronize_session=False)
@@ -1469,7 +1482,7 @@ class InvoiceService:
                     self.db.delete(invoice)
                     successful_ids.append(invoice.id)
                     
-                    logger.info(f"Deleted invoice {invoice.id} ({invoice.number}) - Reason: {reason or 'Not specified'}")
+                    logger.info(f"Deleted invoice {invoice.id} ({invoice.number}) and unlinked {len(nfes)} NFe references - Reason: {reason or 'Not specified'}")
                         
                 except Exception as e:
                     error_msg = str(e)

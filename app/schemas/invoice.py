@@ -333,8 +333,8 @@ class BulkInvoicePostRequest(BaseModel):
     def validate_invoice_ids(cls, v):
         if len(v) < 1:
             raise ValueError('Debe proporcionar al menos 1 ID de factura')
-        if len(v) > 100:
-            raise ValueError('Máximo 100 facturas por operación bulk')
+        if len(v) > 1000:
+            raise ValueError('Máximo 1000 facturas por operación bulk')
         return v
 
 
@@ -358,8 +358,8 @@ class BulkInvoiceCancelRequest(BaseModel):
     def validate_invoice_ids(cls, v):
         if len(v) < 1:
             raise ValueError('Debe proporcionar al menos 1 ID de factura')
-        if len(v) > 100:
-            raise ValueError('Máximo 100 facturas por operación bulk')
+        if len(v) > 1000:
+            raise ValueError('Máximo 1000 facturas por operación bulk')
         return v
 
 
@@ -387,8 +387,8 @@ class BulkInvoiceResetToDraftRequest(BaseModel):
     def validate_invoice_ids(cls, v):
         if len(v) < 1:
             raise ValueError('Debe proporcionar al menos 1 ID de factura')
-        if len(v) > 100:
-            raise ValueError('Máximo 100 facturas por operación bulk')
+        if len(v) > 1000:
+            raise ValueError('Máximo 1000 facturas por operación bulk')
         return v
 
 
@@ -412,8 +412,8 @@ class BulkInvoiceDeleteRequest(BaseModel):
     def validate_invoice_ids(cls, v):
         if len(v) < 1:
             raise ValueError('Debe proporcionar al menos 1 ID de factura')
-        if len(v) > 50:
-            raise ValueError('Máximo 50 facturas por operación de eliminación bulk')
+        if len(v) > 5000:
+            raise ValueError('Máximo 5000 facturas por operación de eliminación bulk')
         return v
     
     @validator('confirmation')
