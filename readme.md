@@ -1,7 +1,7 @@
 # API Contable - Sistema de Contabilidad(en desarrollo)
 
 ![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+![License](https://img.shields.io/badge/license-CC--BY--NC--ND--4.0-green.svg)
 ![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115.12-teal.svg)
 ![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0.41-red.svg)
@@ -248,7 +248,18 @@ pytest tests/api/test_auth.py
 
 ## 📋 Licencia
 
-Este proyecto está bajo la Licencia MIT. Consulte el archivo LICENSE para obtener más detalles.
+Este proyecto está bajo la Licencia Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International (CC-BY-NC-ND-4.0). 
+
+Esta licencia permite que otros descarguen y compartan el trabajo siempre que den crédito, pero no permite su uso comercial ni la creación de trabajos derivados.
+
+### Términos principales:
+- **Atribución** — Debe dar crédito adecuado y proporcionar un enlace a la licencia
+- **NoComercial** — No puede utilizar el material con fines comerciales
+- **NoDerivadas** — No puede distribuir el material modificado
+- **Sin restricciones adicionales** — No puede aplicar términos legales adicionales
+
+Para más detalles, consulte el archivo [LICENSE.md](./LICENSE.md) o visite:
+https://creativecommons.org/licenses/by-nc-nd/4.0/
 
 ## 📞 Soporte
 
