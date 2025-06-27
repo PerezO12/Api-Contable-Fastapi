@@ -180,35 +180,55 @@ class AccountDeterminationService:
     def _get_tax_accounts(self, invoice: Invoice) -> List[Dict[str, Union[str, uuid.UUID, Decimal]]]:
         """
         Obtener cuentas de impuestos
-        Por ahora usa un cálculo simplificado del impuesto total
-        TODO: Implementar soporte para múltiples impuestos por línea
+        Para facturas de venta: usar cuentas de ingresos (4.x.x.xx)
+        Para facturas de compra: usar cuentas de pasivo (2.1.x.xx)
         """
         tax_accounts = []
         
         if invoice.tax_amount and invoice.tax_amount > 0:
-            # Buscar cuenta de IVA por pagar (para ventas) o IVA deducible (para compras)
+            # Determinar patrón de cuenta según tipo de factura
             if invoice.invoice_type in [InvoiceType.CUSTOMER_INVOICE, InvoiceType.CREDIT_NOTE, InvoiceType.DEBIT_NOTE]:
-                # IVA por pagar (2408)
-                account = self._get_default_account_by_pattern(['2408', '2400'], AccountType.PASIVO)
-                account_description = "IVA por pagar"
+                # Impuestos sobre ventas: cuentas de ingresos
+                account_patterns = {
+                    'ICMS': ['4.1.1.01'],  # ICMS sobre Vendas
+                    'PIS': ['4.1.1.03'],   # PIS sobre Vendas
+                    'COFINS': ['4.1.1.04'] # COFINS sobre Vendas
+                }
+                account_type = AccountType.INGRESO
             else:  # SUPPLIER_INVOICE
-                # IVA deducible (2408 o cuenta de activo)
-                account = self._get_default_account_by_pattern(['1365', '2408'], None)  # Buscar en cualquier tipo
-                account_description = "IVA deducible"
+                # Impuestos por pagar: cuentas de pasivo
+                account_patterns = {
+                    'ICMS': ['2.1.4.01'],  # ICMS por Pagar
+                    'PIS': ['2.1.4.03'],   # PIS por Pagar
+                    'COFINS': ['2.1.4.04'] # COFINS por Pagar
+                }
+                account_type = AccountType.PASIVO
             
-            if not account:
-                raise BusinessRuleError(
-                    f"No se encontró cuenta contable para {account_description}. "
-                    f"Configure una cuenta adecuada en el plan contable."
-                )
-            
-            tax_accounts.append({
-                'account_id': account.id,
-                'account_code': account.code,
-                'account_name': account.name,
-                'tax_amount': invoice.tax_amount,
-                'source': 'default_tax_account'
-            })
+            # Buscar cuenta para cada tipo de impuesto
+            for tax_name, patterns in account_patterns.items():
+                account = None
+                for pattern in patterns:
+                    account = self.db.query(Account).filter(
+                        Account.code.like(f"{pattern}%"),
+                        Account.is_active == True,
+                        Account.account_type == account_type
+                    ).first()
+                    if account:
+                        break
+                
+                if not account:
+                    raise BusinessRuleError(
+                        f"No se encontró cuenta contable para {tax_name}. "
+                        f"Configure una cuenta de tipo {account_type.value} con código que comience con {patterns[0]}"
+                    )
+                
+                tax_accounts.append({
+                    'account_id': account.id,
+                    'account_code': account.code,
+                    'account_name': account.name,
+                    'tax_amount': invoice.tax_amount,
+                    'source': 'default_tax_account'
+                })
         
         return tax_accounts
     

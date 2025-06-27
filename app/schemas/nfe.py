@@ -30,6 +30,12 @@ class NFeBulkImportConfig(BaseModel):
     default_customer_account: Optional[str] = Field(default=None, description="Conta padrão de clientes (código)")
     default_supplier_account: Optional[str] = Field(default=None, description="Conta padrão de fornecedores (código)")
     
+    # Contas padrão para impostos
+    default_icms_account: Optional[str] = Field(default="4.1.1.01", description="Conta padrão para ICMS sobre Vendas")
+    default_ipi_account: Optional[str] = Field(default="4.1.1.02", description="Conta padrão para IPI sobre Vendas")
+    default_pis_account: Optional[str] = Field(default="4.1.1.03", description="Conta padrão para PIS sobre Vendas")
+    default_cofins_account: Optional[str] = Field(default="4.1.1.04", description="Conta padrão para COFINS sobre Vendas")
+    
     # Diários padrão
     default_sales_journal: Optional[str] = Field(default=None, description="Diário padrão de vendas (código)")
     default_purchase_journal: Optional[str] = Field(default=None, description="Diário padrão de compras (código)")

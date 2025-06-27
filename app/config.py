@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     DB_NAME: str = "accounting_system"    
     DB_PORT: int = 5432
     
+    # Default Tax Accounts Configuration
+    DEFAULT_ICMS_ACCOUNT_CODE: str = "4.1.1.01"
+    DEFAULT_ICMS_ACCOUNT_NAME: str = "ICMS sobre Vendas"
+    DEFAULT_IPI_ACCOUNT_CODE: str = "4.1.1.02"
+    DEFAULT_IPI_ACCOUNT_NAME: str = "IPI sobre Vendas"
+    DEFAULT_PIS_ACCOUNT_CODE: str = "4.1.1.03"
+    DEFAULT_PIS_ACCOUNT_NAME: str = "PIS sobre Vendas"
+    DEFAULT_COFINS_ACCOUNT_CODE: str = "4.1.1.04"
+    DEFAULT_COFINS_ACCOUNT_NAME: str = "COFINS sobre Vendas"
+    
     @computed_field
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Any
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -338,3 +338,18 @@ async def export_accounts_csv(
     account_service = AccountService(db)
     # En producción retornar StreamingResponse con el CSV
     return await account_service.export_accounts_to_csv(account_type, active_only)
+
+
+@router.post("/setup/tax-accounts", response_model=List[AccountRead])
+async def create_tax_accounts(
+    *,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """
+    Crear cuentas de impuestos sobre ventas.
+    Solo superusuarios pueden ejecutar esta operación.
+    """
+    account_service = AccountService(db)
+    accounts = await account_service.create_tax_accounts()
+    return accounts

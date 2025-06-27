@@ -50,6 +50,9 @@ class AccountCategory(str, Enum):
     # Costos
     COSTO_VENTAS = "costo_ventas"
     COSTOS_PRODUCCION = "costos_produccion"
+    
+    # Impuestos
+    IMPUESTOS = "impuestos"  # Categoría para cuentas de impuestos
 
 
 class CashFlowCategory(str, Enum):

@@ -428,7 +428,21 @@ class NFeBulkImportService:
             # Gerar número de fatura
             invoice_number = self._generate_invoice_number(nfe, journal)
             
-            # Criar fatura
+            # Calcular totales de impuestos
+            tax_totals = {
+                'icms': nfe.valor_total_icms or Decimal('0'),
+                'ipi': nfe.valor_total_ipi or Decimal('0'),
+                'pis': nfe.valor_total_pis or Decimal('0'),
+                'cofins': nfe.valor_total_cofins or Decimal('0')
+            }
+            
+            # Obtener cuentas de impuestos
+            tax_accounts = self.validation_service.get_tax_accounts(
+                config,
+                nfe_type="saida" if nfe.tipo_nfe == "saida" else "entrada"
+            )
+            
+            # Crear fatura
             invoice = Invoice(
                 number=invoice_number,
                 external_reference=f"NFe-{nfe.numero_nfe}",
@@ -438,7 +452,7 @@ class NFeBulkImportService:
                 invoice_date=nfe.data_emissao.date(),
                 due_date=nfe.data_emissao.date(),  # Ajustar conforme regras de negócio
                 subtotal=nfe.valor_total_produtos,
-                tax_amount=nfe.valor_total_icms + nfe.valor_total_ipi + nfe.valor_total_pis + nfe.valor_total_cofins,
+                tax_amount=sum(tax_totals.values()),
                 total_amount=nfe.valor_total_nfe,
                 outstanding_amount=nfe.valor_total_nfe,
                 journal_id=journal.id if journal else None,
@@ -449,8 +463,34 @@ class NFeBulkImportService:
             self.db.add(invoice)
             self.db.flush()
             
-            # Criar linhas da fatura
+            # Crear linhas da fatura
             await self._create_invoice_lines(invoice, nfe, config, user_id, validated_data)
+            
+            # Crear líneas de impuestos
+            sequence = len(invoice.lines) + 1
+            
+            # Crear líneas para cada impuesto si hay monto y cuenta configurada
+            for tax_type, amount in tax_totals.items():
+                if amount > 0:
+                    account_key = f"{tax_type}_account_id"
+                    account_id = tax_accounts.get(account_key)
+                    
+                    if account_id:
+                        tax_line = InvoiceLine(
+                            invoice_id=invoice.id,
+                            sequence=sequence,
+                            description=f"Impuesto {tax_type.upper()} - NFe {nfe.numero_nfe}",
+                            quantity=Decimal('1'),
+                            unit_price=amount,  # El precio unitario será igual al monto del impuesto
+                            tax_amount=amount,
+                            total_amount=amount,
+                            account_id=account_id,
+                            created_by_id=user_id
+                        )
+                        self.db.add(tax_line)
+                        sequence += 1
+                    else:
+                        logger.warning(f"No se encontró cuenta para el impuesto {tax_type} - NFe {nfe.chave_nfe}")
             
             # Atualizar NFe com referência à fatura
             nfe.invoice_id = invoice.id
@@ -495,7 +535,8 @@ class NFeBulkImportService:
     def _generate_invoice_number(self, nfe: NFe, journal: Optional[Journal]) -> str:
         """Gera número da fatura"""
         prefix = journal.code if journal else "INV"
-        return f"{prefix}-NFe-{nfe.numero_nfe}-{nfe.serie}"
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+        return f"{prefix}-NFe-{nfe.numero_nfe}-{nfe.serie}-{timestamp}"
     
     async def _create_invoice_lines(
         self,

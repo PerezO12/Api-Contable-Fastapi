@@ -562,6 +562,18 @@ class AccountService:
         if account.code in system_codes:
             blocking_reasons.append("No se puede eliminar una cuenta de sistema")
         
+        # Verificar referencias en líneas de facturas
+        from app.models.invoice import InvoiceLine
+        invoice_lines_result = await self.db.execute(
+            select(func.count(InvoiceLine.id))
+            .where(InvoiceLine.account_id == account_id)
+        )
+        invoice_lines_count = invoice_lines_result.scalar() or 0
+        
+        if invoice_lines_count > 0:
+            blocking_reasons.append(f"La cuenta está siendo utilizada en {invoice_lines_count} líneas de facturas")
+            dependencies["invoice_lines_count"] = invoice_lines_count
+        
         # Advertencias
         if account.balance != 0:
             warnings.append(f"La cuenta tiene un saldo pendiente de {account.balance}")
@@ -769,3 +781,54 @@ class AccountService:
         # Solo procesar cuentas raíz (sin parent_id)
         root_accounts = [account for account in all_accounts if account.parent_id is None]
         return [build_tree(account) for account in sorted(root_accounts, key=lambda x: x.code)]
+
+    async def create_tax_accounts(self) -> List[Account]:
+        """Crear cuentas de impuestos sobre ventas"""
+        tax_accounts = [
+            {
+                "code": "4.1.1.01",
+                "name": "ICMS sobre Vendas",
+                "description": "Cuenta para ICMS sobre ventas",
+                "account_type": "INGRESO",
+                "allows_movements": True,
+                "is_active": True
+            },
+            {
+                "code": "4.1.1.02",
+                "name": "IPI sobre Vendas",
+                "description": "Cuenta para IPI sobre ventas",
+                "account_type": "INGRESO",
+                "allows_movements": True,
+                "is_active": True
+            },
+            {
+                "code": "4.1.1.03",
+                "name": "PIS sobre Vendas",
+                "description": "Cuenta para PIS sobre ventas",
+                "account_type": "INGRESO",
+                "allows_movements": True,
+                "is_active": True
+            },
+            {
+                "code": "4.1.1.04",
+                "name": "COFINS sobre Vendas",
+                "description": "Cuenta para COFINS sobre ventas",
+                "account_type": "INGRESO",
+                "allows_movements": True,
+                "is_active": True
+            }
+        ]
+        
+        created_accounts = []
+        for account_data in tax_accounts:
+            # Verificar si la cuenta ya existe
+            existing = await self.get_account_by_code(account_data["code"])
+            if not existing:
+                account = Account(**account_data)
+                self.db.add(account)
+                created_accounts.append(account)
+        
+        if created_accounts:
+            await self.db.commit()
+        
+        return created_accounts

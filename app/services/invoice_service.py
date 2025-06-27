@@ -17,6 +17,7 @@ from app.models.product import Product
 from app.models.tax import Tax
 from app.models.journal import Journal, JournalType
 from app.models.journal_entry import JournalEntry, JournalEntryLine, JournalEntryStatus, JournalEntryType, TransactionOrigin
+from app.models.nfe import NFe
 from app.schemas.invoice import (
     InvoiceCreate, InvoiceUpdate, InvoiceResponse,
     InvoiceLineCreate, InvoiceLineUpdate, InvoiceLineResponse,
@@ -882,47 +883,93 @@ class InvoiceService:
 
     def _create_tax_journal_line(self, journal_entry: JournalEntry, invoice: Invoice, line_number: int):
         """
-        Crear línea de asiento para impuestos (implementación básica)
+        Crear líneas de asiento para impuestos
         """
         try:
-            # Buscar cuenta de impuestos por defecto
-            if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
-                # IVA por pagar
-                tax_account = self.db.query(Account).filter(
-                    Account.code.like('2408%'),
-                    Account.is_active == True
-                ).first()
-            else:
-                # IVA deducible
-                tax_account = self.db.query(Account).filter(
-                    Account.code.like('1365%'),
-                    Account.is_active == True
-                ).first()
+            # Obtener detalles de impuestos de la factura
+            tax_details = {
+                'ICMS': Decimal('0'),
+                'IPI': Decimal('0'),
+                'PIS': Decimal('0'),
+                'COFINS': Decimal('0')
+            }
             
-            if tax_account:
-                if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
-                    # IVA por pagar: acreditar
-                    debit = Decimal('0')
-                    credit = invoice.tax_amount
-                else:
-                    # IVA deducible: debitar
-                    debit = invoice.tax_amount
-                    credit = Decimal('0')
-                
-                tax_line = JournalEntryLine(
-                    journal_entry_id=journal_entry.id,
-                    account_id=tax_account.id,
-                    description=f"Tax - Invoice {invoice.number}",
-                    debit_amount=debit,
-                    credit_amount=credit,
-                    line_number=line_number
-                )
-                self.db.add(tax_line)
+            # Obtener la NFe relacionada
+            nfe = self.db.query(NFe).filter(NFe.invoice_id == invoice.id).first()
+            if nfe:
+                # Usar los totales de la NFe
+                tax_details['ICMS'] = nfe.valor_total_icms
+                tax_details['IPI'] = nfe.valor_total_ipi
+                tax_details['PIS'] = nfe.valor_total_pis
+                tax_details['COFINS'] = nfe.valor_total_cofins
             else:
-                logger.warning(f"No tax account found for invoice {invoice.number}")
-                
+                # Si no hay NFe, usar el total de impuestos de la factura
+                if invoice.tax_amount:
+                    # Distribuir el monto total entre los impuestos según porcentajes estándar
+                    tax_details['ICMS'] = invoice.tax_amount * Decimal('0.60')  # 60% para ICMS
+                    tax_details['PIS'] = invoice.tax_amount * Decimal('0.15')   # 15% para PIS
+                    tax_details['COFINS'] = invoice.tax_amount * Decimal('0.25') # 25% para COFINS
+            
+            # Obtener cuentas de impuestos
+            if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
+                # Impuestos sobre ventas: cuentas de ingreso
+                account_patterns = {
+                    'ICMS': '4.1.1.01',    # ICMS sobre Vendas
+                    'IPI': '4.1.1.02',     # IPI sobre Vendas
+                    'PIS': '4.1.1.03',     # PIS sobre Vendas
+                    'COFINS': '4.1.1.04'   # COFINS sobre Vendas
+                }
+            else:
+                # Impuestos por pagar: cuentas de pasivo
+                account_patterns = {
+                    'ICMS': '2.1.4.01',    # ICMS por Pagar
+                    'IPI': '2.1.4.02',     # IPI por Pagar
+                    'PIS': '2.1.4.03',     # PIS por Pagar
+                    'COFINS': '2.1.4.04'   # COFINS por Pagar
+                }
+            
+            # Crear líneas para cada impuesto
+            for tax_type, amount in tax_details.items():
+                if amount > 0:
+                    # Buscar la cuenta correspondiente
+                    account = self.db.query(Account).filter(
+                        Account.code == account_patterns[tax_type],
+                        Account.is_active == True
+                    ).first()
+                    
+                    if not account:
+                        raise BusinessRuleError(
+                            f"No se encontró cuenta contable para {tax_type}. Configure una cuenta con código {account_patterns[tax_type]}"
+                        )
+                    
+                    if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
+                        # Impuestos sobre ventas: acreditar
+                        debit = Decimal('0')
+                        credit = amount
+                    else:
+                        # Impuestos deducibles: debitar
+                        debit = amount
+                        credit = Decimal('0')
+                    
+                    # Log para debugging
+                    logger.info(f"Tax line: {tax_type} - Account {account.code} - Amount: {amount} - D: {debit}, C: {credit}")
+                    
+                    tax_line = JournalEntryLine(
+                        journal_entry_id=journal_entry.id,
+                        account_id=account.id,
+                        description=f"{tax_type} - Factura {invoice.number}",
+                        debit_amount=debit,
+                        credit_amount=credit,
+                        line_number=line_number
+                    )
+                    self.db.add(tax_line)
+                    line_number += 1
+            
         except Exception as e:
-            logger.warning(f"Error creating tax journal line for invoice {invoice.id}: {str(e)}")
+            logger.warning(f"Error creating tax journal lines for invoice {invoice.id}: {str(e)}")
+            raise
+        
+        return line_number
 
     def _create_reversal_journal_entry(self, invoice: Invoice, created_by_id: uuid.UUID, reason: Optional[str] = None) -> JournalEntry:
         """
@@ -1431,7 +1478,7 @@ class InvoiceService:
                 elif invoice.paid_amount > 0 and not force_reset:
                     skipped_items.append({
                         "id": str(invoice.id),
-                        "reason": "Cannot reset invoice with payments (use force_reset=true to override)",
+                        "reason": "Cannot reset invoice with payments (use force_reset to override)",
                         "paid_amount": float(invoice.paid_amount)
                     })
                 else:

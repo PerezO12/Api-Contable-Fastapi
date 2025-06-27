@@ -132,26 +132,23 @@ class NFeValidationService:
         else:
             raise ValueError(f"Tipo de terceiro inválido: {party_type}")
         
-        # Se for consumidor final, pode não ter dados completos
-        if nome == 'CONSUMIDOR FINAL':
+        # Si es consumidor final o destinatario sin documento, crear un tercero genérico
+        if nome and (nome.upper().startswith('CONSUMIDOR') or not cnpj and not cpf):
             return {
-                'third_party_id': None,
+                'third_party_id': self._get_or_create_generic_customer(user_id).id,
                 'is_consumer': True,
-                'document_number': cpf or cnpj,
-                'name': nome
+                'document_number': cpf or cnpj or 'CONSUMIDOR',
+                'name': nome or 'CONSUMIDOR FINAL'
             }
         
-        # Validar documento
-        if not cnpj and not cpf:
+        # Validar documento para casos no genéricos
+        if not cnpj and not cpf and party_type == 'emitente':
             raise ValueError(f"CNPJ ou CPF obrigatório para {party_type}")
-        
-        document_number = cnpj or cpf
-        if not document_number:
-            raise ValueError(f"Documento inválido para {party_type}")
             
         if not nome:
             raise ValueError(f"Nome obrigatório para {party_type}")
             
+        document_number = cnpj or cpf
         document_type = DocumentType.CUIT if cnpj else DocumentType.DNI  # Adaptar conforme país
         
         # Buscar terceiro existente
@@ -169,7 +166,7 @@ class NFeValidationService:
         auto_create = config.get('auto_create_third_parties', True)
         if auto_create:
             new_third_party = self._create_third_party(
-                document_number=document_number,
+                document_number=document_number or 'CONSUMIDOR',
                 document_type=document_type,
                 name=nome,
                 commercial_name=fantasia,
@@ -191,13 +188,35 @@ class NFeValidationService:
             'document_number': document_number,
             'name': nome,
             'suggested_data': {
-                'document_number': document_number,
+                'document_number': document_number or 'CONSUMIDOR',
                 'document_type': document_type,
                 'name': nome,
                 'commercial_name': fantasia,
                 'third_party_type': tp_terceiro
             }
         }
+    
+    def _get_or_create_generic_customer(self, user_id: uuid.UUID) -> ThirdParty:
+        """Obtiene o crea un cliente genérico para consumidores finales"""
+        generic_customer = self.db.query(ThirdParty).filter(
+            ThirdParty.document_number == 'CONSUMIDOR',
+            ThirdParty.third_party_type == ThirdPartyType.CUSTOMER
+        ).first()
+        
+        if not generic_customer:
+            generic_customer = ThirdParty(
+                code='CONSUMIDOR-FINAL',
+                document_number='CONSUMIDOR',
+                document_type=DocumentType.DNI,
+                name='CONSUMIDOR FINAL',
+                third_party_type=ThirdPartyType.CUSTOMER,
+                is_active=True,
+                is_tax_withholding_agent=False
+            )
+            self.db.add(generic_customer)
+            self.db.flush()
+        
+        return generic_customer
     
     def _validate_and_normalize_items(
         self, 
@@ -276,7 +295,7 @@ class NFeValidationService:
             'product_data': product_data
         }
     
-    def _find_existing_third_party(self, document_number: str, name: Optional[str] = None) -> Optional[ThirdParty]:
+    def _find_existing_third_party(self, document_number: Optional[str], name: Optional[str] = None) -> Optional[ThirdParty]:
         """Busca terceiro existente por documento ou nome"""
         query = self.db.query(ThirdParty)
         
@@ -304,24 +323,49 @@ class NFeValidationService:
         user_id: uuid.UUID
     ) -> ThirdParty:
         """Cria novo terceiro"""
-        
-        # Gerar código único
-        code = self._generate_third_party_code(document_number)
+        # Generar código basado en el tipo y documento
+        code = self._generate_third_party_code(document_number, third_party_type)
         
         third_party = ThirdParty(
             code=code,
+            document_number=document_number,
+            document_type=document_type,
             name=name,
             commercial_name=commercial_name,
             third_party_type=third_party_type,
-            document_type=document_type,
-            document_number=document_number,
-            is_active=True
+            is_active=True,
+            is_tax_withholding_agent=False
         )
         
         self.db.add(third_party)
-        self.db.flush()  # Para obter o ID
+        self.db.flush()  # Para obtener el ID
         
         return third_party
+    
+    def _generate_third_party_code(self, document_number: str, third_party_type: ThirdPartyType) -> str:
+        """Genera un código único para el tercero"""
+        # Limpiar el documento de caracteres especiales
+        clean_doc = ''.join(c for c in document_number if c.isalnum())
+        
+        # Prefijo basado en el tipo
+        prefix = 'CLI' if third_party_type == ThirdPartyType.CUSTOMER else 'PRV'
+        
+        # Generar código base
+        base_code = f"{prefix}-{clean_doc}"
+        
+        # Verificar si ya existe
+        existing = self.db.query(ThirdParty).filter(ThirdParty.code == base_code).first()
+        if not existing:
+            return base_code
+        
+        # Si existe, agregar un sufijo numérico
+        counter = 1
+        while True:
+            new_code = f"{base_code}-{counter}"
+            existing = self.db.query(ThirdParty).filter(ThirdParty.code == new_code).first()
+            if not existing:
+                return new_code
+            counter += 1
     
     def _find_existing_product(self, code: str) -> Optional[Product]:
         """Busca produto existente por código"""
@@ -329,25 +373,30 @@ class NFeValidationService:
             Product.code == code
         ).first()
     
-    def _create_product(self, item_data: Dict[str, Any], user_id: uuid.UUID) -> Product:
-        """Cria novo produto baseado nos dados do item"""
+    def _create_product(self, item: Dict[str, Any], user_id: uuid.UUID) -> Product:
+        """Cria novo produto"""
+        base_name = item['descricao_produto']
+        name = base_name
+        counter = 1
         
-        code = item_data['codigo_produto']
-        name = item_data['descricao_produto']
-        
-        # Normalizar unidade de medida
-        unit = self._normalize_measurement_unit(item_data.get('unidade_comercial', 'unit'))
+        # Si el nombre ya existe, agregar un sufijo numérico
+        while True:
+            existing_product = self.db.query(Product).filter(Product.name == name).first()
+            if not existing_product:
+                break
+            name = f"{base_name} ({counter})"
+            counter += 1
         
         product = Product(
-            code=code,
+            code=item['codigo_produto'],
             name=name,
             product_type=ProductType.PRODUCT,
             status=ProductStatus.ACTIVE,
-            measurement_unit=unit
+            measurement_unit=self._normalize_measurement_unit(item.get('unidade_comercial', 'unit'))
         )
         
         self.db.add(product)
-        self.db.flush()  # Para obter o ID
+        self.db.flush()  # Para obtener el ID
         
         return product
     
@@ -390,20 +439,6 @@ class NFeValidationService:
         
         return unit_mapping.get(unit_lower, MeasurementUnit.UNIT)
     
-    def _generate_third_party_code(self, document_number: str) -> str:
-        """Gera código único para terceiro"""
-        base_code = f"TP{document_number[:8]}"
-        
-        # Verificar se já existe
-        counter = 1
-        code = base_code
-        
-        while self.db.query(ThirdParty).filter(ThirdParty.code == code).first():
-            code = f"{base_code}_{counter}"
-            counter += 1
-        
-        return code
-    
     def get_default_accounts(self, config: Dict[str, Any]) -> Dict[str, Optional[uuid.UUID]]:
         """Obtém contas padrão para contabilização"""
         
@@ -442,3 +477,46 @@ class NFeValidationService:
         ).first()
         
         return existing_nfe is None
+
+    def get_tax_accounts(self, config: Dict[str, Any], nfe_type: str = "saida") -> Dict[str, Optional[uuid.UUID]]:
+        """Obtém contas de impostos para contabilização
+        
+        Args:
+            config: Configuração com códigos de contas
+            nfe_type: Tipo de NFe ('entrada' para compras, 'saida' para vendas)
+            
+        Returns:
+            Dicionário com IDs das contas de impostos
+        """
+        tax_accounts = {}
+        
+        # Determinar padrão de contas baseado no tipo de NFe
+        if nfe_type == "saida":
+            # NFe de saída (vendas): usar contas de receita
+            tax_account_codes = {
+                'icms_account_id': "4.1.1.01",  # ICMS sobre Vendas
+                'ipi_account_id': "4.1.1.02",   # IPI sobre Vendas
+                'pis_account_id': "4.1.1.03",   # PIS sobre Vendas
+                'cofins_account_id': "4.1.1.04" # COFINS sobre Vendas
+            }
+        else:
+            # NFe de entrada (compras): usar contas de passivo
+            tax_account_codes = {
+                'icms_account_id': "2.1.4.01",  # ICMS por Pagar
+                'ipi_account_id': "2.1.4.02",   # IPI por Pagar
+                'pis_account_id': "2.1.4.03",   # PIS por Pagar
+                'cofins_account_id': "2.1.4.04" # COFINS por Pagar
+            }
+        
+        # Buscar cada conta de imposto
+        for account_key, account_code in tax_account_codes.items():
+            if account_code:
+                account = self.db.query(Account).filter(
+                    Account.code == account_code,
+                    Account.is_active == True
+                ).first()
+                tax_accounts[account_key] = account.id if account else None
+            else:
+                tax_accounts[account_key] = None
+        
+        return tax_accounts
