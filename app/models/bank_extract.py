@@ -175,6 +175,9 @@ class BankExtractLine(Base):
     reconciled_amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
     pending_amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=0, nullable=False)
     
+    # Pago vinculado (para auto-matching)
+    payment_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("payments.id"), nullable=True, index=True)
+    
     # Auditoría
     created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     reconciled_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -183,10 +186,14 @@ class BankExtractLine(Base):
     # Relationships
     bank_extract: Mapped["BankExtract"] = relationship("BankExtract", back_populates="extract_lines")
     
+    # Pago vinculado
+    payment: Mapped[Optional["Payment"]] = relationship("Payment", back_populates="bank_extract_lines")
+    
     bank_reconciliations: Mapped[List["BankReconciliation"]] = relationship(
         "BankReconciliation",
         back_populates="extract_line",
-        cascade="all, delete-orphan"    )
+        cascade="all, delete-orphan"
+    )
     
     # Propiedades calculadas
     @hybrid_property

@@ -710,3 +710,212 @@ def validate_export_request(
             "valid": False,
             "error": str(e)
         }
+
+
+# ======================================================================
+# ENDPOINTS GET PARA COMPATIBILIDAD CON FRONTEND
+# ======================================================================
+
+@router.get(
+    "/products/export",
+    summary="Export products with query parameters",
+    description="Export products using GET with query parameters for frontend compatibility"
+)
+def export_products_get(
+    format: ExportFormat,
+    ids: Optional[str] = None,  # Comma-separated IDs
+    file_name: Optional[str] = "productos",
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación de productos usando GET con query parameters"""
+    
+    # Solo ADMIN y CONTADOR pueden exportar productos
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    # Parsear IDs si se proporcionan
+    ids_list = []
+    if ids:
+        ids_list = [id.strip() for id in ids.split(',') if id.strip()]
+    
+    # Si no hay IDs específicos, exportar todos (con límite de seguridad)
+    if not ids_list:
+        # Obtener todos los IDs de productos activos (con límite)
+        from app.models.product import Product
+        products = db.query(Product).limit(1000).all()  # Límite de seguridad
+        ids_list = [str(product.id) for product in products]
+    
+    # Crear request simplificado
+    request = SimpleExportRequest(
+        table=TableName.PRODUCTS,
+        format=format,
+        ids=ids_list,
+        file_name=file_name
+    )
+    
+    return export_data(request, db, current_user)
+
+
+@router.get(
+    "/third-parties/export", 
+    summary="Export third parties with query parameters",
+    description="Export third parties using GET with query parameters for frontend compatibility"
+)
+def export_third_parties_get(
+    format: ExportFormat,
+    ids: Optional[str] = None,  # Comma-separated IDs
+    file_name: Optional[str] = "terceros",
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación de terceros usando GET con query parameters"""
+    
+    # Solo ADMIN y CONTADOR pueden exportar terceros
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    # Parsear IDs si se proporcionan
+    ids_list = []
+    if ids:
+        ids_list = [id.strip() for id in ids.split(',') if id.strip()]
+    
+    # Si no hay IDs específicos, exportar todos (con límite de seguridad)
+    if not ids_list:
+        # Obtener todos los IDs de terceros activos (con límite)
+        from app.models.third_party import ThirdParty
+        third_parties = db.query(ThirdParty).limit(1000).all()  # Límite de seguridad
+        ids_list = [str(tp.id) for tp in third_parties]
+    
+    # Crear request simplificado
+    request = SimpleExportRequest(
+        table=TableName.THIRD_PARTIES,
+        format=format,
+        ids=ids_list,
+        file_name=file_name
+    )
+    
+    return export_data(request, db, current_user)
+
+
+@router.get(
+    "/accounts/export",
+    summary="Export accounts with query parameters", 
+    description="Export accounts using GET with query parameters for frontend compatibility"
+)
+def export_accounts_get(
+    format: ExportFormat,
+    ids: Optional[str] = None,  # Comma-separated IDs
+    file_name: Optional[str] = "cuentas",
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación de cuentas usando GET con query parameters"""
+    
+    # Solo ADMIN y CONTADOR pueden exportar cuentas
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    # Parsear IDs si se proporcionan
+    ids_list = []
+    if ids:
+        ids_list = [id.strip() for id in ids.split(',') if id.strip()]
+    
+    # Si no hay IDs específicos, exportar todos (con límite de seguridad)
+    if not ids_list:
+        # Obtener todos los IDs de cuentas activas (con límite)
+        from app.models.account import Account
+        accounts = db.query(Account).limit(1000).all()  # Límite de seguridad
+        ids_list = [str(account.id) for account in accounts]
+    
+    # Crear request simplificado
+    request = SimpleExportRequest(
+        table=TableName.ACCOUNTS,
+        format=format,
+        ids=ids_list,
+        file_name=file_name
+    )
+    
+    return export_data(request, db, current_user)
+
+
+@router.get(
+    "/cost-centers/export",
+    summary="Export cost centers with query parameters",
+    description="Export cost centers using GET with query parameters for frontend compatibility"
+)
+def export_cost_centers_get(
+    format: ExportFormat,
+    ids: Optional[str] = None,  # Comma-separated IDs
+    file_name: Optional[str] = "centros_de_costo",
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación de centros de costo usando GET con query parameters"""
+    
+    # Solo ADMIN y CONTADOR pueden exportar centros de costo
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    # Parsear IDs si se proporcionan
+    ids_list = []
+    if ids:
+        ids_list = [id.strip() for id in ids.split(',') if id.strip()]
+    
+    # Si no hay IDs específicos, exportar todos (con límite de seguridad)
+    if not ids_list:
+        # Obtener todos los IDs de centros de costo activos (con límite)
+        from app.models.cost_center import CostCenter
+        cost_centers = db.query(CostCenter).limit(1000).all()  # Límite de seguridad
+        ids_list = [str(cc.id) for cc in cost_centers]
+    
+    # Crear request simplificado
+    request = SimpleExportRequest(
+        table=TableName.COST_CENTERS,
+        format=format,
+        ids=ids_list,
+        file_name=file_name
+    )
+    
+    return export_data(request, db, current_user)
+
+
+@router.get(
+    "/journal-entries/export",
+    summary="Export journal entries with query parameters",
+    description="Export journal entries using GET with query parameters for frontend compatibility"
+)
+def export_journal_entries_get(
+    format: ExportFormat,
+    ids: Optional[str] = None,  # Comma-separated IDs
+    file_name: Optional[str] = "asientos_contables",
+    db: Session = Depends(get_sync_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Exportación de asientos contables usando GET con query parameters"""
+    
+    # Solo ADMIN y CONTADOR pueden exportar asientos contables
+    if current_user.role not in [UserRole.ADMIN, UserRole.CONTADOR]:
+        raise_insufficient_permissions()
+    
+    # Parsear IDs si se proporcionan
+    ids_list = []
+    if ids:
+        ids_list = [id.strip() for id in ids.split(',') if id.strip()]
+    
+    # Si no hay IDs específicos, exportar todos (con límite de seguridad)
+    if not ids_list:
+        # Obtener todos los IDs de asientos contables (con límite)
+        from app.models.journal_entry import JournalEntry
+        journal_entries = db.query(JournalEntry).limit(1000).all()  # Límite de seguridad
+        ids_list = [str(je.id) for je in journal_entries]
+    
+    # Crear request simplificado
+    request = SimpleExportRequest(
+        table=TableName.JOURNAL_ENTRIES,
+        format=format,
+        ids=ids_list,
+        file_name=file_name
+    )
+    
+    return export_data(request, db, current_user)

@@ -8,12 +8,14 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.user import User
-from app.models.product import ProductType, ProductStatus, MeasurementUnit, TaxCategory
+from app.models.product import ProductType, ProductStatus, MeasurementUnit, TaxCategory, Product
+from app.models.journal_entry import JournalEntryLine
+from sqlalchemy import text
 from app.schemas.product import (
     ProductCreate, ProductUpdate, ProductRead, ProductSummary, ProductList,
     ProductFilter, ProductMovement, ProductStock, BulkProductOperation,
     BulkProductOperationResult, ProductStats, ProductResponse,
-    ProductDetailResponse, ProductListResponse
+    ProductDetailResponse, ProductListResponse, ProductDeleteValidation
 )
 from app.services.product_service import ProductService
 from app.utils.exceptions import ValidationError
@@ -645,7 +647,7 @@ def bulk_delete_products(
         )
 
 
-@router.post("/validate-deletion", response_model=List[dict])
+@router.post("/validate-deletion", response_model=List[ProductDeleteValidation])
 def validate_products_for_deletion(
     *,
     db: Session = Depends(get_db),
@@ -669,50 +671,88 @@ def validate_products_for_deletion(
             try:
                 product = product_service.get_by_id(product_id)
                 if not product:
-                    validation_results.append({
-                        "product_id": str(product_id),
-                        "product_name": "Producto no encontrado",
-                        "can_delete": False,
-                        "blocking_reasons": ["Producto no existe"],
-                        "warnings": []
-                    })
+                    validation_results.append(ProductDeleteValidation(
+                        product_id=product_id,
+                        can_delete=False,
+                        blocking_reasons=["Producto no existe"],
+                        warnings=[],
+                        dependencies={}
+                    ))
                     continue
                 
                 blocking_reasons = []
                 warnings = []
+                dependencies = {}
+                
+                # Verificar referencias en asientos contables (journal entries)
+                journal_entry_count = db.query(JournalEntryLine).filter(
+                    JournalEntryLine.product_id == product_id
+                ).count()
+                
+                if journal_entry_count > 0:
+                    blocking_reasons.append(f"Producto referenciado en {journal_entry_count} líneas de asientos contables")
+                    dependencies["journal_entries_count"] = journal_entry_count
+                
+                # Verificar referencias en facturas (usando SQL directo si existe la tabla)
+                try:
+                    result = db.execute(text("SELECT COUNT(*) FROM invoice_lines WHERE product_id = :product_id"), 
+                                      {"product_id": str(product_id)})
+                    invoice_line_count = result.scalar() or 0
+                    if invoice_line_count > 0:
+                        blocking_reasons.append(f"Producto referenciado en {invoice_line_count} líneas de facturas")
+                        dependencies["invoice_lines_count"] = invoice_line_count
+                except Exception:
+                    # Si la tabla no existe, ignorar esta validación
+                    pass
+                
+                # Verificar referencias en órdenes de compra (usando SQL directo si existe la tabla)
+                try:
+                    result = db.execute(text("SELECT COUNT(*) FROM purchase_order_lines WHERE product_id = :product_id"), 
+                                      {"product_id": str(product_id)})
+                    purchase_order_count = result.scalar() or 0
+                    if purchase_order_count > 0:
+                        blocking_reasons.append(f"Producto referenciado en {purchase_order_count} líneas de órdenes de compra")
+                        dependencies["purchase_order_lines_count"] = purchase_order_count
+                except Exception:
+                    # Si la tabla no existe, ignorar esta validación
+                    pass
                 
                 # Verificar si tiene stock
-                if product.current_stock > 0:
-                    warnings.append(f"Producto tiene stock actual: {product.current_stock}")
+                if product.current_stock and product.current_stock > 0:
+                    blocking_reasons.append(f"Producto tiene stock actual: {product.current_stock}")
+                    dependencies["current_stock"] = float(product.current_stock)
                 
-                # Verificar si está activo
+                # Verificar si está activo (solo advertencia)
                 if product.status == "active":
                     warnings.append("Producto está activo - considere desactivar primero")
+                    dependencies["status"] = product.status
                 
-                # Por ahora asumimos que se puede eliminar si existe
-                # En el futuro se pueden agregar más validaciones
-                can_delete = True
-                
-                validation_results.append({
-                    "product_id": str(product_id),
+                # Agregar información adicional sobre el producto
+                dependencies.update({
                     "product_code": product.code,
                     "product_name": product.name,
-                    "product_status": product.status,
-                    "current_stock": float(product.current_stock),
-                    "can_delete": can_delete,
-                    "blocking_reasons": blocking_reasons,
-                    "warnings": warnings,
-                    "estimated_stock_value": float(product.current_stock * product.purchase_price) if product.current_stock > 0 and product.purchase_price else 0.0
+                    "estimated_stock_value": float(product.current_stock * product.purchase_price) if product.current_stock and product.purchase_price else 0.0
                 })
                 
+                # Determinar si se puede eliminar (no debe tener referencias bloqueantes)
+                can_delete = len(blocking_reasons) == 0
+                
+                validation_results.append(ProductDeleteValidation(
+                    product_id=product_id,
+                    can_delete=can_delete,
+                    blocking_reasons=blocking_reasons,
+                    warnings=warnings,
+                    dependencies=dependencies
+                ))
+                
             except Exception as e:
-                validation_results.append({
-                    "product_id": str(product_id),
-                    "product_name": "Error al validar",
-                    "can_delete": False,
-                    "blocking_reasons": [f"Error de validación: {str(e)}"],
-                    "warnings": []
-                })
+                validation_results.append(ProductDeleteValidation(
+                    product_id=product_id,
+                    can_delete=False,
+                    blocking_reasons=[f"Error de validación: {str(e)}"],
+                    warnings=[],
+                    dependencies={}
+                ))
         
         return validation_results
         

@@ -382,7 +382,7 @@ class ProductStock(BaseModel):
         if isinstance(product, Product):
             return cls(
                 product_id=product.id,
-                product_code=product.code,
+                product_code=product.code or "",
                 product_name=product.name,
                 current_stock=product.current_stock,
                 min_stock=product.min_stock,
@@ -506,3 +506,12 @@ class JournalEntryLineProduct(BaseModel):
             if discount_percentage is not None and discount_amount is not None:
                 raise ValueError("No se puede especificar porcentaje y monto de descuento al mismo tiempo")
         return v
+
+
+class ProductDeleteValidation(BaseModel):
+    """Schema para validación previa al borrado de productos"""
+    product_id: uuid.UUID
+    can_delete: bool
+    blocking_reasons: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    dependencies: dict = Field(default_factory=dict)  # Información sobre dependencias

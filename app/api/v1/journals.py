@@ -11,7 +11,7 @@ from app.models.journal import JournalType
 from app.schemas.journal import (
     JournalCreate, JournalUpdate, JournalRead, JournalDetail, 
     JournalListItem, JournalFilter, JournalStats, 
-    JournalSequenceInfo, JournalResetSequence
+    JournalSequenceInfo, JournalResetSequence, JournalDeleteValidation
 )
 from app.services.journal_service import (
     JournalService, JournalNotFoundError, JournalValidationError, 
@@ -338,3 +338,109 @@ async def get_default_journal_for_type(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al obtener diario por defecto: {str(e)}"
         )
+
+
+@router.post("/validate-deletion", response_model=List[JournalDeleteValidation])
+async def validate_journals_deletion(
+    journal_ids: List[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Validar si los diarios especificados pueden ser eliminados
+    
+    Verifica dependencias como:
+    - Asientos contables asociados
+    - Si es diario por defecto para algún tipo
+    - Facturas asociadas
+    """
+    from sqlalchemy import text
+    
+    validations = []
+    
+    for journal_id in journal_ids:
+        try:
+            # Validar que el journal existe
+            journal_service = JournalService(db)
+            journal = await journal_service.get_journal_by_id(journal_id)
+            
+            if not journal:
+                validations.append(JournalDeleteValidation(
+                    journal_id=str(journal_id),
+                    can_delete=False,
+                    blocking_reasons=["Diario no encontrado"],
+                    warnings=[],
+                    dependencies={}
+                ))
+                continue
+                
+            can_delete = True
+            blocking_reasons = []
+            warnings = []
+            dependencies = {
+                "journal_name": journal.name,
+                "journal_code": journal.code,
+                "journal_type": journal.type.value if journal.type else ""
+            }
+            
+            # Verificar asientos contables
+            result = await db.execute(text("""
+                SELECT COUNT(*) 
+                FROM journal_entries 
+                WHERE journal_id = :journal_id
+            """), {"journal_id": str(journal_id)})
+            journal_entries_count = result.scalar() or 0
+            
+            if journal_entries_count > 0:
+                can_delete = False
+                blocking_reasons.append(f"Diario tiene {journal_entries_count} asientos contables asociados")
+                dependencies["journal_entries_count"] = str(journal_entries_count)
+            
+            # Verificar si es diario por defecto en otros journals
+            result = await db.execute(text("""
+                SELECT COUNT(*) 
+                FROM journals 
+                WHERE default_account_id IN (
+                    SELECT default_account_id 
+                    FROM journals 
+                    WHERE id = :journal_id
+                )
+                AND id != :journal_id
+            """), {"journal_id": str(journal_id)})
+            references_count = result.scalar() or 0
+            
+            if references_count > 0:
+                warnings.append(f"Diario es usado como referencia por {references_count} otros diarios")
+                dependencies["references_count"] = str(references_count)
+            
+            # Verificar facturas asociadas (si el diario se usa en facturas)
+            result = await db.execute(text("""
+                SELECT COUNT(*) 
+                FROM invoices 
+                WHERE journal_id = :journal_id
+            """), {"journal_id": str(journal_id)})
+            invoices_count = result.scalar() or 0
+            
+            if invoices_count > 0:
+                can_delete = False
+                blocking_reasons.append(f"Diario tiene {invoices_count} facturas asociadas")
+                dependencies["invoices_count"] = str(invoices_count)
+            
+            validations.append(JournalDeleteValidation(
+                journal_id=str(journal_id),
+                can_delete=can_delete,
+                blocking_reasons=blocking_reasons,
+                warnings=warnings,
+                dependencies=dependencies
+            ))
+            
+        except Exception as e:
+            validations.append(JournalDeleteValidation(
+                journal_id=str(journal_id),
+                can_delete=False,
+                blocking_reasons=[f"Error al validar: {str(e)}"],
+                warnings=[],
+                dependencies={}
+            ))
+    
+    return validations

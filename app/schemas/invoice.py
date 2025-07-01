@@ -421,3 +421,12 @@ class BulkInvoiceDeleteRequest(BaseModel):
         if v != 'CONFIRM_DELETE':
             raise ValueError('Debe confirmar la eliminación con "CONFIRM_DELETE"')
         return v
+
+
+class InvoiceDeleteValidation(BaseModel):
+    """Schema para validación previa al borrado de facturas"""
+    invoice_id: uuid.UUID
+    can_delete: bool
+    blocking_reasons: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    dependencies: dict = Field(default_factory=dict)  # Información sobre dependencias (ej: journal_entry_id, invoice_number)

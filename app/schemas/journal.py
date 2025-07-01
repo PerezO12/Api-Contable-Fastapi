@@ -334,3 +334,14 @@ class JournalStats(BaseModel):
     )
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class JournalDeleteValidation(BaseModel):
+    """Schema para validación previa al borrado de journals"""
+    journal_id: str
+    can_delete: bool
+    blocking_reasons: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    dependencies: dict = Field(default_factory=dict)  # Información sobre dependencias (ej: journal_entries_count, journal_name)
+
+    model_config = ConfigDict(from_attributes=True)

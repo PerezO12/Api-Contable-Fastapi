@@ -22,7 +22,7 @@ from app.schemas.invoice import (
     # Bulk operation schemas
     BulkInvoicePostRequest, BulkInvoiceCancelRequest, 
     BulkInvoiceResetToDraftRequest, BulkInvoiceDeleteRequest,
-    BulkOperationResult
+    BulkOperationResult, InvoiceDeleteValidation
 )
 from app.services.invoice_service import InvoiceService
 from app.utils.exceptions import NotFoundError, ValidationError, BusinessRuleError
@@ -830,6 +830,99 @@ def validate_payment_terms(
         }
     except Exception as e:
         raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/validate-deletion", response_model=List[InvoiceDeleteValidation])
+def validate_invoices_deletion(
+    invoice_ids: List[uuid.UUID],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Validar si las facturas especificadas pueden ser eliminadas
+    
+    Verifica dependencias como:
+    - Estado de la factura (solo borrador puede eliminarse)
+    - Asientos contables asociados (si está posteada)
+    - Pagos aplicados
+    """
+    from sqlalchemy import text
+    
+    validations = []
+    
+    for invoice_id in invoice_ids:
+        try:
+            # Buscar la factura
+            invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+            
+            if not invoice:
+                validations.append(InvoiceDeleteValidation(
+                    invoice_id=invoice_id,
+                    can_delete=False,
+                    blocking_reasons=["Factura no encontrada"],
+                    warnings=[],
+                    dependencies={}
+                ))
+                continue
+                
+            can_delete = True
+            blocking_reasons = []
+            warnings = []
+            dependencies = {
+                "invoice_number": invoice.number or "",
+                "invoice_state": invoice.status.value if invoice.status else "",
+                "invoice_type": invoice.invoice_type.value if invoice.invoice_type else ""
+            }
+            
+            # Solo las facturas en estado DRAFT pueden eliminarse
+            if invoice.status != InvoiceStatus.DRAFT:
+                can_delete = False
+                blocking_reasons.append(f"Solo facturas en borrador pueden eliminarse. Estado actual: {invoice.status.value}")
+            
+            # Verificar si tiene asientos contables asociados (facturas posteadas)
+            if invoice.journal_entry_id:
+                can_delete = False
+                blocking_reasons.append("Factura tiene asientos contables asociados")
+                dependencies["journal_entry_id"] = str(invoice.journal_entry_id)
+            
+            # Verificar si tiene pagos aplicados
+            result = db.execute(text("""
+                SELECT COUNT(*) 
+                FROM payments p
+                INNER JOIN payment_lines pl ON p.id = pl.payment_id
+                WHERE pl.invoice_id = :invoice_id
+            """), {"invoice_id": str(invoice_id)})
+            payments_count = result.scalar() or 0
+            
+            if payments_count > 0:
+                can_delete = False
+                blocking_reasons.append(f"Factura tiene {payments_count} pagos aplicados")
+                dependencies["payments_count"] = str(payments_count)
+            
+            # Verificar líneas de la factura
+            lines_count = len(invoice.lines) if invoice.lines else 0
+            if lines_count > 0:
+                dependencies["lines_count"] = str(lines_count)
+                warnings.append(f"La factura tiene {lines_count} líneas que también serán eliminadas")
+            
+            validations.append(InvoiceDeleteValidation(
+                invoice_id=invoice_id,
+                can_delete=can_delete,
+                blocking_reasons=blocking_reasons,
+                warnings=warnings,
+                dependencies=dependencies
+            ))
+            
+        except Exception as e:
+            validations.append(InvoiceDeleteValidation(
+                invoice_id=invoice_id,
+                can_delete=False,
+                blocking_reasons=[f"Error al validar: {str(e)}"],
+                warnings=[],
+                dependencies={}
+            ))
+    
+    return validations
 
 
 
