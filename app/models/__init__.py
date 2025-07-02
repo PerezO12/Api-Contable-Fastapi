@@ -19,6 +19,7 @@ from app.models.payment import Payment, PaymentInvoice, PaymentStatus, PaymentTy
 from app.models.invoice import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from app.models.bank_extract import BankExtract, BankExtractLine, BankExtractStatus
 from app.models.bank_reconciliation import BankReconciliation, ReconciliationType
+from app.models.bank_journal_config import BankJournalConfig, PaymentDirection, PaymentMode
 
 # Importar modelos de NFe
 from app.models.nfe import NFe, NFeItem, NFeStatus, NFeType
@@ -71,6 +72,9 @@ __all__ = [
     "BankExtractStatus",
     "BankReconciliation",
     "ReconciliationType",
+    "BankJournalConfig",
+    "PaymentDirection",
+    "PaymentMode",
     # Modelos de NFe
     "NFe",
     "NFeItem", 

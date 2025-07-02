@@ -33,19 +33,35 @@ class PaymentService:
     def create_payment(self, payment_data: PaymentCreate, created_by_id: uuid.UUID) -> PaymentResponse:
         """Crear un nuevo pago"""
         try:
-            # Validar que el cliente existe
-            customer = self.db.query(ThirdParty).filter(
-                ThirdParty.id == payment_data.customer_id
-            ).first()
-            if not customer:
-                raise NotFoundError(f"Customer with id {payment_data.customer_id} not found")
+            # Validar que el diario existe y obtener la cuenta por defecto
+            from app.models.journal import Journal
+            from sqlalchemy.orm import selectinload
+            
+            journal = self.db.query(Journal)\
+                .options(selectinload(Journal.bank_config))\
+                .filter(Journal.id == payment_data.journal_id)\
+                .first()
+            if not journal:
+                raise NotFoundError(f"Journal with id {payment_data.journal_id} not found")
+            
+            # Obtener la cuenta a usar según el tipo de journal
+            account_id = self._get_journal_account_for_payment(journal, payment_data.payment_type)
+
+            # Validar que el cliente existe (opcional)
+            customer = None
+            if payment_data.customer_id:
+                customer = self.db.query(ThirdParty).filter(
+                    ThirdParty.id == payment_data.customer_id
+                ).first()
+                if not customer:
+                    raise NotFoundError(f"Customer with id {payment_data.customer_id} not found")
 
             # Validar que la cuenta existe
             account = self.db.query(Account).filter(
-                Account.id == payment_data.account_id
+                Account.id == account_id
             ).first()
             if not account:
-                raise NotFoundError(f"Account with id {payment_data.account_id} not found")
+                raise NotFoundError(f"Account with id {account_id} not found")
 
             # Generar número de pago
             payment_number = self._generate_payment_number(payment_data.payment_type)
@@ -54,8 +70,9 @@ class PaymentService:
             payment = Payment(
                 number=payment_number,
                 third_party_id=payment_data.customer_id,
-                account_id=payment_data.account_id,
-                journal_entry_id=payment_data.journal_id,
+                account_id=account_id,  # Usar la cuenta obtenida
+                journal_id=payment_data.journal_id,  # Asignar el journal
+                journal_entry_id=None,  # Se creará después al confirmar
                 reference=payment_data.reference,
                 payment_date=payment_data.payment_date,
                 amount=payment_data.amount,
@@ -352,3 +369,57 @@ class PaymentService:
         except Exception as e:
             logger.error(f"Error getting payment summary: {e}")
             raise
+
+    def _get_journal_account_for_payment(self, journal, payment_type) -> uuid.UUID:
+        """
+        Obtiene la cuenta correcta a usar para un pago según el tipo de journal
+        
+        Args:
+            journal: El journal donde se registrará el pago
+            payment_type: Tipo de pago (customer_payment, supplier_payment, etc.)
+            
+        Returns:
+            UUID de la cuenta a usar
+            
+        Raises:
+            ValidationError: Si no se puede determinar la cuenta apropiada
+        """
+        from app.models.payment import PaymentType
+        
+        # Para journals de banco, usar configuración bancaria
+        if journal.is_bank_journal():
+            bank_config = journal.get_bank_config()
+            if not bank_config:
+                raise ValidationError(f"Bank journal {journal.name} does not have bank configuration")
+            
+            # Determinar si es pago entrante o saliente
+            inbound_types = [PaymentType.CUSTOMER_PAYMENT]  # Pagos de clientes (inbound)
+            outbound_types = [PaymentType.SUPPLIER_PAYMENT, PaymentType.INTERNAL_TRANSFER, 
+                            PaymentType.ADVANCE_PAYMENT, PaymentType.REFUND]  # Pagos salientes
+            
+            if payment_type in inbound_types:
+                if not bank_config.allow_inbound_payments:
+                    raise ValidationError(f"Bank journal {journal.name} does not allow inbound payments")
+                account_id = bank_config.inbound_receipt_account_id
+                if not account_id:
+                    account_id = bank_config.bank_account_id
+            elif payment_type in outbound_types:
+                if not bank_config.allow_outbound_payments:
+                    raise ValidationError(f"Bank journal {journal.name} does not allow outbound payments")
+                account_id = bank_config.outbound_pending_account_id
+                if not account_id:
+                    account_id = bank_config.bank_account_id
+            else:
+                # Tipo no reconocido, usar cuenta bancaria principal
+                account_id = bank_config.bank_account_id
+            
+            if not account_id:
+                raise ValidationError(f"Bank journal {journal.name} does not have appropriate account configured for {payment_type.value} payments")
+                
+            return account_id
+        
+        # Para otros tipos de journal, usar cuenta por defecto
+        if not journal.default_account_id:
+            raise ValidationError(f"Journal {journal.name} does not have a default account configured")
+            
+        return journal.default_account_id

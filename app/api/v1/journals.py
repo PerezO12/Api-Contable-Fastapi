@@ -11,7 +11,9 @@ from app.models.journal import JournalType
 from app.schemas.journal import (
     JournalCreate, JournalUpdate, JournalRead, JournalDetail, 
     JournalListItem, JournalFilter, JournalStats, 
-    JournalSequenceInfo, JournalResetSequence, JournalDeleteValidation
+    JournalSequenceInfo, JournalResetSequence, JournalDeleteValidation,
+    BankJournalConfigCreate, BankJournalConfigUpdate, BankJournalConfigRead,
+    BankJournalConfigValidation, JournalWithBankConfig
 )
 from app.services.journal_service import (
     JournalService, JournalNotFoundError, JournalValidationError, 
@@ -139,7 +141,10 @@ async def get_journal(
     """
     try:
         journal_service = JournalService(db)
+        print(f"🔍 Obteniendo journal {journal_id}")
+        
         journal_data = await journal_service.get_journal_by_id_with_count(journal_id)
+        print(f"📊 Journal data obtenido: {journal_data is not None}")
         
         if not journal_data:
             raise HTTPException(
@@ -147,15 +152,27 @@ async def get_journal(
                 detail=f"Diario con ID {journal_id} no encontrado"
             )
         
+        print(f"📊 Journal: {journal_data['journal']}")
+        print(f"📊 Count: {journal_data['total_journal_entries']}")
+        print(f"📊 Default account: {journal_data['journal'].default_account}")
+        print(f"📊 Created by: {journal_data['journal'].created_by}")
+        
         # Crear JournalDetail usando el método from_journal_with_count
-        return JournalDetail.from_journal_with_count(
+        journal_detail = JournalDetail.from_journal_with_count(
             journal_data['journal'],
             journal_data['total_journal_entries']
         )
+        print(f"✅ JournalDetail creado exitosamente")
+        
+        return journal_detail
         
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Error en get_journal: {e}")
+        print(f"❌ Tipo de error: {type(e)}")
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al obtener diario: {str(e)}"
@@ -444,3 +461,133 @@ async def validate_journals_deletion(
             ))
     
     return validations
+
+
+# Endpoints para configuración bancaria
+
+@router.post("/{journal_id}/bank-config", response_model=JournalWithBankConfig)
+async def create_bank_config(
+    journal_id: uuid.UUID,
+    config_data: BankJournalConfigCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Crear configuración bancaria para un diario
+    
+    Solo válido para diarios tipo BANK
+    """
+    try:
+        journal_service = JournalService(db)
+        journal = await journal_service.create_bank_config(journal_id, config_data)
+        return journal
+        
+    except JournalNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Diario no encontrado"
+        )
+    except JournalValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        )
+
+
+@router.get("/{journal_id}/bank-config", response_model=BankJournalConfigRead)
+async def get_bank_config(
+    journal_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Obtener configuración bancaria de un diario
+    """
+    try:
+        journal_service = JournalService(db)
+        config = await journal_service.get_bank_config(journal_id)
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Configuración bancaria no encontrada"
+            )
+        return config
+        
+    except JournalNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Diario no encontrado"
+        )
+
+
+@router.put("/{journal_id}/bank-config", response_model=BankJournalConfigRead)
+async def update_bank_config(
+    journal_id: uuid.UUID,
+    config_data: BankJournalConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Actualizar configuración bancaria de un diario
+    """
+    try:
+        journal_service = JournalService(db)
+        config = await journal_service.update_bank_config(journal_id, config_data)
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Configuración bancaria no encontrada"
+            )
+        return config
+        
+    except JournalNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Diario o configuración bancaria no encontrada"
+        )
+    except JournalValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        )
+
+
+@router.delete("/{journal_id}/bank-config", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_bank_config(
+    journal_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Eliminar configuración bancaria de un diario
+    """
+    try:
+        journal_service = JournalService(db)
+        await journal_service.delete_bank_config(journal_id)
+        
+    except JournalNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Diario o configuración bancaria no encontrada"
+        )
+
+
+@router.post("/{journal_id}/bank-config/validate", response_model=BankJournalConfigValidation)
+async def validate_bank_config(
+    journal_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Validar configuración bancaria de un diario
+    """
+    try:
+        journal_service = JournalService(db)
+        validation = await journal_service.validate_bank_config(journal_id)
+        return validation
+        
+    except JournalNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Diario no encontrado"
+        )

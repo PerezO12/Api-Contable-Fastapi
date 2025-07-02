@@ -34,9 +34,9 @@ class PaymentBase(BaseModel):
 
 class PaymentCreate(PaymentBase):
     """Schema para crear pagos"""
-    customer_id: uuid.UUID = Field(description="ID del cliente")
-    account_id: uuid.UUID = Field(description="ID de la cuenta")
-    journal_id: Optional[uuid.UUID] = Field(None, description="ID del diario contable")
+    customer_id: Optional[uuid.UUID] = Field(None, description="ID del cliente (opcional)")
+    journal_id: uuid.UUID = Field(description="ID del diario contable (obligatorio)")
+    # account_id se toma del diario seleccionado
 
 
 class PaymentUpdate(BaseModel):
@@ -50,16 +50,68 @@ class PaymentUpdate(BaseModel):
     exchange_rate: Optional[Decimal] = Field(None, gt=0)
 
 
+# Schemas específicos para el flujo de pagos
+class PaymentAutoMatchResult(BaseModel):
+    """Resultado del auto-matching de un pago"""
+    line_id: uuid.UUID = Field(description="ID de la línea del extracto")
+    line_description: str = Field(description="Descripción de la línea")
+    line_amount: Decimal = Field(description="Monto de la línea")
+    matched: bool = Field(description="Si se encontró coincidencia")
+    payment_created: bool = Field(description="Si se creó un pago")
+    invoice_id: Optional[uuid.UUID] = Field(None, description="ID de la factura coincidente")
+    payment_id: Optional[uuid.UUID] = Field(None, description="ID del pago creado")
+    match_reason: str = Field(description="Razón del resultado del matching")
+    errors: List[str] = Field(default=[], description="Errores durante el matching")
+
+
+class PaymentFlowImportResult(BaseModel):
+    """Resultado de la importación con auto-matching"""
+    extract_id: uuid.UUID = Field(description="ID del extracto importado")
+    extract_name: str = Field(description="Nombre del extracto")
+    total_lines: int = Field(description="Total de líneas importadas")
+    matched_lines: int = Field(description="Líneas con coincidencias encontradas")
+    payments_created: int = Field(description="Pagos creados automáticamente")
+    auto_match_results: List[PaymentAutoMatchResult] = Field(description="Resultados detallados del auto-matching")
+
+
+class PaymentFlowStatus(BaseModel):
+    """Estado del flujo de pagos para un extracto"""
+    extract_id: uuid.UUID = Field(description="ID del extracto")
+    extract_name: str = Field(description="Nombre del extracto")
+    extract_status: str = Field(description="Estado del extracto")
+    total_lines: int = Field(description="Total de líneas")
+    matched_lines: int = Field(description="Líneas con pagos vinculados")
+    draft_payments: int = Field(description="Pagos en borrador")
+    posted_payments: int = Field(description="Pagos confirmados")
+    unmatched_lines: int = Field(description="Líneas sin vincular")
+    completion_percentage: float = Field(description="Porcentaje de completitud")
+
+
+class PaymentConfirmation(BaseModel):
+    """Schema para confirmar un pago"""
+    payment_id: uuid.UUID = Field(description="ID del pago a confirmar")
+    confirmation_notes: Optional[str] = Field(None, description="Notas de confirmación")
+
+
+class PaymentReconciliationResult(BaseModel):
+    """Resultado de la conciliación de un pago"""
+    invoice_id: uuid.UUID = Field(description="ID de la factura")
+    invoice_number: str = Field(description="Número de factura")
+    allocated_amount: Decimal = Field(description="Monto asignado")
+    reconciled: bool = Field(description="Si fue conciliado exitosamente")
+    error: Optional[str] = Field(None, description="Error si la conciliación falló")
+
+
 class PaymentResponse(PaymentBase):
     """Schema de respuesta para pagos"""
     id: uuid.UUID
-    payment_number: str
-    customer_id: uuid.UUID
+    number: str  # Cambiar de payment_number a number
+    third_party_id: Optional[uuid.UUID]  # Cambiar de customer_id a third_party_id
     account_id: uuid.UUID
     journal_id: Optional[uuid.UUID]
     status: PaymentStatus
-    total_allocated: Decimal
-    remaining_amount: Decimal
+    allocated_amount: Decimal  # Cambiar de total_allocated a allocated_amount
+    unallocated_amount: Decimal  # Cambiar de remaining_amount a unallocated_amount
     is_fully_allocated: bool
     created_at: datetime
     updated_at: datetime

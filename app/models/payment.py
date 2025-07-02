@@ -21,8 +21,10 @@ if TYPE_CHECKING:
     from app.models.third_party import ThirdParty
     from app.models.account import Account
     from app.models.journal_entry import JournalEntry
+    from app.models.journal import Journal
     from app.models.invoice import Invoice
     from app.models.bank_reconciliation import BankReconciliation
+    from app.models.bank_extract import BankExtractLine
 
 
 class PaymentType(str, Enum):
@@ -73,8 +75,8 @@ class Payment(Base):
     payment_method: Mapped[PaymentMethod] = mapped_column(SQLEnum(PaymentMethod), nullable=False)
     status: Mapped[PaymentStatus] = mapped_column(SQLEnum(PaymentStatus), default=PaymentStatus.DRAFT, nullable=False)
     
-    # Tercero (cliente o proveedor)
-    third_party_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("third_parties.id"), nullable=False, index=True)
+    # Tercero (cliente o proveedor) - opcional
+    third_party_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("third_parties.id"), nullable=True, index=True)
     
     # Fechas
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -108,6 +110,10 @@ class Payment(Base):
     # Asiento contable relacionado
     journal_entry_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("journal_entries.id"), nullable=True)
     
+    # Journal donde se registra el pago
+    journal_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("journals.id"), nullable=True,
+                                                           comment="Journal contable donde se registra el pago")
+    
     # Control de conciliación
     is_reconciled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     reconciled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -127,6 +133,7 @@ class Payment(Base):
     third_party: Mapped["ThirdParty"] = relationship("ThirdParty", back_populates="payments")
     account: Mapped["Account"] = relationship("Account")
     journal_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry")
+    journal: Mapped[Optional["Journal"]] = relationship("Journal")
     
     payment_invoices: Mapped[List["PaymentInvoice"]] = relationship(
         "PaymentInvoice",
@@ -136,6 +143,12 @@ class Payment(Base):
     
     bank_reconciliations: Mapped[List["BankReconciliation"]] = relationship(
         "BankReconciliation",
+        back_populates="payment"
+    )
+    
+    # Líneas de extracto bancario relacionadas (para auto-matching)
+    bank_extract_lines: Mapped[List["BankExtractLine"]] = relationship(
+        "BankExtractLine",
         back_populates="payment"
     )
 

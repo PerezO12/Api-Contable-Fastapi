@@ -20,6 +20,7 @@ from app.models.base import Base
 if TYPE_CHECKING:
     from app.models.account import Account
     from app.models.bank_reconciliation import BankReconciliation
+    from app.models.payment import Payment
 
 
 class BankExtractStatus(str, Enum):

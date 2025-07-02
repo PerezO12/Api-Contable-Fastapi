@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.account import Account
     from app.models.user import User
     from app.models.journal_entry import JournalEntry
+    from app.models.bank_journal_config import BankJournalConfig
 
 
 class JournalType(str, Enum):
@@ -152,6 +153,14 @@ class Journal(Base):
         cascade="all, delete-orphan"
     )
 
+    # Configuración bancaria (solo para diarios tipo BANK)
+    bank_config: Mapped[Optional["BankJournalConfig"]] = relationship(
+        "BankJournalConfig",
+        back_populates="journal",
+        cascade="all, delete-orphan",
+        uselist=False
+    )
+
     # Restricciones de base de datos
     __table_args__ = (
         UniqueConstraint('sequence_prefix', name='uq_journal_sequence_prefix'),
@@ -227,3 +236,62 @@ class Journal(Base):
             suggested.append(self.default_account)
             
         return suggested
+
+    def is_bank_journal(self) -> bool:
+        """
+        Verifica si este diario es de tipo bancario
+        
+        Returns:
+            True si es diario bancario
+        """
+        return self.type == JournalType.BANK
+
+    def get_bank_config(self) -> Optional["BankJournalConfig"]:
+        """
+        Obtiene la configuración bancaria si existe
+        
+        Returns:
+            BankJournalConfig o None si no es diario bancario
+        """
+        return self.bank_config if self.is_bank_journal() else None
+
+    def ensure_bank_config(self) -> "BankJournalConfig":
+        """
+        Asegura que exista configuración bancaria para diarios tipo BANK
+        Crea la configuración si no existe
+        
+        Returns:
+            BankJournalConfig existente o recién creada
+            
+        Raises:
+            ValueError: Si no es diario bancario
+        """
+        if not self.is_bank_journal():
+            raise ValueError("Solo los diarios tipo BANK pueden tener configuración bancaria")
+        
+        if not self.bank_config:
+            from app.models.bank_journal_config import BankJournalConfig
+            self.bank_config = BankJournalConfig(journal_id=self.id)
+        
+        return self.bank_config
+
+    def validate_for_payments(self) -> list[str]:
+        """
+        Valida si el diario está configurado correctamente para pagos
+        
+        Returns:
+            Lista de errores de validación (vacía si es válido)
+        """
+        errors = []
+
+        if not self.is_active:
+            errors.append("El diario debe estar activo")
+
+        if self.is_bank_journal():
+            bank_config = self.get_bank_config()
+            if not bank_config:
+                errors.append("Los diarios bancarios requieren configuración bancaria")
+            else:
+                errors.extend(bank_config.validate_configuration())
+
+        return errors

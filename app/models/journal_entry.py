@@ -37,6 +37,7 @@ class JournalEntryType(str, Enum):
     OPENING = "opening"  # Asiento de apertura
     CLOSING = "closing"  # Asiento de cierre
     REVERSAL = "reversal"  # Asiento de reversión
+    PAYMENT = "payment"
 
 
 class TransactionOrigin(str, Enum):

@@ -14,7 +14,10 @@ from app.models.account import Account
 from app.models.user import User
 from app.schemas.journal import (
     JournalCreate, JournalUpdate, JournalFilter,
-    JournalStats, JournalSequenceInfo
+    JournalStats, JournalSequenceInfo,
+    BankJournalConfigCreate, BankJournalConfigUpdate, 
+    BankJournalConfigRead, BankJournalConfigValidation,
+    JournalWithBankConfig, AccountRead
 )
 from app.utils.exceptions import (
     AccountingSystemException, AccountNotFoundError, AccountValidationError
@@ -99,7 +102,8 @@ class JournalService:
             select(Journal)
             .options(
                 joinedload(Journal.default_account),
-                joinedload(Journal.created_by)
+                joinedload(Journal.created_by),
+                selectinload(Journal.bank_config)
             )
             .where(Journal.id == journal_id)
         )
@@ -124,7 +128,8 @@ class JournalService:
             select(Journal)
             .options(
                 joinedload(Journal.default_account),
-                joinedload(Journal.created_by)
+                joinedload(Journal.created_by),
+                selectinload(Journal.bank_config)
             )
             .where(Journal.id == journal_id)
         )
@@ -503,3 +508,239 @@ class JournalService:
             reset_sequence_yearly=journal.reset_sequence_yearly,
             last_sequence_reset_year=journal.last_sequence_reset_year
         )
+
+    # Métodos para configuración bancaria
+
+    async def create_bank_config(
+        self, 
+        journal_id: uuid.UUID, 
+        config_data: "BankJournalConfigCreate"
+    ) -> "JournalWithBankConfig":
+        """
+        Crear configuración bancaria para un diario
+        """
+        # Verificar que el diario existe y es tipo BANK
+        journal = await self.get_journal_by_id(journal_id)
+        if not journal:
+            raise JournalNotFoundError(str(journal_id))
+        
+        if not journal.is_bank_journal():
+            raise JournalValidationError(
+                "type", 
+                journal.type.value, 
+                "Solo los diarios tipo BANK pueden tener configuración bancaria"
+            )
+        
+        # Verificar que no existe configuración previa
+        if journal.bank_config:
+            raise JournalValidationError(
+                "bank_config", 
+                "already_exists", 
+                "El diario ya tiene configuración bancaria"
+            )
+        
+        # Crear la configuración
+        from app.models.bank_journal_config import BankJournalConfig
+        
+        config = BankJournalConfig(
+            journal_id=journal_id,
+            **config_data.model_dump()
+        )
+        
+        self.db.add(config)
+        await self.db.commit()
+        await self.db.refresh(config)
+        
+        # Recargar el diario con la configuración
+        journal_with_config = await self._get_journal_with_bank_config(journal_id)
+        return journal_with_config
+
+    async def get_bank_config(self, journal_id: uuid.UUID) -> Optional["BankJournalConfigRead"]:
+        """
+        Obtener configuración bancaria de un diario
+        """
+        from app.models.bank_journal_config import BankJournalConfig
+        from app.schemas.journal import BankJournalConfigRead
+        
+        stmt = (
+            select(BankJournalConfig)
+            .options(
+                selectinload(BankJournalConfig.bank_account),
+                selectinload(BankJournalConfig.transit_account),
+                selectinload(BankJournalConfig.profit_account),
+                selectinload(BankJournalConfig.loss_account),
+                selectinload(BankJournalConfig.inbound_receipt_account),
+                selectinload(BankJournalConfig.outbound_pending_account)
+            )
+            .filter(BankJournalConfig.journal_id == journal_id)
+        )
+        
+        result = await self.db.execute(stmt)
+        config = result.scalar_one_or_none()
+        
+        if config:
+            # Convertir manualmente los datos para evitar problemas de UUID
+            config_data = {
+                'journal_id': str(config.journal_id),
+                'bank_account_number': config.bank_account_number,
+                'bank_account_id': str(config.bank_account_id) if config.bank_account_id else None,
+                'transit_account_id': str(config.transit_account_id) if config.transit_account_id else None,
+                'profit_account_id': str(config.profit_account_id) if config.profit_account_id else None,
+                'loss_account_id': str(config.loss_account_id) if config.loss_account_id else None,
+                'dedicated_payment_sequence': config.dedicated_payment_sequence,
+                'allow_inbound_payments': config.allow_inbound_payments,
+                'inbound_payment_mode': config.inbound_payment_mode,
+                'inbound_receipt_account_id': str(config.inbound_receipt_account_id) if config.inbound_receipt_account_id else None,
+                'allow_outbound_payments': config.allow_outbound_payments,
+                'outbound_payment_mode': config.outbound_payment_mode,
+                'outbound_payment_method': config.outbound_payment_method,
+                'outbound_payment_name': config.outbound_payment_name,
+                'outbound_pending_account_id': str(config.outbound_pending_account_id) if config.outbound_pending_account_id else None,
+                'currency_code': config.currency_code,
+                'allow_currency_exchange': config.allow_currency_exchange,
+                'auto_reconcile': config.auto_reconcile,
+                'description': config.description,
+                # Convertir cuentas relacionadas
+                'bank_account': AccountRead(
+                    id=str(config.bank_account.id),
+                    code=config.bank_account.code,
+                    name=config.bank_account.name,
+                    account_type=config.bank_account.account_type
+                ) if config.bank_account else None,
+                'transit_account': AccountRead(
+                    id=str(config.transit_account.id),
+                    code=config.transit_account.code,
+                    name=config.transit_account.name,
+                    account_type=config.transit_account.account_type
+                ) if config.transit_account else None,
+                'profit_account': AccountRead(
+                    id=str(config.profit_account.id),
+                    code=config.profit_account.code,
+                    name=config.profit_account.name,
+                    account_type=config.profit_account.account_type
+                ) if config.profit_account else None,
+                'loss_account': AccountRead(
+                    id=str(config.loss_account.id),
+                    code=config.loss_account.code,
+                    name=config.loss_account.name,
+                    account_type=config.loss_account.account_type
+                ) if config.loss_account else None,
+                'inbound_receipt_account': AccountRead(
+                    id=str(config.inbound_receipt_account.id),
+                    code=config.inbound_receipt_account.code,
+                    name=config.inbound_receipt_account.name,
+                    account_type=config.inbound_receipt_account.account_type
+                ) if config.inbound_receipt_account else None,
+                'outbound_pending_account': AccountRead(
+                    id=str(config.outbound_pending_account.id),
+                    code=config.outbound_pending_account.code,
+                    name=config.outbound_pending_account.name,
+                    account_type=config.outbound_pending_account.account_type
+                ) if config.outbound_pending_account else None,
+            }
+            
+            return BankJournalConfigRead(**config_data)
+        return None
+
+    async def update_bank_config(
+        self, 
+        journal_id: uuid.UUID, 
+        config_data: "BankJournalConfigUpdate"
+    ) -> Optional["BankJournalConfigRead"]:
+        """
+        Actualizar configuración bancaria de un diario
+        """
+        from app.models.bank_journal_config import BankJournalConfig
+        from app.schemas.journal import BankJournalConfigRead
+        
+        # Verificar que existe la configuración
+        stmt = select(BankJournalConfig).filter(BankJournalConfig.journal_id == journal_id)
+        result = await self.db.execute(stmt)
+        config = result.scalar_one_or_none()
+        
+        if not config:
+            raise JournalNotFoundError(str(journal_id))
+        
+        # Actualizar campos modificados
+        update_data = config_data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(config, field, value)
+        
+        await self.db.commit()
+        await self.db.refresh(config)
+        
+        return await self.get_bank_config(journal_id)
+
+    async def delete_bank_config(self, journal_id: uuid.UUID) -> None:
+        """
+        Eliminar configuración bancaria de un diario
+        """
+        from app.models.bank_journal_config import BankJournalConfig
+        
+        stmt = select(BankJournalConfig).filter(BankJournalConfig.journal_id == journal_id)
+        result = await self.db.execute(stmt)
+        config = result.scalar_one_or_none()
+        
+        if not config:
+            raise JournalNotFoundError(str(journal_id))
+        
+        await self.db.delete(config)
+        await self.db.commit()
+
+    async def validate_bank_config(self, journal_id: uuid.UUID) -> "BankJournalConfigValidation":
+        """
+        Validar configuración bancaria de un diario
+        """
+        from app.schemas.journal import BankJournalConfigValidation
+        
+        journal = await self.get_journal_by_id(journal_id)
+        if not journal:
+            raise JournalNotFoundError(str(journal_id))
+        
+        if not journal.is_bank_journal():
+            return BankJournalConfigValidation(
+                is_valid=False,
+                errors=["Este diario no es de tipo bancario"],
+                warnings=[]
+            )
+        
+        config = journal.get_bank_config()
+        if not config:
+            return BankJournalConfigValidation(
+                is_valid=False,
+                errors=["El diario bancario no tiene configuración"],
+                warnings=[]
+            )
+        
+        errors = config.validate_configuration()
+        warnings = []
+        
+        # Agregar warnings adicionales si es necesario
+        if config.allow_currency_exchange and config.currency_code == "COP":
+            warnings.append("El intercambio de monedas está habilitado con moneda base COP")
+        
+        return BankJournalConfigValidation(
+            is_valid=len(errors) == 0,
+            errors=errors,
+            warnings=warnings
+        )
+
+    async def _get_journal_with_bank_config(self, journal_id: uuid.UUID) -> "JournalWithBankConfig":
+        """
+        Obtener diario con configuración bancaria cargada
+        """
+        from app.schemas.journal import JournalWithBankConfig
+        
+        stmt = (
+            select(Journal)
+            .options(selectinload(Journal.bank_config))
+            .filter(Journal.id == journal_id)
+        )
+        
+        result = await self.db.execute(stmt)
+        journal = result.scalar_one_or_none()
+        
+        if not journal:
+            raise JournalNotFoundError(str(journal_id))
+        
+        return JournalWithBankConfig.model_validate(journal, from_attributes=True)
