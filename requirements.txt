@@ -86,3 +86,11 @@ uvicorn==0.34.2
 watchfiles==1.0.5
 websockets==15.0.1
 yarl==1.20.0
+
+# AI Chat Dependencies
+openai==1.93.0
+langdetect==1.0.9
+httpx==1.3.1
+transformers==4.36.2
+torch==2.1.2
+# sentencepiece==0.1.99  # Opcional, T5 usa su propio tokenizer

@@ -98,7 +98,22 @@ class Settings(BaseSettings):
 
     # Environment
     ENVIRONMENT: str = "development"
+    
+    # OpenAI Configuration - DESACTIVADO TEMPORALMENTE
+    OPENAI_API_KEY: str = ""  # Desactivado
+    OPENAI_MODEL: str = "gpt-3.5-turbo"  # No se usa
+    OPENAI_MAX_TOKENS: int = 1000  # No se usa
+    OPENAI_TEMPERATURE: float = 0.7  # No se usa
     DEBUG: bool = True
+
+    # AI Chat Configuration - DESACTIVADO TEMPORALMENTE
+    HUGGINGFACE_API_TOKEN: str = ""  # Desactivado
+    
+    # Together AI Configuration - DESACTIVADO TEMPORALMENTE
+    TOGETHER_API_KEY: str = ""  # Desactivado
+    TOGETHER_MODEL: str = "deepseek-ai/DeepSeek-V3"  # No se usa
+    TOGETHER_MAX_TOKENS: str = "1000"  # No se usa
+    TOGETHER_TEMPERATURE: str = "0.7"  # No se usa
 
 
 settings = Settings()

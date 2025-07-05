@@ -31,6 +31,20 @@ class PaymentBase(BaseModel):
             raise ValueError('Exchange rate is required for non-USD currencies')
         return v
 
+    @validator('payment_type', pre=True)
+    def normalize_payment_type(cls, v):
+        """Normalizar payment_type: convierte a minúsculas"""
+        if isinstance(v, str):
+            return v.lower()
+        return v
+
+    @validator('payment_method', pre=True)
+    def normalize_payment_method(cls, v):
+        """Normalizar payment_method: convierte a minúsculas"""
+        if isinstance(v, str):
+            return v.lower()
+        return v
+
 
 class PaymentCreate(PaymentBase):
     """Schema para crear pagos"""
@@ -48,6 +62,13 @@ class PaymentUpdate(BaseModel):
     description: Optional[str] = None
     notes: Optional[str] = None
     exchange_rate: Optional[Decimal] = Field(None, gt=0)
+
+    @validator('payment_method', pre=True)
+    def normalize_payment_method(cls, v):
+        """Normalizar payment_method: convierte a minúsculas"""
+        if isinstance(v, str):
+            return v.lower()
+        return v
 
 
 # Schemas específicos para el flujo de pagos
@@ -185,10 +206,172 @@ class PaymentSummary(BaseModel):
     by_method: dict = Field(description="Distribución por método")
 
 
+
+
+
+# Schemas for bulk operations
+class BulkPaymentConfirmationRequest(BaseModel):
+    """Schema para confirmación masiva de pagos"""
+    payment_ids: List[uuid.UUID] = Field(description="IDs de pagos a confirmar")
+    confirmation_notes: Optional[str] = Field(None, description="Notas de confirmación")
+    force: bool = Field(False, description="Forzar confirmación omitiendo validaciones")
+
+    @validator('payment_ids')
+    def validate_payment_ids(cls, v):
+        """Validar que hay al menos un ID"""
+        if not v:
+            raise ValueError('At least one payment ID is required')
+        if len(v) > 100:  # Límite de seguridad
+            raise ValueError('Cannot confirm more than 100 payments at once')
+        return v
+
+
+class BulkPaymentValidationRequest(BaseModel):
+    """Schema para validación previa de pagos"""
+    payment_ids: List[uuid.UUID] = Field(description="IDs de pagos a validar")
+
+    @validator('payment_ids')
+    def validate_payment_ids(cls, v):
+        if not v:
+            raise ValueError('At least one payment ID is required')
+        if len(v) > 100:
+            raise ValueError('Cannot validate more than 100 payments at once')
+        return v
+
+
+class BulkPaymentResetRequest(BaseModel):
+    """Schema para restablecimiento masivo de pagos a borrador"""
+    payment_ids: List[uuid.UUID] = Field(description="IDs de pagos a restablecer")
+    reset_reason: Optional[str] = Field(None, description="Razón del restablecimiento")
+    batch_size: Optional[int] = Field(30, description="Tamaño del lote de procesamiento")
+
+    @validator('payment_ids')
+    def validate_payment_ids(cls, v):
+        """Validar que hay al menos un ID"""
+        if not v:
+            raise ValueError('At least one payment ID is required')
+        if len(v) > 500:  # Límite de seguridad para resets
+            raise ValueError('Cannot reset more than 500 payments at once for safety')
+        return v
+
+    @validator('batch_size')
+    def validate_batch_size(cls, v):
+        """Validar tamaño del lote"""
+        if v is not None and not (1 <= v <= 50):
+            return 30  # Default seguro
+        return v
+
+
+class BulkPaymentCancelRequest(BaseModel):
+    """Schema para cancelación masiva de pagos"""
+    payment_ids: List[uuid.UUID] = Field(description="IDs de pagos a cancelar")
+    cancellation_reason: Optional[str] = Field(None, description="Razón de la cancelación")
+    batch_size: Optional[int] = Field(30, description="Tamaño del lote de procesamiento")
+
+    @validator('payment_ids')
+    def validate_payment_ids(cls, v):
+        """Validar que hay al menos un ID"""
+        if not v:
+            raise ValueError('At least one payment ID is required')
+        if len(v) > 1000:
+            raise ValueError('Cannot cancel more than 1000 payments at once')
+        return v
+
+    @validator('batch_size')
+    def validate_batch_size(cls, v):
+        """Validar tamaño del lote"""
+        if v is not None and not (1 <= v <= 50):
+            return 30  # Default seguro
+        return v
+
+
+class BulkPaymentDeleteRequest(BaseModel):
+    """Schema para eliminación masiva de pagos"""
+    payment_ids: List[uuid.UUID] = Field(description="IDs de pagos a eliminar")
+    batch_size: Optional[int] = Field(30, description="Tamaño del lote de procesamiento")
+
+    @validator('payment_ids')
+    def validate_payment_ids(cls, v):
+        """Validar que hay al menos un ID"""
+        if not v:
+            raise ValueError('At least one payment ID is required')
+        if len(v) > 1000:
+            raise ValueError('Cannot delete more than 1000 payments at once')
+        return v
+
+    @validator('batch_size')
+    def validate_batch_size(cls, v):
+        """Validar tamaño del lote"""
+        if v is not None and not (1 <= v <= 50):
+            return 30  # Default seguro
+        return v
+
+
+class BulkPaymentPostRequest(BaseModel):
+    """Schema para contabilización masiva de pagos"""
+    payment_ids: List[uuid.UUID] = Field(description="IDs de pagos a contabilizar")
+    posting_notes: Optional[str] = Field(None, description="Notas de contabilización")
+    batch_size: Optional[int] = Field(30, description="Tamaño del lote de procesamiento")
+
+    @validator('payment_ids')
+    def validate_payment_ids(cls, v):
+        """Validar que hay al menos un ID"""
+        if not v:
+            raise ValueError('At least one payment ID is required')
+        if len(v) > 1000:
+            raise ValueError('Cannot post more than 1000 payments at once')
+        return v
+
+    @validator('batch_size')
+    def validate_batch_size(cls, v):
+        """Validar tamaño del lote"""
+        if v is not None and not (1 <= v <= 50):
+            return 30  # Default seguro
+        return v
+
+
+class PaymentValidationResult(BaseModel):
+    """Resultado de validación de un pago individual"""
+    payment_id: uuid.UUID = Field(description="ID del pago")
+    payment_number: str = Field(description="Número del pago")
+    can_confirm: bool = Field(description="Si puede ser confirmado")
+    blocking_reasons: List[str] = Field(default=[], description="Razones que bloquean la confirmación")
+    warnings: List[str] = Field(default=[], description="Advertencias")
+    requires_confirmation: bool = Field(description="Si requiere confirmación del usuario")
+
+
+class BulkPaymentValidationResponse(BaseModel):
+    """Respuesta de validación masiva de pagos"""
+    total_payments: int = Field(description="Total de pagos validados")
+    can_confirm_count: int = Field(description="Cantidad que puede confirmarse")
+    blocked_count: int = Field(description="Cantidad bloqueada")
+    warnings_count: int = Field(description="Cantidad con advertencias")
+    validation_results: List[PaymentValidationResult] = Field(description="Resultados individuales")
+
+
+class PaymentOperationResult(BaseModel):
+    """Resultado de operación en un pago individual"""
+    payment_id: uuid.UUID = Field(description="ID del pago")
+    payment_number: str = Field(description="Número del pago")
+    success: bool = Field(description="Si la operación fue exitosa")
+    message: str = Field(description="Mensaje del resultado")
+    error: Optional[str] = Field(None, description="Error si falló")
+
+
+class BulkPaymentOperationResponse(BaseModel):
+    """Respuesta de operación masiva de pagos"""
+    operation: str = Field(description="Tipo de operación realizada")
+    total_payments: int = Field(description="Total de pagos procesados")
+    successful: int = Field(description="Cantidad exitosa")
+    failed: int = Field(description="Cantidad fallida")
+    results: List[PaymentOperationResult] = Field(description="Resultados individuales")
+    summary: str = Field(description="Resumen de la operación")
+
+
 class PaymentListResponse(BaseModel):
     """Schema para lista de pagos"""
-    payments: List[PaymentResponse]
+    data: List[PaymentResponse]  # Cambiar payments por data para consistencia
     total: int
     page: int
-    size: int
+    per_page: int  # Cambiar size por per_page para consistencia
     pages: int

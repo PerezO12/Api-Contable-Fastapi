@@ -42,11 +42,35 @@ El sistema ofrece funcionalidades para:
 ### Requisitos Previos
 
 - Python 3.11 o superior
-- PostgreSQL 12 o superior
+- PostgreSQL 12 o superior  
 - Node.js 18+ (para el frontend)
-- (Opcional) Entorno virtual para Python
+- Git (para clonar el repositorio)
 
-### Instalación
+### 🤖 Configuración con Servicios de IA (Recomendado)
+
+Para usar las funcionalidades de chat con IA y traducción automática:
+
+```bash
+# 1. Verificación rápida del sistema
+powershell -ExecutionPolicy Bypass -File quick_check.ps1
+
+# 2. Configurar entorno virtual aislado
+python setup_ai_environment.py
+
+# 3. Activar entorno virtual
+# PowerShell:
+.\activate_ai_env.ps1
+# CMD:
+activate_ai_env.bat
+
+# 4. Configurar token de Hugging Face en .env
+# Editar HUGGINGFACE_API_TOKEN=tu_token_real
+
+# 5. Verificar e iniciar
+python start_ai_chat.py
+```
+
+### 📦 Instalación Tradicional
 
 1. Clone este repositorio:
    ```bash

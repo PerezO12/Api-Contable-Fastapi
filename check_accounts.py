@@ -15,7 +15,7 @@ async def main():
         try:
             # Buscar cuentas bancarias
             result = await db.execute(
-                select(Account).where(Account.account_type == AccountType.ACTIVO)
+                select(Account).where(Account.account_type == AccountType.ASSET)
                 .order_by(Account.code)
             )
             accounts = result.scalars().all()

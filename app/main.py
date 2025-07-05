@@ -11,6 +11,16 @@ from app.services.auth_service import AuthService
 from app.utils.schema_rebuild import rebuild_schemas
 from app.models.account import Account, AccountType, AccountCategory
 from datetime import datetime, timezone
+import logging
+
+# AI Services
+from app.core.ai_startup import initialize_ai_services, cleanup_ai_services
+
+# Configure logging for AI services
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 @asynccontextmanager
@@ -65,8 +75,8 @@ async def lifespan(app: FastAPI):
                             code=account_data["code"],
                             name=account_data["name"],
                             description=account_data["description"],
-                            account_type=AccountType.PASIVO,
-                            category=AccountCategory.IMPUESTOS,  # Categoría específica para impuestos
+                            account_type=AccountType.LIABILITY,
+                            category=AccountCategory.TAXES,  # Categoría específica para impuestos
                             is_active=True,
                             allows_movements=True,
                             requires_third_party=False,
@@ -94,10 +104,23 @@ async def lifespan(app: FastAPI):
     # Rebuild schemas to resolve forward references
     rebuild_schemas()
     
+    # Initialize AI services
+    try:
+        await initialize_ai_services()
+        print("✅ Servicios de IA inicializados correctamente")
+    except Exception as ai_error:
+        print(f"⚠️ Error inicializando servicios de IA: {ai_error}")
+        print("ℹ️ La aplicación iniciará sin servicios de IA")
+    
     yield
     
-    # Shutdown: Cleanup si es necesario
+    # Shutdown: Cleanup
     print("🛑 Cerrando aplicación...")
+    try:
+        await cleanup_ai_services()
+        print("✅ Servicios de IA cerrados correctamente")
+    except Exception as cleanup_error:
+        print(f"⚠️ Error cerrando servicios de IA: {cleanup_error}")
 
 
 app = FastAPI(

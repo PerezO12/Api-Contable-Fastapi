@@ -70,7 +70,7 @@ async def demo_payment_flow():
         
         # Obtener cuenta de banco (buscar por tipo de cuenta bancaria)
         bank_account = db.query(Account).filter(
-            Account.account_type == AccountType.ACTIVO
+            Account.account_type == AccountType.ASSET
         ).first()
         
         if not bank_account:

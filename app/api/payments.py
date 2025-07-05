@@ -1,72 +1,501 @@
 """
 Payment API endpoints for managing payments.
-Implements complete payment workflow following Odoo pattern.
+Implements complete payment workflow following modern async patterns.
 """
 import uuid
 from typing import Optional, List
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, Query
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, File, UploadFile, Form
 from fastapi import status as http_status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import get_async_db
 from app.models.payment import PaymentStatus, PaymentType
 from app.schemas.payment import (
     PaymentCreate, PaymentUpdate, PaymentResponse,
-    PaymentListResponse, PaymentSummary
+    PaymentListResponse, PaymentSummary,
+    BulkPaymentResetRequest, BulkPaymentConfirmationRequest, BulkPaymentValidationRequest,
+    BulkPaymentCancelRequest, BulkPaymentDeleteRequest, BulkPaymentPostRequest
 )
 from app.services.payment_service import PaymentService
+from app.services.payment_flow_service import PaymentFlowService
 from app.utils.exceptions import NotFoundError, ValidationError, BusinessRuleError
 from app.api.deps import get_current_user
 from app.models.user import User
+from app.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
 
-@router.post("/", response_model=PaymentResponse, status_code=http_status.HTTP_201_CREATED)
-def create_payment(
-    payment_data: PaymentCreate,
-    db: Session = Depends(get_db),
+# =============================================
+# ENDPOINTS BULK DE ALTO RENDIMIENTO (hasta 1000 elementos)
+# NOTA: ESTOS DEBEN IR ANTES QUE LAS RUTAS CON PATH PARAMETERS
+# =============================================
+
+@router.post("/bulk/confirm", response_model=dict)
+async def bulk_confirm_payments(
+    request: BulkPaymentConfirmationRequest,
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Crear un nuevo pago
+    Confirmar múltiples pagos en lote de forma optimizada
     
-    Flujo Odoo:
-    1. Cliente creado previamente
-    2. Crear pago en estado DRAFT
-    3. Confirmar pago para generar asiento contable
-    4. Asignar a facturas específicas
+    Permite confirmar hasta 1000 pagos simultáneamente con:
+    - Procesamiento en lotes para optimizar rendimiento
+    - Validaciones por lotes
+    - Rollback automático en caso de errores críticos
+    - Reporte detallado de éxitos y errores
+    
+    Body format: {"payment_ids": ["uuid1", "uuid2", ...], "confirmation_notes": "optional"}
     """
     try:
-        service = PaymentService(db)
-        return service.create_payment(payment_data, current_user.id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
-    except (ValidationError, BusinessRuleError) as e:
+        # Los UUIDs ya están validados por el esquema Pydantic
+        payment_uuid_list = request.payment_ids
+        
+        service = PaymentFlowService(db)
+        result = await service.bulk_confirm_payments(
+            payment_uuid_list, 
+            current_user.id, 
+            confirmation_notes=request.confirmation_notes,
+            force=request.force
+        )
+        
+        # Analizar los resultados para determinar el código de respuesta HTTP apropiado
+        total_payments = result.get("total_payments", 0)
+        successful = result.get("successful", 0)
+        failed = result.get("failed", 0)
+        
+        # Si no se procesó ningún pago exitosamente, es un error crítico
+        if total_payments > 0 and successful == 0:
+            logger.warning(f"Bulk confirm operation failed completely: 0/{total_payments} payments confirmed")
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, 
+                detail=f"No se pudo confirmar ningún pago. {failed} pagos fallaron."
+            )
+        
+        # Si más del 50% de los pagos fallaron, loggear warning
+        if total_payments > 0 and (failed / total_payments) > 0.5:
+            logger.warning(f"Bulk confirm operation had significant failures: {successful}/{total_payments} payments confirmed")
+        
+        return result
+        
+    except ValidationError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except BusinessRuleError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+@router.post("/bulk/reset-to-draft", response_model=dict)
+async def bulk_reset_payments_to_draft(
+    request: BulkPaymentResetRequest,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Resetear múltiples pagos a borrador en lote desde cualquier estado
+    
+    Permite resetear hasta 500 pagos simultáneamente desde cualquier estado:
+    - DRAFT: Ya en borrador (éxito sin cambios)
+    - CONFIRMED: Solo cambio de estado
+    - POSTED: Eliminación de asientos contables + cambio de estado
+    - CANCELLED: Reactivación + eliminación de asientos + cambio de estado
+    
+    Procesamiento optimizado en lotes con reporte detallado de resultados.
+    
+    Body format: {"payment_ids": ["uuid1", "uuid2", ...], "reset_reason": "optional"}
+    """
+    try:
+        # Los UUIDs ya están validados por el esquema Pydantic
+        payment_uuid_list = request.payment_ids
+        
+        service = PaymentFlowService(db)
+        result = await service.bulk_reset_to_draft(payment_uuid_list, current_user.id)
+        
+        # Analizar los resultados para determinar el código de respuesta HTTP apropiado
+        total_payments = result.get("total_payments", 0)
+        successful = result.get("successful", 0)
+        failed = result.get("failed", 0)
+        
+        # Si no se procesó ningún pago exitosamente, es un error crítico
+        if total_payments > 0 and successful == 0:
+            logger.warning(f"Bulk reset operation failed completely: 0/{total_payments} payments reset")
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, 
+                detail=f"No se pudo resetear ningún pago. {failed} pagos fallaron."
+            )
+        
+        # Si más del 50% de los pagos fallaron, loggear warning
+        if total_payments > 0 and (failed / total_payments) > 0.5:
+            logger.warning(f"Bulk reset operation had significant failures: {successful}/{total_payments} payments reset")
+        
+        return result
+        
+    except ValidationError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/bulk/cancel", response_model=dict)
+async def bulk_cancel_payments(
+    request: BulkPaymentCancelRequest,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Cancelar múltiples pagos en lote
+    
+    Permite cancelar hasta 1000 pagos simultáneamente:
+    - Creación de asientos de reversión
+    - Reversión de conciliaciones con facturas
+    - Cambio de estado a CANCELLED
+    - Procesamiento optimizado en lotes
+    
+    Body format: {"payment_ids": ["uuid1", "uuid2", ...], "cancellation_reason": "reason"}
+    """
+    try:
+        # Los UUIDs ya están validados por el esquema Pydantic
+        payment_uuid_list = request.payment_ids
+        cancellation_reason = request.cancellation_reason
+        
+        service = PaymentFlowService(db)
+        result = await service.bulk_cancel_payments(payment_uuid_list, current_user.id, cancellation_reason)
+        
+        # Analizar los resultados para determinar el código de respuesta HTTP apropiado
+        total_payments = result.get("total_payments", 0)
+        successful = result.get("successful", 0)
+        failed = result.get("failed", 0)
+        
+        # Si no se procesó ningún pago exitosamente, es un error crítico
+        if total_payments > 0 and successful == 0:
+            logger.warning(f"Bulk cancel operation failed completely: 0/{total_payments} payments cancelled")
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, 
+                detail=f"No se pudo cancelar ningún pago. {failed} pagos fallaron."
+            )
+        
+        # Si más del 50% de los pagos fallaron, loggear warning
+        if total_payments > 0 and (failed / total_payments) > 0.5:
+            logger.warning(f"Bulk cancel operation had significant failures: {successful}/{total_payments} payments cancelled")
+        
+        return result
+        
+    except ValidationError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/bulk/delete", response_model=dict)
+async def bulk_delete_payments(
+    request: BulkPaymentDeleteRequest,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Eliminar múltiples pagos en lote
+    
+    Permite eliminar hasta 1000 pagos simultáneamente:
+    - Solo pagos en estado DRAFT pueden ser eliminados
+    - Eliminación física de la base de datos
+    - Procesamiento optimizado en lotes pequeños
+    - Validaciones por lotes
+    
+    Body format: {"payment_ids": ["uuid1", "uuid2", ...]}
+    """
+    try:
+        # Los UUIDs ya están validados por el esquema Pydantic
+        payment_uuid_list = request.payment_ids
+        
+        service = PaymentFlowService(db)
+        result = await service.bulk_delete_payments(payment_uuid_list, current_user.id)
+        
+        # Analizar los resultados para determinar el código de respuesta HTTP apropiado
+        total_payments = result.get("total_payments", 0)
+        successful = result.get("successful", 0)
+        failed = result.get("failed", 0)
+        
+        # Si no se procesó ningún pago exitosamente, es un error crítico
+        if total_payments > 0 and successful == 0:
+            logger.warning(f"Bulk delete operation failed completely: 0/{total_payments} payments deleted")
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, 
+                detail=f"No se pudo eliminar ningún pago. {failed} pagos fallaron."
+            )
+        
+        # Si más del 50% de los pagos fallaron, loggear warning
+        if total_payments > 0 and (failed / total_payments) > 0.5:
+            logger.warning(f"Bulk delete operation had significant failures: {successful}/{total_payments} payments deleted")
+        
+        return result
+        
+    except ValidationError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/bulk/post", response_model=dict)
+async def bulk_post_payments(
+    request: BulkPaymentPostRequest,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Contabilizar múltiples pagos en lote
+    
+    Permite contabilizar hasta 1000 pagos simultáneamente:
+    - Solo pagos CONFIRMED pueden ser contabilizados
+    - Creación de asientos contables
+    - Cambio de estado a POSTED
+    - Procesamiento optimizado en lotes
+
+    Body format: {"payment_ids": ["uuid1", "uuid2", ...], "posting_notes": "notes"}
+    """
+    try:
+        # Los UUIDs ya están validados por el esquema Pydantic
+        payment_uuid_list = request.payment_ids
+        posting_notes = request.posting_notes
+        
+        service = PaymentFlowService(db)
+        result = await service.bulk_post_payments(payment_uuid_list, current_user.id, posting_notes)
+        
+        # Analizar los resultados para determinar el código de respuesta HTTP apropiado
+        total_payments = result.get("total_payments", 0)
+        successful = result.get("successful", 0)
+        failed = result.get("failed", 0)
+        
+        # Si no se procesó ningún pago exitosamente, es un error crítico
+        if total_payments > 0 and successful == 0:
+            logger.warning(f"Bulk post operation failed completely: 0/{total_payments} payments posted")
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, 
+                detail=f"No se pudo contabilizar ningún pago. {failed} pagos fallaron."
+            )
+        
+        # Si más del 50% de los pagos fallaron, devolver warning con código 207 (Multi-Status)
+        if total_payments > 0 and (failed / total_payments) > 0.5:
+            logger.warning(f"Bulk post operation had significant failures: {successful}/{total_payments} payments posted")
+            # Para compatibilidad con frontend existente, devolvemos 200 pero loggeamos el problema
+            logger.info(f"Returning result with partial success: {successful} successful, {failed} failed")
+        
+        return result
+        
+    except ValidationError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/bulk/validate", response_model=dict)
+async def validate_bulk_confirmation(
+    request: BulkPaymentValidationRequest,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Validar múltiples pagos antes de confirmación en lote
+    
+    Valida hasta 1000 pagos para identificar:
+    - Pagos que no pueden ser confirmados
+    - Errores de validación por lotes
+    - Estadísticas de validación
+    - Recomendaciones de corrección
+    
+    Body format: {"payment_ids": ["uuid1", "uuid2", ...]}
+    """
+    try:
+        # Los UUIDs ya están validados por el esquema Pydantic
+        payment_uuid_list = request.payment_ids
+        
+        service = PaymentFlowService(db)
+        return await service.validate_bulk_confirmation(payment_uuid_list)
+    except ValidationError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+# =============================================
+# ENDPOINTS DE IMPORTACIÓN DE EXTRACTOS BANCARIOS
+# =============================================
+
+@router.post("/import", response_model=dict)
+async def import_payments_with_auto_matching(
+    extract_data: dict = Body(..., description="Datos del extracto bancario"),
+    auto_match: bool = Body(True, description="Activar auto-vinculación con facturas"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Importar extracto bancario con auto-vinculación de pagos
+    
+    Flujo:
+    1. Importa el extracto bancario
+    2. Para cada línea, busca facturas coincidentes
+    3. Crea pagos en borrador vinculados automáticamente
+    """
+    try:
+        # TODO: Implementar import_payments_with_auto_matching en PaymentFlowService
+        # service = PaymentFlowService(db)
+        # result = await service.import_payments_with_auto_matching(
+        #     extract_data=extract_data,
+        #     created_by_id=current_user.id,
+        #     auto_match=auto_match
+        # )
+        
+        # Placeholder mientras se implementa la funcionalidad
+        result = {
+            "message": "Import endpoint ready - implementation pending",
+            "payments_created": 0,
+            "matches_found": 0,
+            "auto_match_enabled": auto_match,
+            "created_by": current_user.email,
+            "status": "pending_implementation"
+        }
+        
+        logger.info(f"Payment import requested by user {current_user.email}")
+        return result
+        
+    except (NotFoundError, ValidationError, BusinessRuleError) as e:
+        logger.error(f"Business error in payment import: {str(e)}")
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error in payment import: {str(e)}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during payment import"
+        )
+
+
+@router.post("/import-file", response_model=dict)
+async def import_payments_from_file(
+    file: UploadFile = File(..., description="Archivo del extracto (CSV, Excel, etc.)"),
+    extract_name: str = Form(..., description="Nombre del extracto"),
+    account_id: str = Form(..., description="ID de la cuenta bancaria"),
+    statement_date: str = Form(..., description="Fecha del extracto"),
+    auto_match: bool = Form(True, description="Activar auto-vinculación"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Importar extracto bancario desde archivo (CSV, Excel, etc.)
+    
+    Permite cargar archivos de extractos bancarios y procesarlos automáticamente:
+    - Soporte para múltiples formatos (CSV, Excel, MT940, etc.)
+    - Auto-vinculación con facturas existentes
+    - Creación automática de pagos en borrador
+    """
+    try:
+        # Validar archivo
+        if not file.filename:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="No file provided"
+            )
+        
+        # Validar tipo de archivo
+        allowed_extensions = {'.csv', '.xlsx', '.xls', '.txt'}
+        file_extension = Path(file.filename).suffix.lower()
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"File type not supported. Allowed: {', '.join(allowed_extensions)}"
+            )
+        
+        # Leer contenido del archivo
+        file_content = await file.read()
+        
+        # TODO: Implementar parsers específicos para cada formato
+        # Por ahora retornamos información del archivo recibido
+        return {
+            "message": "File uploaded successfully - parsing implementation pending",
+            "filename": file.filename,
+            "size": len(file_content),
+            "extract_name": extract_name,
+            "account_id": account_id,
+            "statement_date": statement_date,
+            "auto_match": auto_match,
+            "file_type": file_extension,
+            "status": "pending_implementation"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading file: {str(e)}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error processing uploaded file"
+        )
+
+
+# =============================================
+# ENDPOINT DE DEBUG TEMPORAL
+# =============================================
+
+@router.post("/debug/reset-request", response_model=dict)
+async def debug_reset_request(
+    request: dict = Body(...),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Endpoint temporal para debuggear el formato de request del frontend
+    """
+    logger.info(f"Raw request received: {request}")
+    logger.info(f"Request type: {type(request)}")
+    
+    # Intentar crear el schema
+    try:
+        from app.schemas.payment import BulkPaymentResetRequest
+        reset_request = BulkPaymentResetRequest(**request)
+        logger.info(f"Schema validation successful: {reset_request}")
+        return {
+            "status": "success",
+            "message": "Request format is valid",
+            "parsed_payment_ids": [str(pid) for pid in reset_request.payment_ids],
+            "count": len(reset_request.payment_ids)
+        }
+    except Exception as e:
+        logger.error(f"Schema validation failed: {str(e)}")
+        return {
+            "status": "error", 
+            "message": f"Schema validation failed: {str(e)}",
+            "raw_request": request
+        }
+
+
+# =============================================
+# ENDPOINTS PRINCIPALES
+# =============================================
+
 @router.get("/", response_model=PaymentListResponse)
-def get_payments(
+async def get_payments(
     customer_id: Optional[uuid.UUID] = Query(None, description="Filter by customer ID"),
     status: Optional[PaymentStatus] = Query(None, description="Filter by payment status"),
     date_from: Optional[date] = Query(None, description="Filter payments from this date"),
     date_to: Optional[date] = Query(None, description="Filter payments to this date"),
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(50, ge=1, le=100, description="Page size"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Obtener lista de pagos con filtros
     
     Permite filtrar por cliente, estado, rango de fechas, etc.
-    Similar a la vista de pagos en Odoo.
     """
     try:
         service = PaymentService(db)
-        return service.get_payments(
+        return await service.get_payments(
             customer_id=customer_id,
             status=status,
             date_from=date_from,
@@ -78,115 +507,28 @@ def get_payments(
         raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.get("/{payment_id}", response_model=PaymentResponse)
-def get_payment(
-    payment_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Obtener pago por ID"""
-    try:
-        service = PaymentService(db)
-        return service.get_payment(payment_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
-
-
-@router.put("/{payment_id}", response_model=PaymentResponse)
-def update_payment(
-    payment_id: uuid.UUID,
-    payment_data: PaymentUpdate,
-    db: Session = Depends(get_db),
+@router.post("/", response_model=PaymentResponse, status_code=http_status.HTTP_201_CREATED)
+async def create_payment(
+    payment_data: PaymentCreate,
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Actualizar pago
+    Crear un nuevo pago
     
-    Solo se puede actualizar si está en estado DRAFT o PENDING
+    Flujo:
+    1. Cliente creado previamente
+    2. Crear pago en estado DRAFT
+    3. Confirmar pago para generar asiento contable
+    4. Asignar a facturas específicas
     """
     try:
         service = PaymentService(db)
-        return service.update_payment(payment_id, payment_data)
+        return await service.create_payment(payment_data, current_user.id)
     except NotFoundError as e:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
-    except BusinessRuleError as e:
+    except (ValidationError, BusinessRuleError) as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.delete("/{payment_id}", status_code=http_status.HTTP_204_NO_CONTENT)
-def delete_payment(
-    payment_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Eliminar pago
-    
-    Solo se puede eliminar si está en estado DRAFT
-    """
-    try:
-        service = PaymentService(db)
-        service.delete_payment(payment_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
-    except BusinessRuleError as e:
-        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.post("/{payment_id}/confirm", response_model=PaymentResponse)
-def confirm_payment(
-    payment_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Confirmar pago
-    
-    Flujo Odoo:
-    1. Cambiar estado a CONFIRMED
-    2. Generar asiento contable automáticamente
-    3. El pago queda listo para ser asignado a facturas
-    
-    ✅ IMPLEMENTADO: Generación automática de asiento contable
-    """
-    try:
-        service = PaymentService(db)
-        
-        # ✅ IMPLEMENTADO: Generación automática de asiento contable
-        # Siguiendo el patrón de Odoo:
-        # Para pagos de cliente (cobro):
-        #   - DEBE: Cuenta de banco/caja
-        #   - HABER: Cuenta de clientes
-        # Para pagos a proveedor:
-        #   - DEBE: Cuenta de proveedores 
-        #   - HABER: Cuenta de banco/caja
-        
-        # Usar el nuevo método que incluye creación automática de asiento
-        return service.confirm_payment_with_journal_entry(payment_id, current_user.id)
-        
-    except NotFoundError as e:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
-    except BusinessRuleError as e:
-        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.get("/summary/statistics", response_model=PaymentSummary)
-def get_payment_summary(
-    customer_id: Optional[uuid.UUID] = Query(None, description="Filter by customer ID"),
-    date_from: Optional[date] = Query(None, description="Filter payments from this date"),
-    date_to: Optional[date] = Query(None, description="Filter payments to this date"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Obtener resumen estadístico de pagos
-    
-    Útil para dashboards y reportes ejecutivos    """
-    try:
-        service = PaymentService(db)
-        return service.get_payment_summary()
-    except Exception as e:
-        raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 # Endpoints adicionales para workflow completo
@@ -198,6 +540,141 @@ def get_payment_types():
 
 
 @router.get("/statuses/", response_model=List[dict])
-def get_payment_statuses():
+async def get_payment_statuses():
     """Obtener estados de pago disponibles"""
     return [{"value": s.value, "label": s.value.replace("_", " ").title()} for s in PaymentStatus]
+
+
+@router.get("/summary/statistics", response_model=PaymentSummary)
+async def get_payment_summary(
+    customer_id: Optional[uuid.UUID] = Query(None, description="Filter by customer ID"),
+    date_from: Optional[date] = Query(None, description="Filter payments from this date"),
+    date_to: Optional[date] = Query(None, description="Filter payments to this date"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Obtener resumen estadístico de pagos
+    
+    Útil para dashboards y reportes ejecutivos
+    """
+    try:
+        service = PaymentService(db)
+        return await service.get_payment_summary()
+    except Exception as e:
+        raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+# =============================================
+# ENDPOINTS CON PATH PARAMETERS (van al final)
+# =============================================
+
+@router.get("/{payment_id}", response_model=PaymentResponse)
+async def get_payment(
+    payment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Obtener pago por ID"""
+    try:
+        service = PaymentService(db)
+        return await service.get_payment(payment_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.put("/{payment_id}", response_model=PaymentResponse)
+async def update_payment(
+    payment_id: uuid.UUID,
+    payment_data: PaymentUpdate,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Actualizar pago
+    
+    Solo se puede actualizar si está en estado DRAFT o PENDING
+    """
+    try:
+        service = PaymentService(db)
+        return await service.update_payment(payment_id, payment_data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.delete("/{payment_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+async def delete_payment(
+    payment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Eliminar pago
+    
+    Solo se puede eliminar si está en estado DRAFT
+    """
+    try:
+        service = PaymentService(db)
+        await service.delete_payment(payment_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{payment_id}/confirm", response_model=PaymentResponse)
+async def confirm_payment(
+    payment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Confirmar pago siguiendo el flujo completo
+    
+    Flujo implementado:
+    1. Validaciones previas
+    2. Determinación de cuentas contables desde el diario y partner  
+    3. Construcción del asiento contable (account.move)
+    4. Creación y publicación del asiento
+    5. Enlace entre pago y asiento
+    6. Reconciliación automática con facturas
+    7. Actualización de estados de facturas
+    """
+    try:
+        # Usar PaymentFlowService que implementa el flujo completo
+        service = PaymentFlowService(db)
+        return await service.confirm_payment(payment_id, current_user.id)
+        
+    except NotFoundError as e:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{payment_id}/reset-to-draft", response_model=PaymentResponse)
+async def reset_payment_to_draft(
+    payment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Resetear pago a borrador desde cualquier estado
+    
+    Permite resetear pagos desde los siguientes estados:
+    - DRAFT: Ya está en borrador (retorna éxito sin cambios)
+    - CONFIRMED: Cambia a DRAFT (no hay asiento contable que eliminar)
+    - POSTED: Elimina asiento contable y cambia a DRAFT  
+    - CANCELLED: Reactiva el pago eliminando asiento y cambia a DRAFT
+    
+    Esto permite editar pagos que previamente estaban confirmados o contabilizados.
+    """
+    try:
+        service = PaymentFlowService(db)
+        return await service.reset_payment_to_draft(payment_id, current_user.id)
+        
+    except NotFoundError as e:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))

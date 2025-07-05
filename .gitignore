@@ -26,6 +26,20 @@ wheels/
 *.egg
 MANIFEST
 
+# Virtual environments for AI services
+venv_ai_chat/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# AI model cache directories
+.cache/
+models/
+transformers_cache/
+huggingface_hub/
+
 # PyInstaller
 *.manifest
 *.spec
@@ -135,6 +149,26 @@ dmypy.json
 # Alembic specific
 # You might want to keep the versions directory in git, but not the __pycache__ inside it
 alembic/versions/__pycache__/
+
+# ===== AI SERVICES SPECIFIC =====
+# Environment activation scripts (auto-generated)
+activate_ai_env.ps1
+activate_ai_env.bat
+activate_ai_env.sh
+
+# Hugging Face cache and models
+.cache/huggingface/
+.cache/torch/
+transformers_cache/
+torch_extensions/
+
+# AI service logs
+ai_service.log
+translation_errors.log
+
+# Temporary AI files
+temp_models/
+model_downloads/
 
 # Logs
 logs/

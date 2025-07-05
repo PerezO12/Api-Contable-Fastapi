@@ -82,7 +82,7 @@ class TestCashFlowService:
         cash_account = Account(
             code="1001",
             name="Caja",
-            account_type=AccountType.ACTIVO,
+            account_type=AccountType.ASSET,
             cash_flow_category=CashFlowCategory.CASH_EQUIVALENTS,
             is_active=True
         )
@@ -125,7 +125,7 @@ class TestCashFlowService:
         revenue_account = Account(
             code="4001",
             name="Ingresos por ventas",
-            account_type=AccountType.INGRESO,
+            account_type=AccountType.INCOME,
             cash_flow_category=CashFlowCategory.OPERATING,
             is_active=True
         )
@@ -133,7 +133,7 @@ class TestCashFlowService:
         expense_account = Account(
             code="5001",
             name="Gastos operativos",
-            account_type=AccountType.GASTO,
+            account_type=AccountType.EXPENSE,
             cash_flow_category=CashFlowCategory.OPERATING,
             is_active=True
         )
@@ -198,7 +198,7 @@ class TestCashFlowService:
         equipment_account = Account(
             code="1401",
             name="Equipo de oficina",
-            account_type=AccountType.ACTIVO,
+            account_type=AccountType.ASSET,
             cash_flow_category=CashFlowCategory.INVESTING,
             is_active=True
         )
@@ -239,7 +239,7 @@ class TestCashFlowService:
         capital_account = Account(
             code="3001",
             name="Capital social",
-            account_type=AccountType.PATRIMONIO,
+            account_type=AccountType.EQUITY,
             cash_flow_category=CashFlowCategory.FINANCING,
             is_active=True
         )
@@ -306,7 +306,7 @@ class TestCashFlowService:
         cash_account = Account(
             code="1001",
             name="Caja",
-            account_type=AccountType.ACTIVO,
+            account_type=AccountType.ASSET,
             cash_flow_category=CashFlowCategory.CASH_EQUIVALENTS,
             is_active=True
         )
@@ -315,7 +315,7 @@ class TestCashFlowService:
         revenue_account = Account(
             code="4001",
             name="Ingresos por ventas",
-            account_type=AccountType.INGRESO,
+            account_type=AccountType.INCOME,
             cash_flow_category=CashFlowCategory.OPERATING,
             is_active=True
         )
@@ -324,7 +324,7 @@ class TestCashFlowService:
         expense_account = Account(
             code="5001",
             name="Gastos operativos",
-            account_type=AccountType.GASTO,
+            account_type=AccountType.EXPENSE,
             cash_flow_category=CashFlowCategory.OPERATING,
             is_active=True
         )
@@ -333,7 +333,7 @@ class TestCashFlowService:
         equipment_account = Account(
             code="1401",
             name="Equipo de oficina",
-            account_type=AccountType.ACTIVO,
+            account_type=AccountType.ASSET,
             cash_flow_category=CashFlowCategory.INVESTING,
             is_active=True
         )
@@ -342,7 +342,7 @@ class TestCashFlowService:
         capital_account = Account(
             code="3001",
             name="Capital social",
-            account_type=AccountType.PATRIMONIO,
+            account_type=AccountType.EQUITY,
             cash_flow_category=CashFlowCategory.FINANCING,
             is_active=True
         )

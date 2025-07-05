@@ -6,7 +6,7 @@ import uuid
 from typing import Optional, List, TYPE_CHECKING
 from enum import Enum
 
-from sqlalchemy import String, Text, Boolean, Enum as SQLEnum
+from sqlalchemy import String, Text, Boolean, Enum as SQLEnum, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -14,6 +14,7 @@ from app.models.base import Base
 if TYPE_CHECKING:
     from app.models.payment import Payment
     from app.models.invoice import Invoice
+    from app.models.account import Account
 
 
 class ThirdPartyType(str, Enum):
@@ -86,6 +87,19 @@ class ThirdParty(Base):
     bank_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     bank_account: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     
+    # Cuentas contables específicas del tercero
+    receivable_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("accounts.id"), 
+        nullable=True,
+        comment="Cuenta por cobrar específica para este cliente"
+    )
+    
+    payable_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("accounts.id"), 
+        nullable=True,
+        comment="Cuenta por pagar específica para este proveedor"
+    )
+    
     # Estado y configuración
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_tax_withholding_agent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -95,6 +109,19 @@ class ThirdParty(Base):
       # Relationships
     payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="third_party")
     invoices: Mapped[List["Invoice"]] = relationship("Invoice", back_populates="third_party")
+    
+    # Relaciones a las cuentas contables
+    receivable_account: Mapped[Optional["Account"]] = relationship(
+        "Account", 
+        foreign_keys=[receivable_account_id],
+        lazy="select"
+    )
+    
+    payable_account: Mapped[Optional["Account"]] = relationship(
+        "Account", 
+        foreign_keys=[payable_account_id],
+        lazy="select"
+    )
 
     def __repr__(self) -> str:
         return f"<ThirdParty(code='{self.code}', name='{self.name}', type='{self.third_party_type}')>"

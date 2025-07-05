@@ -270,7 +270,7 @@ class CashFlowService:
             if net_movement != 0:
                 # Para actividades de inversión, las compras son salidas (-)
                 # y las ventas son entradas (+)
-                cash_flow_amount = -net_movement if account.account_type == AccountType.ACTIVO else net_movement
+                cash_flow_amount = -net_movement if account.account_type == AccountType.ASSET else net_movement
                 
                 items.append(CashFlowItem(
                     description=f"{'Adquisición' if cash_flow_amount < 0 else 'Venta'} de {account.name}",
@@ -324,7 +324,7 @@ class CashFlowService:
             .join(Account, JournalEntryLine.account_id == Account.id)
             .where(
                 and_(
-                    Account.account_type == AccountType.INGRESO,
+                    Account.account_type == AccountType.INCOME,
                     JournalEntry.entry_date >= start_date,
                     JournalEntry.entry_date <= end_date,
                     JournalEntry.status == JournalEntryStatus.POSTED
@@ -346,7 +346,7 @@ class CashFlowService:
             .join(Account, JournalEntryLine.account_id == Account.id)
             .where(
                 and_(
-                    Account.account_type.in_([AccountType.GASTO, AccountType.COSTOS]),                    JournalEntry.entry_date >= start_date,
+                    Account.account_type.in_([AccountType.EXPENSE, AccountType.COST]),                    JournalEntry.entry_date >= start_date,
                     JournalEntry.entry_date <= end_date,
                     JournalEntry.status == JournalEntryStatus.POSTED
                 )
@@ -456,12 +456,12 @@ class CashFlowService:
     def _get_financing_description(self, account: Account, amount: Decimal) -> str:
         """Generar descripción apropiada para actividades de financiamiento"""
         
-        if account.account_type == AccountType.PASIVO:
+        if account.account_type == AccountType.LIABILITY:
             if amount > 0:
                 return f"Obtención de {account.name}"
             else:
                 return f"Pago de {account.name}"
-        elif account.account_type == AccountType.PATRIMONIO:
+        elif account.account_type == AccountType.EQUITY:
             if amount > 0:
                 return f"Aporte por {account.name}"
             else:

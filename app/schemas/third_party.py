@@ -47,6 +47,10 @@ class ThirdPartyBase(BaseModel):
     bank_name: Optional[str] = Field(None, max_length=200, description="Nombre del banco")
     bank_account: Optional[str] = Field(None, max_length=50, description="Número de cuenta bancaria")
     
+    # Cuentas contables específicas del tercero
+    receivable_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta por cobrar específica para este cliente")
+    payable_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta por pagar específica para este proveedor")
+    
     # Estado
     is_active: bool = Field(True, description="Si el tercero está activo")
     is_tax_withholding_agent: bool = Field(False, description="Si es agente de retención")
@@ -143,6 +147,10 @@ class ThirdPartyUpdate(BaseModel):
     bank_name: Optional[str] = Field(None, max_length=200)
     bank_account: Optional[str] = Field(None, max_length=50)
     
+    # Cuentas contables específicas del tercero
+    receivable_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta por cobrar específica para este cliente")
+    payable_account_id: Optional[uuid.UUID] = Field(None, description="Cuenta por pagar específica para este proveedor")
+    
     # Estado
     is_active: Optional[bool] = None
     is_tax_withholding_agent: Optional[bool] = None
@@ -188,6 +196,12 @@ class ThirdPartyRead(ThirdPartyBase):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
+    
+    # Información de las cuentas contables (nombres para mostrar)
+    receivable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta por cobrar")
+    receivable_account_code: Optional[str] = Field(None, description="Código de la cuenta por cobrar")
+    payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta por pagar")
+    payable_account_code: Optional[str] = Field(None, description="Código de la cuenta por pagar")
     
     # Propiedades calculadas
     display_name: Optional[str] = None

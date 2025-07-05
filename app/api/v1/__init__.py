@@ -6,9 +6,9 @@ from fastapi import APIRouter
 from app.api.v1 import (
     accounts, auth, users, journal_entries, reports, report_api, 
     export_templates, export, cost_centers, third_parties, cost_center_reports,
-    products, journals, generic_import, import_templates
+    products, journals, generic_import, import_templates, chat, company_settings
 )
-from app.api import payment_terms, payments, invoices, bank_extracts, bank_reconciliation, nfe, payment_flow
+from app.api import payment_terms, payments, invoices, bank_extracts, bank_reconciliation, nfe
 
 api_router = APIRouter()
 
@@ -33,6 +33,9 @@ api_router.include_router(cost_centers.router, prefix="/cost-centers", tags=["co
 # Third party routes
 api_router.include_router(third_parties.router, prefix="/third-parties", tags=["third-parties"])
 
+# Company settings routes
+api_router.include_router(company_settings.router, prefix="/company-settings", tags=["company-settings"])
+
 # Product routes
 api_router.include_router(products.router, prefix="/products", tags=["products"])
 
@@ -42,8 +45,7 @@ api_router.include_router(payment_terms.router, tags=["payment-terms"])
 # Payment routes - Odoo-like payment workflow
 api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 
-# Payment flow routes - Complete payment workflow (import, match, confirm)
-api_router.include_router(payment_flow.router, prefix="/payment-flow", tags=["payment-flow"])
+
 
 # Invoice routes - Customer and supplier invoices
 api_router.include_router(invoices.router, prefix="/invoices", tags=["invoices"])
@@ -77,3 +79,6 @@ api_router.include_router(generic_import.router, prefix="/generic-import", tags=
 
 # Import templates system - CSV template downloads
 api_router.include_router(import_templates.router, prefix="/import", tags=["import-templates"])
+
+# AI Chat system - Multilingual chat with function calling
+api_router.include_router(chat.router, prefix="/ai", tags=["ai-chat"])

@@ -15,49 +15,43 @@ if TYPE_CHECKING:
 
 
 class AccountType(str, Enum):
-    """Tipos de cuentas contables según la naturaleza contable"""
-    ACTIVO = "activo"
-    PASIVO = "pasivo"
-    PATRIMONIO = "patrimonio"
-    INGRESO = "ingreso"
-    GASTO = "gasto"
-    COSTOS = "costos"
+    """Account types according to accounting nature"""
+    ASSET = "asset"
+    LIABILITY = "liability"
+    EQUITY = "equity"
+    INCOME = "income"
+    EXPENSE = "expense"
+    COST = "cost"
 
 
 class AccountCategory(str, Enum):
-    """Categorías principales para clasificación de cuentas"""
-    # Activos
-    ACTIVO_CORRIENTE = "activo_corriente"
-    ACTIVO_NO_CORRIENTE = "activo_no_corriente"
-    
-    # Pasivos
-    PASIVO_CORRIENTE = "pasivo_corriente"
-    PASIVO_NO_CORRIENTE = "pasivo_no_corriente"
-    
-    # Patrimonio
+    """Main categories for account classification"""
+    # Assets
+    CURRENT_ASSET = "current_asset"
+    NON_CURRENT_ASSET = "non_current_asset"
+    # Liabilities
+    CURRENT_LIABILITY = "current_liability"
+    NON_CURRENT_LIABILITY = "non_current_liability"
+    # Equity
     CAPITAL = "capital"
-    RESERVAS = "reservas"
-    RESULTADOS = "resultados"
-    
-    # Ingresos
-    INGRESOS_OPERACIONALES = "ingresos_operacionales"
-    INGRESOS_NO_OPERACIONALES = "ingresos_no_operacionales"
-    
-    # Gastos
-    GASTOS_OPERACIONALES = "gastos_operacionales"
-    GASTOS_NO_OPERACIONALES = "gastos_no_operacionales"
-    
-    # Costos
-    COSTO_VENTAS = "costo_ventas"
-    COSTOS_PRODUCCION = "costos_produccion"
-    
-    # Impuestos
-    IMPUESTOS = "impuestos"  # Categoría para cuentas de impuestos
+    RESERVES = "reserves"
+    RETAINED_EARNINGS = "retained_earnings"
+    # Income
+    OPERATING_INCOME = "operating_income"
+    NON_OPERATING_INCOME = "non_operating_income"
+    # Expenses
+    OPERATING_EXPENSE = "operating_expense"
+    NON_OPERATING_EXPENSE = "non_operating_expense"
+    # Costs
+    COST_OF_SALES = "cost_of_sales"
+    PRODUCTION_COSTS = "production_costs"
+    # Taxes
+    TAXES = "taxes"  # Category for tax accounts
 
 
 class CashFlowCategory(str, Enum):
-    """Categorías para clasificar cuentas según actividades del flujo de efectivo"""
-    OPERATING = "operating"        # Actividades de Operación
+    """Categories for classifying accounts according to cash flow activities"""
+    OPERATING = "operating"        # Operating Activities
     INVESTING = "investing"        # Actividades de Inversión  
     FINANCING = "financing"        # Actividades de Financiamiento
     CASH_EQUIVALENTS = "cash"      # Efectivo y Equivalentes de Efectivo
@@ -192,19 +186,19 @@ class Account(Base):
 
     @property
     def normal_balance_side(self) -> str:
-        """Retorna el lado normal del balance para esta cuenta"""
-        if self.account_type in [AccountType.ACTIVO, AccountType.GASTO, AccountType.COSTOS]:
+        """Returns the normal balance side for this account"""
+        if self.account_type in [AccountType.ASSET, AccountType.EXPENSE, AccountType.COST]:
             return "debit"
-        else:  # PASIVO, PATRIMONIO, INGRESO
+        else:  # LIABILITY, EQUITY, INCOME
             return "credit"
 
     @property
     def increases_with(self) -> str:
-        """Retorna con qué lado aumenta el saldo de la cuenta"""
+        """Returns which side increases the account balance"""
         return self.normal_balance_side    
     @property
     def decreases_with(self) -> str:
-        """Retorna con qué lado disminuye el saldo de la cuenta"""
+        """Returns which side decreases the account balance"""
         return "credit" if self.normal_balance_side == "debit" else "debit"
 
     def get_balance_display(self) -> Decimal:

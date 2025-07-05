@@ -26,29 +26,29 @@ DEFAULT_TAX_ACCOUNTS = [
         'code': '2.1.4.01',
         'name': 'ICMS por Pagar',
         'description': 'Cuenta para control de ICMS por pagar/deducible',
-        'account_type': AccountType.PASIVO.value,
-        'category': AccountCategory.IMPUESTOS.value,
+        'account_type': AccountType.LIABILITY.value,
+        'category': AccountCategory.TAXES.value,
     },
     {
         'code': '2.1.4.02',
         'name': 'IPI por Pagar',
         'description': 'Cuenta para control de IPI por pagar/deducible',
-        'account_type': AccountType.PASIVO.value,
-        'category': AccountCategory.IMPUESTOS.value,
+        'account_type': AccountType.LIABILITY.value,
+        'category': AccountCategory.TAXES.value,
     },
     {
         'code': '2.1.4.03',
         'name': 'PIS por Pagar',
         'description': 'Cuenta para control de PIS por pagar/deducible',
-        'account_type': AccountType.PASIVO.value,
-        'category': AccountCategory.IMPUESTOS.value,
+        'account_type': AccountType.LIABILITY.value,
+        'category': AccountCategory.TAXES.value,
     },
     {
         'code': '2.1.4.04',
         'name': 'COFINS por Pagar',
         'description': 'Cuenta para control de COFINS por pagar/deducible',
-        'account_type': AccountType.PASIVO.value,
-        'category': AccountCategory.IMPUESTOS.value,
+        'account_type': AccountType.LIABILITY.value,
+        'category': AccountCategory.TAXES.value,
     }
 ]
 

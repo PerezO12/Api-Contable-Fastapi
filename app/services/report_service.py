@@ -75,19 +75,19 @@ class ReportService:
             # Crear secciones del balance
             assets_section = self._create_balance_sheet_section(
                 "ACTIVOS", 
-                AccountType.ACTIVO, 
+                AccountType.ASSET, 
                 account_balances
             )
             
             liabilities_section = self._create_balance_sheet_section(
                 "PASIVOS", 
-                AccountType.PASIVO, 
+                AccountType.LIABILITY, 
                 account_balances
             )
             
             equity_section = self._create_balance_sheet_section(
                 "PATRIMONIO", 
-                AccountType.PATRIMONIO, 
+                AccountType.EQUITY, 
                 account_balances
             )
               # Verificar ecuación contable
@@ -135,13 +135,13 @@ class ReportService:
             # Crear secciones del estado de resultados
             revenues_section = self._create_income_statement_section(
                 "INGRESOS",
-                AccountType.INGRESO,
+                AccountType.INCOME,
                 account_balances
             )
             
             expenses_section = self._create_income_statement_section(
                 "GASTOS",
-                AccountType.GASTO,
+                AccountType.EXPENSE,
                 account_balances
             )
             

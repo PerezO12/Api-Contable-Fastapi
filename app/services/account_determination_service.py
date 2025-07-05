@@ -77,11 +77,11 @@ class AccountDeterminationService:
           # 3. Cuenta por defecto del tipo
         if invoice.invoice_type in [InvoiceType.CUSTOMER_INVOICE, InvoiceType.CREDIT_NOTE, InvoiceType.DEBIT_NOTE]:
             # Buscar cuenta de clientes (1105, 1140 - Clientes por cobrar)
-            account = self._get_default_account_by_pattern(['1105', '1140', '1300'], AccountType.ACTIVO)
+            account = self._get_default_account_by_pattern(['1105', '1140', '1300'], AccountType.ASSET)
             account_description = "Cuenta de clientes por cobrar"
         else:  # SUPPLIER_INVOICE
             # Buscar cuenta de proveedores (2205 - Proveedores por pagar)
-            account = self._get_default_account_by_pattern(['2205', '2200'], AccountType.PASIVO)
+            account = self._get_default_account_by_pattern(['2205', '2200'], AccountType.LIABILITY)
             account_description = "Cuenta de proveedores por pagar"
         
         if not account:
@@ -157,11 +157,11 @@ class AccountDeterminationService:
           # 4. Cuenta por defecto del tipo
         if invoice_type in [InvoiceType.CUSTOMER_INVOICE, InvoiceType.CREDIT_NOTE, InvoiceType.DEBIT_NOTE]:
             # Buscar cuenta de ingresos (4135 - Ventas)
-            account = self._get_default_account_by_pattern(['4135', '4100'], AccountType.INGRESO)
+            account = self._get_default_account_by_pattern(['4135', '4100'], AccountType.INCOME)
             account_description = "ingresos por ventas"
         else:  # SUPPLIER_INVOICE
             # Buscar cuenta de gastos (5135 - Compras)
-            account = self._get_default_account_by_pattern(['5135', '5100'], AccountType.GASTO)
+            account = self._get_default_account_by_pattern(['5135', '5100'], AccountType.EXPENSE)
             account_description = "gastos por compras"
         
         if not account:
@@ -194,7 +194,7 @@ class AccountDeterminationService:
                     'PIS': ['4.1.1.03'],   # PIS sobre Vendas
                     'COFINS': ['4.1.1.04'] # COFINS sobre Vendas
                 }
-                account_type = AccountType.INGRESO
+                account_type = AccountType.INCOME
             else:  # SUPPLIER_INVOICE
                 # Impuestos por pagar: cuentas de pasivo
                 account_patterns = {
@@ -202,7 +202,7 @@ class AccountDeterminationService:
                     'PIS': ['2.1.4.03'],   # PIS por Pagar
                     'COFINS': ['2.1.4.04'] # COFINS por Pagar
                 }
-                account_type = AccountType.PASIVO
+                account_type = AccountType.LIABILITY
             
             # Buscar cuenta para cada tipo de impuesto
             for tax_name, patterns in account_patterns.items():
@@ -275,7 +275,7 @@ class AccountDeterminationService:
         # Fallback: buscar cuenta por defecto según el tipo de factura
         if invoice_type == InvoiceType.CUSTOMER_INVOICE:
             # IVA por pagar
-            account = self._get_default_account_by_pattern(['2408', '2400'], AccountType.PASIVO)
+            account = self._get_default_account_by_pattern(['2408', '2400'], AccountType.LIABILITY)
         else:  # PURCHASE
             # IVA deducible
             account = self._get_default_account_by_pattern(['1365', '2408'], None)
@@ -306,10 +306,10 @@ class AccountDeterminationService:
         """Valida que la cuenta de tercero sea compatible con el tipo de factura"""
         if invoice_type == InvoiceType.CUSTOMER_INVOICE:
             # Para ventas: cuentas de activo (clientes por cobrar)
-            allowed_types = [AccountType.ACTIVO]
+            allowed_types = [AccountType.ASSET]
         else:  # PURCHASE
             # Para compras: cuentas de pasivo (proveedores por pagar)
-            allowed_types = [AccountType.PASIVO]
+            allowed_types = [AccountType.LIABILITY]
         
         if account.account_type not in allowed_types:
             raise BusinessRuleError(
@@ -322,10 +322,10 @@ class AccountDeterminationService:
         """Valida que la cuenta de línea sea compatible con el tipo de factura"""
         if invoice_type == InvoiceType.CUSTOMER_INVOICE:
             # Para ventas: cuentas de ingresos
-            allowed_types = [AccountType.INGRESO]
+            allowed_types = [AccountType.INCOME]
         else:  # PURCHASE
             # Para compras: cuentas de gastos o activos
-            allowed_types = [AccountType.GASTO, AccountType.ACTIVO]
+            allowed_types = [AccountType.EXPENSE, AccountType.ASSET]
         
         if account.account_type not in allowed_types:
             raise BusinessRuleError(

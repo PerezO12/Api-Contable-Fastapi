@@ -56,8 +56,8 @@ def setup_test_data(db):
         db.add(test_customer)
       # Crear cuentas contables básicas si no existen
     accounts_data = [
-        ("1105", "Clientes", AccountType.ACTIVO),
-        ("4105", "Ventas de Mercancía", AccountType.INGRESO),
+        ("1105", "Clientes", AccountType.ASSET),
+        ("4105", "Ventas de Mercancía", AccountType.INCOME),
     ]
     
     accounts = {}

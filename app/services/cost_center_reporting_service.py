@@ -476,9 +476,9 @@ class CostCenterReportingService:
         direct_costs = Decimal('0')
         
         for account_type, debits, credits in movements:
-            if account_type == AccountType.INGRESO:
+            if account_type == AccountType.INCOME:
                 revenue += (credits or Decimal('0')) - (debits or Decimal('0'))
-            elif account_type in [AccountType.GASTO, AccountType.COSTOS]:
+            elif account_type in [AccountType.EXPENSE, AccountType.COST]:
                 direct_costs += (debits or Decimal('0')) - (credits or Decimal('0'))
         
         # Costos indirectos (simplificado - en implementación real se asignarían según reglas)
@@ -526,7 +526,7 @@ class CostCenterReportingService:
                     JournalEntry.entry_date >= start_date,
                     JournalEntry.entry_date <= end_date,
                     JournalEntry.status == JournalEntryStatus.POSTED,
-                    Account.account_type == AccountType.INGRESO
+                    Account.account_type == AccountType.INCOME
                 )
             )
             .group_by(Account.code, Account.name)
@@ -565,7 +565,7 @@ class CostCenterReportingService:
                     JournalEntry.entry_date >= start_date,
                     JournalEntry.entry_date <= end_date,
                     JournalEntry.status == JournalEntryStatus.POSTED,
-                    Account.account_type.in_([AccountType.GASTO, AccountType.COSTOS])
+                    Account.account_type.in_([AccountType.EXPENSE, AccountType.COST])
                 )
             )
             .group_by(Account.code, Account.name)
