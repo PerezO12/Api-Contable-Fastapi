@@ -120,7 +120,51 @@ class Account(Base):
     # Relación con diarios que usan esta cuenta como predeterminada
     journals_as_default: Mapped[List["Journal"]] = relationship(
         "Journal",
+        foreign_keys="Journal.default_account_id",
         back_populates="default_account"
+    )
+    
+    # Relaciones con diarios que usan esta cuenta para operaciones específicas
+    journals_as_default_debit: Mapped[List["Journal"]] = relationship(
+        "Journal",
+        foreign_keys="Journal.default_debit_account_id",
+        back_populates="default_debit_account"
+    )
+    
+    journals_as_default_credit: Mapped[List["Journal"]] = relationship(
+        "Journal",
+        foreign_keys="Journal.default_credit_account_id",
+        back_populates="default_credit_account"
+    )
+    
+    journals_as_customer_receivable: Mapped[List["Journal"]] = relationship(
+        "Journal",
+        foreign_keys="Journal.customer_receivable_account_id",
+        back_populates="customer_receivable_account"
+    )
+    
+    journals_as_supplier_payable: Mapped[List["Journal"]] = relationship(
+        "Journal",
+        foreign_keys="Journal.supplier_payable_account_id",
+        back_populates="supplier_payable_account"
+    )
+    
+    journals_as_cash_difference: Mapped[List["Journal"]] = relationship(
+        "Journal",
+        foreign_keys="Journal.cash_difference_account_id",
+        back_populates="cash_difference_account"
+    )
+    
+    journals_as_bank_charges: Mapped[List["Journal"]] = relationship(
+        "Journal",
+        foreign_keys="Journal.bank_charges_account_id",
+        back_populates="bank_charges_account"
+    )
+    
+    journals_as_currency_exchange: Mapped[List["Journal"]] = relationship(
+        "Journal",
+        foreign_keys="Journal.currency_exchange_account_id",
+        back_populates="currency_exchange_account"
     )
     
     # Relación con movimientos contables (forward reference)

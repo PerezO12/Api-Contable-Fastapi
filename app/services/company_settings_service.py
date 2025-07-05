@@ -33,6 +33,8 @@ class CompanySettingsService:
             select(CompanySettings).options(
                 selectinload(CompanySettings.default_customer_receivable_account),
                 selectinload(CompanySettings.default_supplier_payable_account),
+                selectinload(CompanySettings.default_cash_account),
+                selectinload(CompanySettings.default_bank_account),
                 selectinload(CompanySettings.bank_suspense_account),
                 selectinload(CompanySettings.internal_transfer_account),
                 selectinload(CompanySettings.deferred_expense_account),
@@ -81,6 +83,8 @@ class CompanySettingsService:
         await self.db.refresh(settings, [
             'default_customer_receivable_account',
             'default_supplier_payable_account',
+            'default_cash_account',
+            'default_bank_account',
             'bank_suspense_account',
             'internal_transfer_account',
             'deferred_expense_account',
@@ -137,6 +141,8 @@ class CompanySettingsService:
         await self.db.refresh(settings, [
             'default_customer_receivable_account',
             'default_supplier_payable_account',
+            'default_cash_account',
+            'default_bank_account',
             'bank_suspense_account',
             'internal_transfer_account',
             'deferred_expense_account',
@@ -249,6 +255,8 @@ class CompanySettingsService:
             # IDs de cuentas
             default_customer_receivable_account_id=settings.default_customer_receivable_account_id,
             default_supplier_payable_account_id=settings.default_supplier_payable_account_id,
+            default_cash_account_id=settings.default_cash_account_id,
+            default_bank_account_id=settings.default_bank_account_id,
             bank_suspense_account_id=settings.bank_suspense_account_id,
             internal_transfer_account_id=settings.internal_transfer_account_id,
             deferred_expense_account_id=settings.deferred_expense_account_id,
@@ -268,6 +276,8 @@ class CompanySettingsService:
             # Nombres de cuentas
             default_customer_receivable_account_name=settings.default_customer_receivable_account.name if settings.default_customer_receivable_account else None,
             default_supplier_payable_account_name=settings.default_supplier_payable_account.name if settings.default_supplier_payable_account else None,
+            default_cash_account_name=settings.default_cash_account.name if settings.default_cash_account else None,
+            default_bank_account_name=settings.default_bank_account.name if settings.default_bank_account else None,
             bank_suspense_account_name=settings.bank_suspense_account.name if settings.bank_suspense_account else None,
             internal_transfer_account_name=settings.internal_transfer_account.name if settings.internal_transfer_account else None,
             deferred_expense_account_name=settings.deferred_expense_account.name if settings.deferred_expense_account else None,
@@ -286,6 +296,8 @@ class CompanySettingsService:
         account_fields = [
             'default_customer_receivable_account_id',
             'default_supplier_payable_account_id',
+            'default_cash_account_id',
+            'default_bank_account_id',
             'bank_suspense_account_id',
             'internal_transfer_account_id',
             'deferred_expense_account_id',

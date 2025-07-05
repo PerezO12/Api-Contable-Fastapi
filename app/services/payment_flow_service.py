@@ -46,19 +46,24 @@ class PaymentFlowService:
     
     async def confirm_payment(self, payment_id: uuid.UUID, confirmed_by_id: uuid.UUID, force: bool = False) -> PaymentResponse:
         """
-        Confirm payment: DRAFT → POSTED
+        Confirm/Post payment: DRAFT → POSTED (contabilización)
         
-        This is the core payment workflow method that:
-        1. Validates payment can be confirmed
-        2. Creates journal entry for accounting
-        3. Updates payment status to POSTED
-        4. Processes invoice reconciliation
+        FLUJO CORRECTO:
+        1. DRAFT → POSTED (se contabiliza y genera journal entry)
+        2. POSTED → PAID (cuando se concilie, pero por ahora va directo a PAID)
+        
+        Este método maneja la contabilización:
+        1. Valida que el pago esté en DRAFT
+        2. Crea journal entry para contabilidad
+        3. Actualiza payment status a POSTED (temporalmente PAID hasta implementar conciliación)
+        4. Procesa reconciliación de facturas
         """
         try:
-            logger.info(f"Starting confirmation process for payment {payment_id}")
+            logger.info(f"🚀 [CONFIRM_PAYMENT] Starting confirmation process for payment {payment_id}")
+            logger.info(f"🔍 [CONFIRM_PAYMENT] Confirmed by user: {confirmed_by_id}, Force mode: {force}")
             
             # Get payment with all required relations
-            logger.debug(f"Loading payment {payment_id} with all relations")
+            logger.debug(f"📋 [CONFIRM_PAYMENT] Loading payment {payment_id} with all relations")
             payment_result = await self.db.execute(
                 select(Payment).options(
                     selectinload(Payment.payment_invoices).selectinload(PaymentInvoice.invoice),
@@ -70,62 +75,74 @@ class PaymentFlowService:
             payment = payment_result.scalar_one_or_none()
             
             if not payment:
-                logger.error(f"Payment with id {payment_id} not found")
-                raise NotFoundError(f"Payment with id {payment_id} not found")
+                error_msg = f"Payment with id {payment_id} not found"
+                logger.error(f"❌ [CONFIRM_PAYMENT] {error_msg}")
+                raise NotFoundError(error_msg)
             
-            logger.info(f"Payment {payment.number} loaded successfully - Status: {payment.status}, Amount: {payment.amount}")
+            logger.info(f"✅ [CONFIRM_PAYMENT] Payment {payment.number} loaded successfully")
+            logger.info(f"📊 [CONFIRM_PAYMENT] Payment details: Status={payment.status}, Amount={payment.amount}, Type={payment.payment_type}")
+            logger.info(f"🏢 [CONFIRM_PAYMENT] Third party: {payment.third_party.name if payment.third_party else 'None'}")
+            logger.info(f"💰 [CONFIRM_PAYMENT] Account: {payment.account.name if payment.account else 'None'}")
             
+            # Check if payment is in DRAFT status (only status allowed for confirmation)
             if payment.status != PaymentStatus.DRAFT:
-                error_msg = f"Payment cannot be confirmed in current status: {payment.status}"
-                logger.error(f"Payment {payment.number} - {error_msg}")
+                error_msg = f"Payment can only be confirmed from DRAFT status, current: {payment.status}"
+                logger.error(f"❌ [CONFIRM_PAYMENT] Payment {payment.number} - {error_msg}")
                 raise BusinessRuleError(error_msg)
+            
+            logger.info(f"✅ [CONFIRM_PAYMENT] Payment {payment.number} status validation passed (DRAFT)")
             
             # Validate payment for confirmation (skip if force=True)
             if not force:
-                logger.info(f"Starting validation for payment {payment.number}")
+                logger.info(f"🔍 [CONFIRM_PAYMENT] Starting validation for payment {payment.number}")
                 validation_errors = await self._validate_payment_for_confirmation(payment)
                 
                 if validation_errors:
                     error_msg = f"Payment validation failed: {'; '.join(validation_errors)}"
-                    logger.error(f"Payment {payment.number} - {error_msg}")
+                    logger.error(f"❌ [CONFIRM_PAYMENT] Payment {payment.number} - {error_msg}")
                     raise BusinessRuleError(error_msg)
+                
+                logger.info(f"✅ [CONFIRM_PAYMENT] Payment {payment.number} validation passed")
             else:
-                logger.warning(f"FORCE MODE: Skipping validation for payment {payment.number}")
-            
-            logger.info(f"Payment {payment.number} validation completed successfully")
+                logger.warning(f"⚠️ [CONFIRM_PAYMENT] FORCE MODE: Skipping validation for payment {payment.number}")
             
             # Ensure payment has required journal
             if not payment.journal_id:
-                logger.info(f"Payment {payment.number} missing journal, getting default journal")
+                logger.info(f"🔧 [CONFIRM_PAYMENT] Payment {payment.number} missing journal, getting default journal")
                 journal_id = await self._get_default_payment_journal(payment.payment_type)
                 payment.journal_id = journal_id
-                logger.info(f"Payment {payment.number} assigned journal ID: {journal_id}")
+                logger.info(f"✅ [CONFIRM_PAYMENT] Payment {payment.number} assigned journal ID: {journal_id}")
             
             # Create journal entry for the payment
-            logger.info(f"Creating journal entry for payment {payment.number}")
+            logger.info(f"📝 [CONFIRM_PAYMENT] Creating journal entry for payment {payment.number}")
             journal_entry = await self._create_payment_journal_entry(payment, confirmed_by_id)
-            logger.info(f"Journal entry {journal_entry.number} created for payment {payment.number}")
+            payment.journal_entry_id = journal_entry.id
+            logger.info(f"✅ [CONFIRM_PAYMENT] Journal entry {journal_entry.number} created for payment {payment.number}")
             
-            # Update payment status
-            logger.info(f"Updating payment {payment.number} status to POSTED")
-            payment.status = PaymentStatus.POSTED
+            # Update payment status to POSTED (will be PAID until reconciliation is implemented)
+            logger.info(f"📝 [CONFIRM_PAYMENT] Updating payment {payment.number} status to POSTED")
+            payment.status = PaymentStatus.POSTED  # Temporalmente POSTED, luego será PAID
             payment.posted_by_id = confirmed_by_id
             payment.posted_at = datetime.utcnow()
-            payment.journal_entry_id = journal_entry.id
+            payment.confirmed_by_id = confirmed_by_id
+            payment.confirmed_at = datetime.utcnow()
             payment.updated_at = datetime.utcnow()
             
+            logger.info(f"✅ [CONFIRM_PAYMENT] Payment {payment.number} status updated to {payment.status}")
+            
             # Process invoice reconciliation
-            logger.info(f"Processing invoice reconciliation for payment {payment.number}")
+            logger.info(f"🔗 [CONFIRM_PAYMENT] Processing invoice reconciliation for payment {payment.number}")
             await self._reconcile_payment_invoices(payment)
-            logger.info(f"Invoice reconciliation completed for payment {payment.number}")
+            logger.info(f"✅ [CONFIRM_PAYMENT] Invoice reconciliation completed for payment {payment.number}")
             
             await self.db.commit()
             
-            logger.info(f"Payment {payment.number} confirmed successfully - Journal Entry: {journal_entry.number}")
+            logger.info(f"🎉 [CONFIRM_PAYMENT] Payment {payment.number} processed successfully - Final Status: {payment.status}")
             return PaymentResponse.from_orm(payment)
             
         except Exception as e:
-            logger.error(f"Error confirming payment {payment_id}: {str(e)}")
+            logger.error(f"💥 [CONFIRM_PAYMENT] Error confirming payment {payment_id}: {str(e)}")
+            logger.error(f"💥 [CONFIRM_PAYMENT] Exception type: {type(e).__name__}")
             await self.db.rollback()
             raise
     
@@ -304,7 +321,24 @@ class PaymentFlowService:
                     continue
                 
                 payment = payment_dict[payment_id]
-                validation_errors = await self._validate_payment_for_confirmation(payment)
+                
+                logger.info(f"🔍 [VALIDATE_BULK] Validating payment {payment.number} - Status: {payment.status}, Amount: {payment.amount}")
+                
+                # Solo se pueden contabilizar pagos en estado DRAFT
+                if payment.status != PaymentStatus.DRAFT:
+                    error_msg = f"Payment in {payment.status} status cannot be confirmed/posted - only DRAFT payments allowed"
+                    logger.warning(f"❌ [VALIDATE_BULK] Payment {payment.number} - {error_msg}")
+                    validation_errors = [error_msg]
+                else:
+                    # Validar pago DRAFT para confirmación
+                    logger.debug(f"🔍 [VALIDATE_BULK] Running DRAFT validation for payment {payment.number}")
+                    validation_errors = await self._validate_payment_for_confirmation(payment)
+                    
+                    if validation_errors:
+                        logger.warning(f"❌ [VALIDATE_BULK] Payment {payment.number} validation failed: {validation_errors}")
+                    else:
+                        logger.info(f"✅ [VALIDATE_BULK] Payment {payment.number} validation passed")
+                
                 warnings = await self._get_payment_warnings(payment)
                 
                 is_valid = len(validation_errors) == 0
@@ -340,74 +374,122 @@ class PaymentFlowService:
         force: bool = False
     ) -> Dict[str, Any]:
         """
-        Confirma múltiples pagos en lote (DRAFT → POSTED)
+        Confirma/Contabiliza múltiples pagos en lote
+        
+        FLUJO CORRECTO:
+        - Solo procesa pagos en estado DRAFT
+        - DRAFT → POSTED (contabilización con journal entry)
+        - Temporalmente POSTED hasta implementar conciliación
         
         Args:
-            payment_ids: Lista de IDs de pagos a confirmar
-            confirmed_by_id: ID del usuario que confirma
-            confirmation_notes: Notas adicionales para la confirmación
-            force: Forzar confirmación ignorando warnings
+            payment_ids: Lista de IDs de pagos a confirmar/contabilizar
+            confirmed_by_id: ID del usuario que confirma/contabiliza
+            confirmation_notes: Notas adicionales para la operación
+            force: Forzar operación ignorando warnings
         """
         try:
-            logger.info(f"Starting bulk confirmation for {len(payment_ids)} payments")
+            logger.info(f"🚀 [BULK_CONFIRM] Starting bulk confirmation for {len(payment_ids)} payments")
+            logger.info(f"👤 [BULK_CONFIRM] Confirmed by user: {confirmed_by_id}")
+            logger.info(f"📝 [BULK_CONFIRM] Confirmation notes: {confirmation_notes}")
+            logger.info(f"⚠️ [BULK_CONFIRM] Force mode: {force}")
             
             if not payment_ids:
-                raise ValidationError("Payment IDs list cannot be empty")
+                error_msg = "Payment IDs list cannot be empty"
+                logger.error(f"❌ [BULK_CONFIRM] {error_msg}")
+                raise ValidationError(error_msg)
             
             if len(payment_ids) > 1000:
-                raise ValidationError("Too many payments requested. Maximum 1000 payments per bulk operation")
+                error_msg = "Too many payments requested. Maximum 1000 payments per bulk operation"
+                logger.error(f"❌ [BULK_CONFIRM] {error_msg}")
+                raise ValidationError(error_msg)
             
             # Validar primero si no es forzado
             if not force:
+                logger.info(f"🔍 [BULK_CONFIRM] Starting validation phase for {len(payment_ids)} payments")
                 validation_result = await self.validate_bulk_confirmation(payment_ids)
+                
+                logger.info(f"📊 [BULK_CONFIRM] Validation results: Valid={validation_result['summary']['valid']}, Invalid={validation_result['summary']['invalid']}, Warnings={validation_result['summary']['warnings']}")
+                
                 if validation_result["summary"]["invalid"] > 0:
-                    raise BusinessRuleError(f"Some payments failed validation. Use force=True to override or fix errors first.")
+                    error_msg = f"Some payments failed validation. {validation_result['summary']['invalid']} invalid payments found. Use force=True to override or fix errors first."
+                    logger.error(f"❌ [BULK_CONFIRM] {error_msg}")
+                    
+                    # Log detalles de errores
+                    for payment_id, result in validation_result["validation_results"].items():
+                        if not result["valid"]:
+                            logger.error(f"❌ [BULK_CONFIRM] Payment {result.get('payment_number', payment_id)} errors: {result['errors']}")
+                    
+                    raise BusinessRuleError(error_msg)
+                
+                logger.info(f"✅ [BULK_CONFIRM] All payments passed validation")
+            else:
+                logger.warning(f"⚠️ [BULK_CONFIRM] FORCE MODE: Skipping validation phase")
             
             results = {
                 "total_payments": len(payment_ids),
                 "successful": 0,
                 "failed": 0,
                 "results": {},
-                "processing_time": None
+                "processing_time": None,
+                "operation": "bulk_confirm_draft_to_posted"
             }
             
             start_time = datetime.utcnow()
+            logger.info(f"⏰ [BULK_CONFIRM] Processing started at {start_time}")
             
             # Procesar en lotes para mejor rendimiento
             batch_size = 50
+            total_batches = (len(payment_ids) + batch_size - 1) // batch_size
+            logger.info(f"📦 [BULK_CONFIRM] Processing in {total_batches} batches of {batch_size} payments each")
+            
             for i in range(0, len(payment_ids), batch_size):
                 batch = payment_ids[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                
+                logger.info(f"📦 [BULK_CONFIRM] Processing batch {batch_num}/{total_batches} with {len(batch)} payments")
                 
                 for payment_id in batch:
                     try:
+                        logger.debug(f"🔄 [BULK_CONFIRM] Processing payment {payment_id}")
                         result = await self.confirm_payment(payment_id, confirmed_by_id, force=force)
+                        
                         results["results"][str(payment_id)] = {
                             "success": True,
                             "payment_number": result.number,
-                            "message": f"Payment {result.number} confirmed successfully" + (" (FORCED)" if force else "")
+                            "message": f"Payment {result.number} processed successfully" + (" (FORCED)" if force else ""),
+                            "final_status": result.status.value if hasattr(result.status, 'value') else str(result.status)
                         }
                         results["successful"] += 1
                         
+                        logger.info(f"✅ [BULK_CONFIRM] Payment {result.number} processed successfully - Status: {result.status}")
+                        
                     except Exception as e:
-                        logger.error(f"Failed to confirm payment {payment_id}: {str(e)}")
+                        logger.error(f"💥 [BULK_CONFIRM] Failed to confirm payment {payment_id}: {str(e)}")
+                        logger.error(f"💥 [BULK_CONFIRM] Exception type: {type(e).__name__}")
+                        
                         results["results"][str(payment_id)] = {
                             "success": False,
                             "error": str(e),
-                            "message": f"Failed to confirm payment: {str(e)}"
+                            "message": f"Failed to confirm payment: {str(e)}",
+                            "exception_type": type(e).__name__
                         }
                         results["failed"] += 1
                 
                 # Commit intermedio para evitar transacciones muy largas
+                logger.debug(f"💾 [BULK_CONFIRM] Committing batch {batch_num}")
                 await self.db.commit()
             
             end_time = datetime.utcnow()
             results["processing_time"] = (end_time - start_time).total_seconds()
             
-            logger.info(f"Bulk confirmation completed: {results['successful']}/{results['total_payments']} successful")
+            logger.info(f"🎉 [BULK_CONFIRM] Bulk confirmation completed in {results['processing_time']:.2f} seconds")
+            logger.info(f"📊 [BULK_CONFIRM] Final results: {results['successful']}/{results['total_payments']} successful, {results['failed']} failed")
+            
             return results
             
         except Exception as e:
-            logger.error(f"Error in bulk confirm payments: {str(e)}")
+            logger.error(f"💥 [BULK_CONFIRM] Critical error in bulk confirm payments: {str(e)}")
+            logger.error(f"💥 [BULK_CONFIRM] Exception type: {type(e).__name__}")
             await self.db.rollback()
             raise
     
@@ -612,64 +694,91 @@ class PaymentFlowService:
     # Métodos auxiliares para operaciones bulk
     
     async def _validate_payment_for_confirmation(self, payment: Payment) -> List[str]:
-        """Validación async para confirmación de pagos"""
+        """Validación async para confirmación de pagos DRAFT → POSTED"""
         errors = []
         
-        logger.info(f"Validating payment {payment.number} (ID: {payment.id}) for confirmation")
+        logger.info(f"🔍 [VALIDATE_CONFIRM] Validating payment {payment.number} (ID: {payment.id}) for confirmation")
         
         # Validaciones básicas
-        logger.debug(f"Payment {payment.number} - Checking status: {payment.status}")
+        logger.debug(f"🔍 [VALIDATE_CONFIRM] Payment {payment.number} - Checking status: {payment.status}")
         if payment.status != PaymentStatus.DRAFT:
-            error_msg = f"Payment must be in DRAFT status, current: {payment.status}"
-            logger.warning(f"Payment {payment.number} - VALIDATION FAILED: {error_msg}")
+            error_msg = f"Payment must be in DRAFT status to be confirmed, current: {payment.status}"
+            logger.warning(f"❌ [VALIDATE_CONFIRM] Payment {payment.number} - {error_msg}")
             errors.append(error_msg)
+        else:
+            logger.debug(f"✅ [VALIDATE_CONFIRM] Payment {payment.number} - Status DRAFT is valid")
         
-        logger.debug(f"Payment {payment.number} - Checking amount: {payment.amount}")
+        logger.debug(f"🔍 [VALIDATE_CONFIRM] Payment {payment.number} - Checking amount: {payment.amount}")
         if not payment.amount or payment.amount <= 0:
-            error_msg = "Payment must have a positive amount"
-            logger.warning(f"Payment {payment.number} - VALIDATION FAILED: {error_msg} (amount: {payment.amount})")
+            error_msg = f"Payment must have a positive amount, current: {payment.amount}"
+            logger.warning(f"❌ [VALIDATE_CONFIRM] Payment {payment.number} - {error_msg}")
             errors.append(error_msg)
+        else:
+            logger.debug(f"✅ [VALIDATE_CONFIRM] Payment {payment.number} - Amount {payment.amount} is valid")
         
-        logger.debug(f"Payment {payment.number} - Checking third party: {payment.third_party_id}")
+        logger.debug(f"🔍 [VALIDATE_CONFIRM] Payment {payment.number} - Checking third party: {payment.third_party_id}")
         if not payment.third_party_id:
-            error_msg = "Payment must have a third party"
-            logger.warning(f"Payment {payment.number} - VALIDATION FAILED: {error_msg}")
+            error_msg = "Payment must have a third party assigned"
+            logger.warning(f"❌ [VALIDATE_CONFIRM] Payment {payment.number} - {error_msg}")
             errors.append(error_msg)
+        else:
+            logger.debug(f"✅ [VALIDATE_CONFIRM] Payment {payment.number} - Third party {payment.third_party_id} is assigned")
         
-        logger.debug(f"Payment {payment.number} - Checking account: {payment.account_id}")
+        logger.debug(f"🔍 [VALIDATE_CONFIRM] Payment {payment.number} - Checking account: {payment.account_id}")
         if not payment.account_id:
-            error_msg = "Payment must have a bank/cash account"
-            logger.warning(f"Payment {payment.number} - VALIDATION FAILED: {error_msg}")
+            error_msg = "Payment must have a bank/cash account assigned"
+            logger.warning(f"❌ [VALIDATE_CONFIRM] Payment {payment.number} - {error_msg}")
             errors.append(error_msg)
+        else:
+            logger.debug(f"✅ [VALIDATE_CONFIRM] Payment {payment.number} - Account {payment.account_id} is assigned")
         
-        logger.debug(f"Payment {payment.number} - Checking payment date: {payment.payment_date}")
+        logger.debug(f"🔍 [VALIDATE_CONFIRM] Payment {payment.number} - Checking payment date: {payment.payment_date}")
         if not payment.payment_date:
             error_msg = "Payment must have a payment date"
-            logger.warning(f"Payment {payment.number} - VALIDATION FAILED: {error_msg}")
+            logger.warning(f"❌ [VALIDATE_CONFIRM] Payment {payment.number} - {error_msg}")
             errors.append(error_msg)
+        else:
+            logger.debug(f"✅ [VALIDATE_CONFIRM] Payment {payment.number} - Payment date {payment.payment_date} is valid")
+        
+        # Validar tipo de pago
+        logger.debug(f"🔍 [VALIDATE_CONFIRM] Payment {payment.number} - Checking payment type: {payment.payment_type}")
+        if not payment.payment_type:
+            error_msg = "Payment must have a payment type"
+            logger.warning(f"❌ [VALIDATE_CONFIRM] Payment {payment.number} - {error_msg}")
+            errors.append(error_msg)
+        else:
+            logger.debug(f"✅ [VALIDATE_CONFIRM] Payment {payment.number} - Payment type {payment.payment_type} is valid")
         
         # Validar facturas relacionadas
-        logger.debug(f"Payment {payment.number} - Checking {len(payment.payment_invoices)} related invoices")
-        for payment_invoice in payment.payment_invoices:
-            invoice = payment_invoice.invoice
-            logger.debug(f"Payment {payment.number} - Invoice {invoice.number} status: {invoice.status}")
-            if invoice.status not in [InvoiceStatus.POSTED, InvoiceStatus.PARTIALLY_PAID]:
-                error_msg = f"Invoice {invoice.number} status {invoice.status} does not allow payments"
-                logger.warning(f"Payment {payment.number} - VALIDATION FAILED: {error_msg}")
-                errors.append(error_msg)
+        logger.debug(f"🔍 [VALIDATE_CONFIRM] Payment {payment.number} - Checking {len(payment.payment_invoices)} related invoices")
+        if payment.payment_invoices:
+            for payment_invoice in payment.payment_invoices:
+                invoice = payment_invoice.invoice
+                logger.debug(f"🔍 [VALIDATE_CONFIRM] Payment {payment.number} - Invoice {invoice.number} status: {invoice.status}")
+                if invoice.status not in [InvoiceStatus.POSTED, InvoiceStatus.PARTIALLY_PAID]:
+                    error_msg = f"Invoice {invoice.number} has status {invoice.status} which does not allow payments"
+                    logger.warning(f"❌ [VALIDATE_CONFIRM] Payment {payment.number} - {error_msg}")
+                    errors.append(error_msg)
+                else:
+                    logger.debug(f"✅ [VALIDATE_CONFIRM] Payment {payment.number} - Invoice {invoice.number} status {invoice.status} is valid")
+        else:
+            logger.debug(f"ℹ️ [VALIDATE_CONFIRM] Payment {payment.number} - No invoices linked (allowed)")
         
-        # Validar montos
-        total_allocated = sum(pi.amount for pi in payment.payment_invoices)
-        logger.debug(f"Payment {payment.number} - Total allocated: {total_allocated}, Payment amount: {payment.amount}")
-        if total_allocated > payment.amount:
-            error_msg = f"Allocated amount {total_allocated} exceeds payment amount {payment.amount}"
-            logger.warning(f"Payment {payment.number} - VALIDATION FAILED: {error_msg}")
-            errors.append(error_msg)
+        # Validar montos si hay facturas
+        if payment.payment_invoices:
+            total_allocated = sum(pi.amount for pi in payment.payment_invoices)
+            logger.debug(f"🔍 [VALIDATE_CONFIRM] Payment {payment.number} - Total allocated: {total_allocated}, Payment amount: {payment.amount}")
+            if total_allocated > payment.amount:
+                error_msg = f"Allocated amount {total_allocated} exceeds payment amount {payment.amount}"
+                logger.warning(f"❌ [VALIDATE_CONFIRM] Payment {payment.number} - {error_msg}")
+                errors.append(error_msg)
+            else:
+                logger.debug(f"✅ [VALIDATE_CONFIRM] Payment {payment.number} - Amount allocation is valid")
         
         if errors:
-            logger.error(f"Payment {payment.number} failed validation with {len(errors)} errors: {errors}")
+            logger.error(f"❌ [VALIDATE_CONFIRM] Payment {payment.number} failed validation with {len(errors)} errors: {errors}")
         else:
-            logger.info(f"Payment {payment.number} passed all validations successfully")
+            logger.info(f"✅ [VALIDATE_CONFIRM] Payment {payment.number} passed all validations successfully")
         
         return errors
     
@@ -1010,8 +1119,8 @@ class PaymentFlowService:
             # Crear líneas del asiento
             await self._create_journal_entry_lines_for_payment(journal_entry, payment)
             
-            # Calcular totales del journal entry
-            journal_entry.calculate_totals()
+            # Calcular totales del journal entry manualmente (async)
+            await self._calculate_journal_entry_totals(journal_entry)
             
             logger.info(f"Payment {payment.number} - Journal entry {entry_number} completed with totals calculated")
             return journal_entry
@@ -1052,12 +1161,16 @@ class PaymentFlowService:
         """Crear las líneas del asiento contable para el pago"""
         from app.models.journal_entry import JournalEntryLine
         
+        logger.info(f"📝 [JOURNAL_LINES] Creating journal entry lines for payment {payment.number} (type: {payment.payment_type})")
+        
         line_counter = 1
         
         if payment.payment_type == PaymentType.CUSTOMER_PAYMENT:
             # Pago de cliente: entrada de dinero
+            logger.info(f"💰 [JOURNAL_LINES] Creating CUSTOMER_PAYMENT lines for {payment.number}")
             
             # 1. DEBE: Cuenta bancaria/caja (entrada de dinero)
+            logger.debug(f"📝 [JOURNAL_LINES] Line 1 - DEBIT: Bank account {payment.account.code} - {payment.account.name}")
             bank_line = JournalEntryLine(
                 journal_entry_id=journal_entry.id,
                 line_number=line_counter,
@@ -1072,7 +1185,8 @@ class PaymentFlowService:
             line_counter += 1
             
             # 2. HABER: Cuenta por cobrar
-            receivable_account = await self._get_customer_receivable_account(payment.third_party)
+            receivable_account = await self._get_customer_receivable_account(payment)
+            logger.debug(f"📝 [JOURNAL_LINES] Line 2 - CREDIT: Receivable account {receivable_account.code} - {receivable_account.name}")
             credit_line = JournalEntryLine(
                 journal_entry_id=journal_entry.id,
                 line_number=line_counter,
@@ -1087,9 +1201,11 @@ class PaymentFlowService:
             
         elif payment.payment_type == PaymentType.SUPPLIER_PAYMENT:
             # Pago a proveedor: salida de dinero
+            logger.info(f"💸 [JOURNAL_LINES] Creating SUPPLIER_PAYMENT lines for {payment.number}")
             
             # 1. DEBE: Cuenta por pagar
-            payable_account = await self._get_supplier_payable_account(payment.third_party)
+            payable_account = await self._get_supplier_payable_account(payment)
+            logger.debug(f"📝 [JOURNAL_LINES] Line 1 - DEBIT: Payable account {payable_account.code} - {payable_account.name}")
             debit_line = JournalEntryLine(
                 journal_entry_id=journal_entry.id,
                 line_number=line_counter,
@@ -1104,6 +1220,7 @@ class PaymentFlowService:
             line_counter += 1
             
             # 2. HABER: Cuenta bancaria/caja (salida de dinero)
+            logger.debug(f"📝 [JOURNAL_LINES] Line 2 - CREDIT: Bank account {payment.account.code} - {payment.account.name}")
             bank_line = JournalEntryLine(
                 journal_entry_id=journal_entry.id,
                 line_number=line_counter,
@@ -1117,58 +1234,156 @@ class PaymentFlowService:
             self.db.add(bank_line)
         
         else:
-            raise BusinessRuleError(f"Unsupported payment type: {payment.payment_type}")
+            error_msg = f"Unsupported payment type: {payment.payment_type}"
+            logger.error(f"❌ [JOURNAL_LINES] {error_msg}")
+            raise BusinessRuleError(error_msg)
+            
+        logger.info(f"✅ [JOURNAL_LINES] Journal entry lines created successfully for payment {payment.number}")
 
-    async def _get_customer_receivable_account(self, third_party) -> "Account":
-        """Obtener cuenta por cobrar del cliente"""
+    async def _get_customer_receivable_account(self, payment: Payment) -> "Account":
+        """
+        Obtener cuenta por cobrar del cliente usando jerarquía de búsqueda:
+        1. Cuenta específica del tercero (cliente)
+        2. Cuenta específica del diario
+        3. Cuenta por defecto de la empresa
+        4. Búsqueda por tipo/categoría (fallback)
+        """
         from app.models.account import Account, AccountType, AccountCategory
+        from app.models.journal import Journal
+        from app.models.company_settings import CompanySettings
         
-        # Buscar cuenta específica del tercero
-        if third_party and third_party.receivable_account_id:
-            stmt = select(Account).where(Account.id == third_party.receivable_account_id)
+        logger.debug(f"🔍 [RECEIVABLE_ACCOUNT] Getting receivable account for payment {payment.number}")
+        
+        # 1. Buscar cuenta específica del tercero
+        if payment.third_party and payment.third_party.receivable_account_id:
+            logger.debug(f"🔍 [RECEIVABLE_ACCOUNT] Third party has specific receivable account: {payment.third_party.receivable_account_id}")
+            stmt = select(Account).where(Account.id == payment.third_party.receivable_account_id)
             result = await self.db.execute(stmt)
             account = result.scalar_one_or_none()
-            if account:
+            if account and account.is_active:
+                logger.info(f"✅ [RECEIVABLE_ACCOUNT] Using third party specific account: {account.code} - {account.name}")
                 return account
         
-        # Cuenta por defecto de activo corriente (cuentas por cobrar)
+        # 2. Buscar cuenta específica del diario
+        if payment.journal_id:
+            logger.debug(f"🔍 [RECEIVABLE_ACCOUNT] Checking journal specific receivable account")
+            stmt = select(Journal).where(Journal.id == payment.journal_id)
+            result = await self.db.execute(stmt)
+            journal = result.scalar_one_or_none()
+            
+            if journal and journal.customer_receivable_account_id:
+                logger.debug(f"🔍 [RECEIVABLE_ACCOUNT] Journal has specific receivable account: {journal.customer_receivable_account_id}")
+                stmt = select(Account).where(Account.id == journal.customer_receivable_account_id)
+                result = await self.db.execute(stmt)
+                account = result.scalar_one_or_none()
+                if account and account.is_active:
+                    logger.info(f"✅ [RECEIVABLE_ACCOUNT] Using journal specific account: {account.code} - {account.name}")
+                    return account
+        
+        # 3. Buscar cuenta por defecto de la empresa
+        logger.debug(f"🔍 [RECEIVABLE_ACCOUNT] Checking company default receivable account")
+        stmt = select(CompanySettings).where(CompanySettings.is_active == True)
+        result = await self.db.execute(stmt)
+        company_settings = result.scalar_one_or_none()
+        
+        if company_settings and company_settings.default_customer_receivable_account_id:
+            logger.debug(f"🔍 [RECEIVABLE_ACCOUNT] Company has default receivable account: {company_settings.default_customer_receivable_account_id}")
+            stmt = select(Account).where(Account.id == company_settings.default_customer_receivable_account_id)
+            result = await self.db.execute(stmt)
+            account = result.scalar_one_or_none()
+            if account and account.is_active:
+                logger.info(f"✅ [RECEIVABLE_ACCOUNT] Using company default account: {account.code} - {account.name}")
+                return account
+        
+        # 4. Fallback: Cuenta por defecto de activo corriente (cuentas por cobrar) - usar la primera
+        logger.debug(f"🔍 [RECEIVABLE_ACCOUNT] Using fallback search by type/category")
         stmt = select(Account).where(
             Account.account_type == AccountType.ASSET,
             Account.category == AccountCategory.CURRENT_ASSET,
             Account.is_active == True
-        ).order_by(Account.code)
+        ).order_by(Account.code).limit(1)
         result = await self.db.execute(stmt)
         account = result.scalar_one_or_none()
         
         if not account:
-            raise BusinessRuleError("No receivable account found")
+            error_msg = "No receivable account found"
+            logger.error(f"❌ [RECEIVABLE_ACCOUNT] {error_msg}")
+            raise BusinessRuleError(error_msg)
         
+        logger.info(f"✅ [RECEIVABLE_ACCOUNT] Using fallback account: {account.code} - {account.name}")
         return account
 
-    async def _get_supplier_payable_account(self, third_party) -> "Account":
-        """Obtener cuenta por pagar del proveedor"""
+    async def _get_supplier_payable_account(self, payment: Payment) -> "Account":
+        """
+        Obtener cuenta por pagar del proveedor usando jerarquía de búsqueda:
+        1. Cuenta específica del tercero (proveedor)
+        2. Cuenta específica del diario
+        3. Cuenta por defecto de la empresa
+        4. Búsqueda por tipo/categoría (fallback)
+        """
         from app.models.account import Account, AccountType, AccountCategory
+        from app.models.journal import Journal
+        from app.models.company_settings import CompanySettings
         
-        # Buscar cuenta específica del tercero
-        if third_party and third_party.payable_account_id:
-            stmt = select(Account).where(Account.id == third_party.payable_account_id)
+        logger.debug(f"🔍 [PAYABLE_ACCOUNT] Getting payable account for payment {payment.number}")
+        
+        # 1. Buscar cuenta específica del tercero
+        if payment.third_party and payment.third_party.payable_account_id:
+            logger.debug(f"🔍 [PAYABLE_ACCOUNT] Third party has specific payable account: {payment.third_party.payable_account_id}")
+            stmt = select(Account).where(Account.id == payment.third_party.payable_account_id)
             result = await self.db.execute(stmt)
             account = result.scalar_one_or_none()
-            if account:
+            if account and account.is_active:
+                logger.info(f"✅ [PAYABLE_ACCOUNT] Using third party specific account: {account.code} - {account.name}")
                 return account
         
-        # Cuenta por defecto de pasivo corriente (cuentas por pagar)
+        # 2. Buscar cuenta específica del diario
+        if payment.journal_id:
+            logger.debug(f"🔍 [PAYABLE_ACCOUNT] Checking journal specific payable account")
+            stmt = select(Journal).where(Journal.id == payment.journal_id)
+            result = await self.db.execute(stmt)
+            journal = result.scalar_one_or_none()
+            
+            if journal and journal.supplier_payable_account_id:
+                logger.debug(f"🔍 [PAYABLE_ACCOUNT] Journal has specific payable account: {journal.supplier_payable_account_id}")
+                stmt = select(Account).where(Account.id == journal.supplier_payable_account_id)
+                result = await self.db.execute(stmt)
+                account = result.scalar_one_or_none()
+                if account and account.is_active:
+                    logger.info(f"✅ [PAYABLE_ACCOUNT] Using journal specific account: {account.code} - {account.name}")
+                    return account
+        
+        # 3. Buscar cuenta por defecto de la empresa
+        logger.debug(f"🔍 [PAYABLE_ACCOUNT] Checking company default payable account")
+        stmt = select(CompanySettings).where(CompanySettings.is_active == True)
+        result = await self.db.execute(stmt)
+        company_settings = result.scalar_one_or_none()
+        
+        if company_settings and company_settings.default_supplier_payable_account_id:
+            logger.debug(f"🔍 [PAYABLE_ACCOUNT] Company has default payable account: {company_settings.default_supplier_payable_account_id}")
+            stmt = select(Account).where(Account.id == company_settings.default_supplier_payable_account_id)
+            result = await self.db.execute(stmt)
+            account = result.scalar_one_or_none()
+            if account and account.is_active:
+                logger.info(f"✅ [PAYABLE_ACCOUNT] Using company default account: {account.code} - {account.name}")
+                return account
+        
+        # 4. Fallback: Cuenta por defecto de pasivo corriente (cuentas por pagar) - usar la primera
+        logger.debug(f"🔍 [PAYABLE_ACCOUNT] Using fallback search by type/category")
         stmt = select(Account).where(
             Account.account_type == AccountType.LIABILITY,
             Account.category == AccountCategory.CURRENT_LIABILITY,
             Account.is_active == True
-        ).order_by(Account.code)
+        ).order_by(Account.code).limit(1)
         result = await self.db.execute(stmt)
         account = result.scalar_one_or_none()
         
         if not account:
-            raise BusinessRuleError("No payable account found")
+            error_msg = "No payable account found"
+            logger.error(f"❌ [PAYABLE_ACCOUNT] {error_msg}")
+            raise BusinessRuleError(error_msg)
         
+        logger.info(f"✅ [PAYABLE_ACCOUNT] Using fallback account: {account.code} - {account.name}")
         return account
 
     async def _get_default_payment_journal(self, payment_type: PaymentType) -> uuid.UUID:
@@ -1215,3 +1430,25 @@ class PaymentFlowService:
                 invoice.outstanding_amount = Decimal('0')
 
         await self.db.flush()
+    async def _calculate_journal_entry_totals(self, journal_entry: "JournalEntry") -> None:
+        """Calcula los totales de débito y crédito del asiento contable de forma asíncrona"""
+        from app.models.journal_entry import JournalEntryLine
+        from sqlalchemy import func
+        
+        # Calcular totales usando consulta asíncrona
+        stmt = select(
+            func.sum(JournalEntryLine.debit_amount).label('total_debit'),
+            func.sum(JournalEntryLine.credit_amount).label('total_credit')
+        ).where(JournalEntryLine.journal_entry_id == journal_entry.id)
+        
+        result = await self.db.execute(stmt)
+        totals = result.first()
+        
+        if totals:
+            journal_entry.total_debit = totals.total_debit or Decimal('0')
+            journal_entry.total_credit = totals.total_credit or Decimal('0')
+            logger.debug(f"📊 [JOURNAL_TOTALS] Journal entry {journal_entry.number} - Debit: {journal_entry.total_debit}, Credit: {journal_entry.total_credit}")
+        else:
+            journal_entry.total_debit = Decimal('0')
+            journal_entry.total_credit = Decimal('0')
+            logger.warning(f"⚠️ [JOURNAL_TOTALS] No lines found for journal entry {journal_entry.number}")

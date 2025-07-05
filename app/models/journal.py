@@ -70,6 +70,50 @@ class Journal(Base):
         comment="Cuenta contable por defecto para asientos de este diario"
     )
     
+    # === CONFIGURACIÓN DE CUENTAS ESPECÍFICAS PARA PAGOS ===
+    # Cuentas específicas para diferentes tipos de operaciones
+    default_debit_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("accounts.id"),
+        nullable=True,
+        comment="Cuenta débito por defecto para asientos automáticos"
+    )
+    
+    default_credit_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("accounts.id"),
+        nullable=True,
+        comment="Cuenta crédito por defecto para asientos automáticos"
+    )
+    
+    customer_receivable_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("accounts.id"),
+        nullable=True,
+        comment="Cuenta por cobrar clientes específica para este diario"
+    )
+    
+    supplier_payable_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("accounts.id"),
+        nullable=True,
+        comment="Cuenta por pagar proveedores específica para este diario"
+    )
+    
+    cash_difference_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("accounts.id"),
+        nullable=True,
+        comment="Cuenta para diferencias de caja/efectivo"
+    )
+    
+    bank_charges_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("accounts.id"),
+        nullable=True,
+        comment="Cuenta para gastos y comisiones bancarias"
+    )
+    
+    currency_exchange_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("accounts.id"),
+        nullable=True,
+        comment="Cuenta para diferencias de cambio de moneda"
+    )
+    
     # Configuración de secuencia
     current_sequence_number: Mapped[int] = mapped_column(
         default=0,
@@ -140,7 +184,51 @@ class Journal(Base):
     # Relationships
     default_account: Mapped[Optional["Account"]] = relationship(
         "Account",
+        foreign_keys=[default_account_id],
         back_populates="journals_as_default"
+    )
+    
+    # Relaciones con cuentas específicas para pagos
+    default_debit_account: Mapped[Optional["Account"]] = relationship(
+        "Account",
+        foreign_keys=[default_debit_account_id],
+        back_populates="journals_as_default_debit"
+    )
+    
+    default_credit_account: Mapped[Optional["Account"]] = relationship(
+        "Account",
+        foreign_keys=[default_credit_account_id],
+        back_populates="journals_as_default_credit"
+    )
+    
+    customer_receivable_account: Mapped[Optional["Account"]] = relationship(
+        "Account",
+        foreign_keys=[customer_receivable_account_id],
+        back_populates="journals_as_customer_receivable"
+    )
+    
+    supplier_payable_account: Mapped[Optional["Account"]] = relationship(
+        "Account", 
+        foreign_keys=[supplier_payable_account_id],
+        back_populates="journals_as_supplier_payable"
+    )
+    
+    cash_difference_account: Mapped[Optional["Account"]] = relationship(
+        "Account",
+        foreign_keys=[cash_difference_account_id],
+        back_populates="journals_as_cash_difference"
+    )
+    
+    bank_charges_account: Mapped[Optional["Account"]] = relationship(
+        "Account",
+        foreign_keys=[bank_charges_account_id],
+        back_populates="journals_as_bank_charges"
+    )
+    
+    currency_exchange_account: Mapped[Optional["Account"]] = relationship(
+        "Account",
+        foreign_keys=[currency_exchange_account_id],
+        back_populates="journals_as_currency_exchange"
     )
     
     created_by: Mapped[Optional["User"]] = relationship(

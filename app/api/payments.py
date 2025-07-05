@@ -16,7 +16,7 @@ from app.schemas.payment import (
     PaymentCreate, PaymentUpdate, PaymentResponse,
     PaymentListResponse, PaymentSummary,
     BulkPaymentResetRequest, BulkPaymentConfirmationRequest, BulkPaymentValidationRequest,
-    BulkPaymentCancelRequest, BulkPaymentDeleteRequest, BulkPaymentPostRequest
+    BulkPaymentCancelRequest, BulkPaymentDeleteRequest
 )
 from app.services.payment_service import PaymentService
 from app.services.payment_flow_service import PaymentFlowService
@@ -42,9 +42,14 @@ async def bulk_confirm_payments(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Confirmar múltiples pagos en lote de forma optimizada
+    Confirmar/Contabilizar múltiples pagos en lote de forma optimizada
     
-    Permite confirmar hasta 1000 pagos simultáneamente con:
+    FLUJO CORREGIDO:
+    - Solo procesa pagos en estado DRAFT
+    - DRAFT → POSTED (contabilización con journal entry)
+    - Temporalmente POSTED hasta implementar conciliación
+    
+    Permite procesar hasta 1000 pagos simultáneamente con:
     - Procesamiento en lotes para optimizar rendimiento
     - Validaciones por lotes
     - Rollback automático en caso de errores críticos
@@ -53,10 +58,17 @@ async def bulk_confirm_payments(
     Body format: {"payment_ids": ["uuid1", "uuid2", ...], "confirmation_notes": "optional"}
     """
     try:
+        logger.info(f"🚀 [API_BULK_CONFIRM] Received bulk confirm request for {len(request.payment_ids)} payments")
+        logger.info(f"👤 [API_BULK_CONFIRM] User: {current_user.email} (ID: {current_user.id})")
+        logger.info(f"📝 [API_BULK_CONFIRM] Request data: {request.dict()}")
+        
         # Los UUIDs ya están validados por el esquema Pydantic
         payment_uuid_list = request.payment_ids
         
+        logger.info(f"🔧 [API_BULK_CONFIRM] Creating PaymentFlowService instance")
         service = PaymentFlowService(db)
+        
+        logger.info(f"🚀 [API_BULK_CONFIRM] Calling service.bulk_confirm_payments")
         result = await service.bulk_confirm_payments(
             payment_uuid_list, 
             current_user.id, 
@@ -64,29 +76,43 @@ async def bulk_confirm_payments(
             force=request.force
         )
         
+        logger.info(f"✅ [API_BULK_CONFIRM] Service completed successfully")
+        logger.info(f"📊 [API_BULK_CONFIRM] Service results: {result}")
+        
         # Analizar los resultados para determinar el código de respuesta HTTP apropiado
         total_payments = result.get("total_payments", 0)
         successful = result.get("successful", 0)
         failed = result.get("failed", 0)
         
+        logger.info(f"📊 [API_BULK_CONFIRM] Analysis: Total={total_payments}, Successful={successful}, Failed={failed}")
+        
         # Si no se procesó ningún pago exitosamente, es un error crítico
         if total_payments > 0 and successful == 0:
-            logger.warning(f"Bulk confirm operation failed completely: 0/{total_payments} payments confirmed")
+            error_msg = f"No se pudo confirmar ningún pago. {failed} pagos fallaron."
+            logger.warning(f"❌ [API_BULK_CONFIRM] Bulk confirm operation failed completely: 0/{total_payments} payments confirmed")
+            logger.error(f"❌ [API_BULK_CONFIRM] Raising HTTP 422 error: {error_msg}")
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, 
-                detail=f"No se pudo confirmar ningún pago. {failed} pagos fallaron."
+                detail=error_msg
             )
         
         # Si más del 50% de los pagos fallaron, loggear warning
         if total_payments > 0 and (failed / total_payments) > 0.5:
-            logger.warning(f"Bulk confirm operation had significant failures: {successful}/{total_payments} payments confirmed")
+            logger.warning(f"⚠️ [API_BULK_CONFIRM] Bulk confirm operation had significant failures: {successful}/{total_payments} payments confirmed")
         
+        logger.info(f"✅ [API_BULK_CONFIRM] Returning successful result")
         return result
         
     except ValidationError as e:
+        logger.error(f"❌ [API_BULK_CONFIRM] ValidationError: {str(e)}")
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
     except BusinessRuleError as e:
+        logger.error(f"❌ [API_BULK_CONFIRM] BusinessRuleError: {str(e)}")
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"💥 [API_BULK_CONFIRM] Unexpected error: {str(e)}")
+        logger.error(f"💥 [API_BULK_CONFIRM] Exception type: {type(e).__name__}")
+        raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal server error: {str(e)}")
 
 
 @router.post("/bulk/reset-to-draft", response_model=dict)
@@ -238,57 +264,6 @@ async def bulk_delete_payments(
     except BusinessRuleError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-
-@router.post("/bulk/post", response_model=dict)
-async def bulk_post_payments(
-    request: BulkPaymentPostRequest,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Contabilizar múltiples pagos en lote
-    
-    Permite contabilizar hasta 1000 pagos simultáneamente:
-    - Solo pagos CONFIRMED pueden ser contabilizados
-    - Creación de asientos contables
-    - Cambio de estado a POSTED
-    - Procesamiento optimizado en lotes
-
-    Body format: {"payment_ids": ["uuid1", "uuid2", ...], "posting_notes": "notes"}
-    """
-    try:
-        # Los UUIDs ya están validados por el esquema Pydantic
-        payment_uuid_list = request.payment_ids
-        posting_notes = request.posting_notes
-        
-        service = PaymentFlowService(db)
-        result = await service.bulk_post_payments(payment_uuid_list, current_user.id, posting_notes)
-        
-        # Analizar los resultados para determinar el código de respuesta HTTP apropiado
-        total_payments = result.get("total_payments", 0)
-        successful = result.get("successful", 0)
-        failed = result.get("failed", 0)
-        
-        # Si no se procesó ningún pago exitosamente, es un error crítico
-        if total_payments > 0 and successful == 0:
-            logger.warning(f"Bulk post operation failed completely: 0/{total_payments} payments posted")
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, 
-                detail=f"No se pudo contabilizar ningún pago. {failed} pagos fallaron."
-            )
-        
-        # Si más del 50% de los pagos fallaron, devolver warning con código 207 (Multi-Status)
-        if total_payments > 0 and (failed / total_payments) > 0.5:
-            logger.warning(f"Bulk post operation had significant failures: {successful}/{total_payments} payments posted")
-            # Para compatibilidad con frontend existente, devolvemos 200 pero loggeamos el problema
-            logger.info(f"Returning result with partial success: {successful} successful, {failed} failed")
-        
-        return result
-        
-    except ValidationError as e:
-        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except BusinessRuleError as e:
-        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post("/bulk/validate", response_model=dict)

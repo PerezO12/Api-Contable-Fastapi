@@ -121,6 +121,37 @@ class JournalUpdate(BaseModel):
         None,
         description="ID de la cuenta contable por defecto"
     )
+    
+    # Configuración de cuentas específicas para pagos
+    default_debit_account_id: Optional[uuid.UUID] = Field(
+        None,
+        description="ID de la cuenta débito por defecto"
+    )
+    default_credit_account_id: Optional[uuid.UUID] = Field(
+        None,
+        description="ID de la cuenta crédito por defecto"
+    )
+    customer_receivable_account_id: Optional[uuid.UUID] = Field(
+        None,
+        description="ID de la cuenta por cobrar clientes específica"
+    )
+    supplier_payable_account_id: Optional[uuid.UUID] = Field(
+        None,
+        description="ID de la cuenta por pagar proveedores específica"
+    )
+    cash_difference_account_id: Optional[uuid.UUID] = Field(
+        None,
+        description="ID de la cuenta para diferencias de caja"
+    )
+    bank_charges_account_id: Optional[uuid.UUID] = Field(
+        None,
+        description="ID de la cuenta para gastos bancarios"
+    )
+    currency_exchange_account_id: Optional[uuid.UUID] = Field(
+        None,
+        description="ID de la cuenta para diferencias de cambio"
+    )
+    
     sequence_padding: Optional[int] = Field(
         None,
         ge=1,

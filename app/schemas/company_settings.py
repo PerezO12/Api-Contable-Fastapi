@@ -16,6 +16,10 @@ class CompanySettingsBase(BaseModel):
     default_customer_receivable_account_id: Optional[UUID] = Field(None, description="Cuenta por cobrar por defecto para clientes")
     default_supplier_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por pagar por defecto para proveedores")
     
+    # Cuentas básicas de tesorería
+    default_cash_account_id: Optional[UUID] = Field(None, description="Cuenta de efectivo por defecto")
+    default_bank_account_id: Optional[UUID] = Field(None, description="Cuenta bancaria por defecto")
+    
     # Transacciones bancarias
     bank_suspense_account_id: Optional[UUID] = Field(None, description="Cuenta transitoria bancaria")
     internal_transfer_account_id: Optional[UUID] = Field(None, description="Cuenta para transferencias internas")
@@ -56,6 +60,10 @@ class CompanySettingsUpdate(BaseModel):
     default_customer_receivable_account_id: Optional[UUID] = Field(None, description="Cuenta por cobrar por defecto para clientes")
     default_supplier_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por pagar por defecto para proveedores")
     
+    # Cuentas básicas de tesorería
+    default_cash_account_id: Optional[UUID] = Field(None, description="Cuenta de efectivo por defecto")
+    default_bank_account_id: Optional[UUID] = Field(None, description="Cuenta bancaria por defecto")
+    
     # Transacciones bancarias
     bank_suspense_account_id: Optional[UUID] = Field(None, description="Cuenta transitoria bancaria")
     internal_transfer_account_id: Optional[UUID] = Field(None, description="Cuenta para transferencias internas")
@@ -88,12 +96,20 @@ class CompanySettingsResponse(CompanySettingsBase):
     # Información de relaciones (nombres de cuentas para mostrar)
     default_customer_receivable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta por cobrar por defecto")
     default_supplier_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta por pagar por defecto")
+    
+    # Nombres de cuentas de tesorería
+    default_cash_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de efectivo por defecto")
+    default_bank_account_name: Optional[str] = Field(None, description="Nombre de la cuenta bancaria por defecto")
+    
+    # Nombres de cuentas bancarias
     bank_suspense_account_name: Optional[str] = Field(None, description="Nombre de la cuenta transitoria bancaria")
     internal_transfer_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de transferencias internas")
     
+    # Nombres de cuentas diferidas
     deferred_expense_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de gastos diferidos")
     deferred_revenue_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de ingresos diferidos")
     
+    # Nombres de cuentas de descuentos
     early_payment_discount_gain_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de ganancia por descuento")
     early_payment_discount_loss_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de pérdida por descuento")
     
