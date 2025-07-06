@@ -12,7 +12,7 @@ from sqlalchemy import desc, and_, func
 from app.models.invoice import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from app.models.third_party import ThirdParty
 from app.models.payment_terms import PaymentTerms
-from app.models.account import Account
+from app.models.account import Account, AccountType
 from app.models.product import Product
 from app.models.tax import Tax
 from app.models.journal import Journal, JournalType
@@ -559,6 +559,25 @@ class InvoiceService:
                 
                 logger.info(f"Deleted journal entry {journal_entry.number} for reset invoice {invoice.number} (was {previous_status})")
             
+            # Si la factura estaba CANCELLED, también eliminar los asientos de reversión
+            if previous_status == InvoiceStatus.CANCELLED and journal_entry:
+                # Buscar asientos de reversión que referencien el asiento original
+                reversal_entries = self.db.query(JournalEntry).filter(
+                    JournalEntry.entry_type == JournalEntryType.REVERSAL,
+                    JournalEntry.reference.like(f"%{journal_entry.reference}%")
+                ).all()
+                
+                for reversal_entry in reversal_entries:
+                    # Eliminar líneas del asiento de reversión primero
+                    self.db.query(JournalEntryLine).filter(
+                        JournalEntryLine.journal_entry_id == reversal_entry.id
+                    ).delete()
+                    
+                    # Eliminar el asiento de reversión
+                    self.db.delete(reversal_entry)
+                    
+                    logger.info(f"Deleted reversal journal entry {reversal_entry.number} for reset invoice {invoice.number}")
+            
             # 7. Log de auditoría
             status_name = "CANCELLED" if previous_status == InvoiceStatus.CANCELLED else "POSTED"
             if reason:
@@ -1044,36 +1063,21 @@ class InvoiceService:
                     tax_details['PIS'] = invoice.tax_amount * Decimal('0.15')   # 15% para PIS
                     tax_details['COFINS'] = invoice.tax_amount * Decimal('0.25') # 25% para COFINS
             
-            # Obtener cuentas de impuestos
-            if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
-                # Impuestos sobre ventas: cuentas de ingreso
-                account_patterns = {
-                    'ICMS': '4.1.1.01',    # ICMS sobre Vendas
-                    'IPI': '4.1.1.02',     # IPI sobre Vendas
-                    'PIS': '4.1.1.03',     # PIS sobre Vendas
-                    'COFINS': '4.1.1.04'   # COFINS sobre Vendas
-                }
-            else:
-                # Impuestos por pagar: cuentas de pasivo
-                account_patterns = {
-                    'ICMS': '2.1.4.01',    # ICMS por Pagar
-                    'IPI': '2.1.4.02',     # IPI por Pagar
-                    'PIS': '2.1.4.03',     # PIS por Pagar
-                    'COFINS': '2.1.4.04'   # COFINS por Pagar
-                }
-            
-            # Crear líneas para cada impuesto
+            # Crear líneas para cada impuesto usando configuración de empresa
             for tax_type, amount in tax_details.items():
                 if amount > 0:
-                    # Buscar la cuenta correspondiente
-                    account = self.db.query(Account).filter(
-                        Account.code == account_patterns[tax_type],
-                        Account.is_active == True
-                    ).first()
+                    # Intentar obtener cuenta específica por tipo de impuesto
+                    account = self.account_determination.get_tax_account_by_type(tax_type, invoice.invoice_type)
+                    
+                    # Si no se encuentra cuenta específica, usar cuenta genérica
+                    if not account:
+                        account = self.account_determination._get_default_tax_account_for_invoice_type(invoice.invoice_type)
+                        logger.warning(f"No se encontró cuenta específica para {tax_type}, usando cuenta genérica: {account.code if account else 'None'}")
                     
                     if not account:
                         raise BusinessRuleError(
-                            f"No se encontró cuenta contable para {tax_type}. Configure una cuenta con código {account_patterns[tax_type]}"
+                            f"No se encontró cuenta contable para {tax_type}. "
+                            f"Configure las cuentas de impuestos específicas o genéricas en la configuración de empresa."
                         )
                     
                     if invoice.invoice_type == InvoiceType.CUSTOMER_INVOICE:
@@ -1085,8 +1089,9 @@ class InvoiceService:
                         debit = amount
                         credit = Decimal('0')
                     
-                    # Log para debugging
-                    logger.info(f"Tax line: {tax_type} - Account {account.code} - Amount: {amount} - D: {debit}, C: {credit}")
+                    # Log para debugging - mostrar cuenta específica o genérica
+                    account_source = "específica" if self.account_determination.get_tax_account_by_type(tax_type, invoice.invoice_type) else "genérica"
+                    logger.info(f"Tax line: {tax_type} - Account {account.code} ({account_source}) - Amount: {amount} - D: {debit}, C: {credit}")
                     
                     tax_line = JournalEntryLine(
                         journal_entry_id=journal_entry.id,

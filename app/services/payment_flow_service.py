@@ -189,6 +189,34 @@ class PaymentFlowService:
                         # Delete journal entry
                         await self.db.delete(journal_entry)
                         logger.info(f"Deleted journal entry {journal_entry.number} for payment {payment.number}")
+                
+                # For CANCELLED payments, also remove any reversal journal entries
+                if payment.status == PaymentStatus.CANCELLED:
+                    # Find all reversal entries for this payment by looking for entries that reverse the original entry
+                    if payment.journal_entry_id:
+                        original_entry_result = await self.db.execute(
+                            select(JournalEntry).where(JournalEntry.id == payment.journal_entry_id)
+                        )
+                        original_entry = original_entry_result.scalar_one_or_none()
+                        
+                        if original_entry:
+                            # Find reversal entries that reference the original entry
+                            reversal_entries_result = await self.db.execute(
+                                select(JournalEntry).where(
+                                    JournalEntry.entry_type == JournalEntryType.REVERSAL,
+                                    JournalEntry.reference.like(f"%{original_entry.reference}%")
+                                )
+                            )
+                            reversal_entries = reversal_entries_result.scalars().all()
+                            
+                            for reversal_entry in reversal_entries:
+                                # Delete reversal entry lines first
+                                await self.db.execute(
+                                    delete(JournalEntryLine).where(JournalEntryLine.journal_entry_id == reversal_entry.id)
+                                )
+                                # Delete reversal entry
+                                await self.db.delete(reversal_entry)
+                                logger.info(f"Deleted reversal journal entry {reversal_entry.number} for payment {payment.number}")
             
             elif payment.status == PaymentStatus.CONFIRMED:
                 # For CONFIRMED payments, just reset status (no journal entry should exist)

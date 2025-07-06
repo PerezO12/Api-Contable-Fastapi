@@ -28,29 +28,59 @@ class CompanySettingsService:
     
     async def get_company_settings(self) -> Optional[CompanySettingsResponse]:
         """Obtiene la configuración activa de la empresa"""
-        # Get active settings with relations loaded
-        settings_result = await self.db.execute(
-            select(CompanySettings).options(
-                selectinload(CompanySettings.default_customer_receivable_account),
-                selectinload(CompanySettings.default_supplier_payable_account),
-                selectinload(CompanySettings.default_sales_income_account),
-                selectinload(CompanySettings.default_purchase_expense_account),
-                selectinload(CompanySettings.default_cash_account),
-                selectinload(CompanySettings.default_bank_account),
-                selectinload(CompanySettings.bank_suspense_account),
-                selectinload(CompanySettings.internal_transfer_account),
-                selectinload(CompanySettings.deferred_expense_account),
-                selectinload(CompanySettings.deferred_revenue_account),
-                selectinload(CompanySettings.early_payment_discount_gain_account),
-                selectinload(CompanySettings.early_payment_discount_loss_account)
-            ).where(CompanySettings.is_active == True)
-        )
-        settings = settings_result.scalar_one_or_none()
-        
-        if not settings:
-            return None
-        
-        return self._build_settings_response(settings)
+        try:
+            logger.info("SERVICE: Iniciando obtención de configuración de empresa")
+            
+            # Get active settings with relations loaded
+            settings_result = await self.db.execute(
+                select(CompanySettings).options(
+                    selectinload(CompanySettings.default_customer_receivable_account),
+                    selectinload(CompanySettings.default_supplier_payable_account),
+                    selectinload(CompanySettings.default_sales_income_account),
+                    selectinload(CompanySettings.default_purchase_expense_account),
+                    selectinload(CompanySettings.default_sales_tax_payable_account),
+                    selectinload(CompanySettings.default_purchase_tax_deductible_account),
+                    selectinload(CompanySettings.default_tax_account),
+                    # Brazilian tax accounts
+                    selectinload(CompanySettings.default_icms_payable_account),
+                    selectinload(CompanySettings.default_icms_deductible_account),
+                    selectinload(CompanySettings.default_pis_payable_account),
+                    selectinload(CompanySettings.default_pis_deductible_account),
+                    selectinload(CompanySettings.default_cofins_payable_account),
+                    selectinload(CompanySettings.default_cofins_deductible_account),
+                    selectinload(CompanySettings.default_ipi_payable_account),
+                    selectinload(CompanySettings.default_ipi_deductible_account),
+                    selectinload(CompanySettings.default_iss_payable_account),
+                    selectinload(CompanySettings.default_csll_payable_account),
+                    selectinload(CompanySettings.default_irpj_payable_account),
+                    # Other accounts
+                    selectinload(CompanySettings.default_cash_account),
+                    selectinload(CompanySettings.default_bank_account),
+                    selectinload(CompanySettings.bank_suspense_account),
+                    selectinload(CompanySettings.internal_transfer_account),
+                    selectinload(CompanySettings.deferred_expense_account),
+                    selectinload(CompanySettings.deferred_revenue_account),
+                    selectinload(CompanySettings.early_payment_discount_gain_account),
+                    selectinload(CompanySettings.early_payment_discount_loss_account)
+                ).where(CompanySettings.is_active == True)
+            )
+            settings = settings_result.scalar_one_or_none()
+            
+            if not settings:
+                logger.info("SERVICE: No se encontraron configuraciones activas")
+                return None
+            
+            logger.info(f"SERVICE: Configuración encontrada: {settings.company_name}")
+            logger.info("SERVICE: Iniciando construcción de respuesta")
+            
+            response = self._build_settings_response(settings)
+            logger.info("SERVICE: Respuesta construida exitosamente")
+            return response
+            
+        except Exception as e:
+            logger.error(f"SERVICE: Error en get_company_settings: {e}")
+            logger.exception("SERVICE: Traceback completo:")
+            raise
     
     async def create_company_settings(
         self, 
@@ -87,6 +117,22 @@ class CompanySettingsService:
             'default_supplier_payable_account',
             'default_sales_income_account',
             'default_purchase_expense_account',
+            'default_sales_tax_payable_account',
+            'default_purchase_tax_deductible_account',
+            'default_tax_account',
+            # Brazilian tax accounts
+            'default_icms_payable_account',
+            'default_icms_deductible_account',
+            'default_pis_payable_account',
+            'default_pis_deductible_account',
+            'default_cofins_payable_account',
+            'default_cofins_deductible_account',
+            'default_ipi_payable_account',
+            'default_ipi_deductible_account',
+            'default_iss_payable_account',
+            'default_csll_payable_account',
+            'default_irpj_payable_account',
+            # Other accounts
             'default_cash_account',
             'default_bank_account',
             'bank_suspense_account',
@@ -147,6 +193,9 @@ class CompanySettingsService:
             'default_supplier_payable_account',
             'default_sales_income_account',
             'default_purchase_expense_account',
+            'default_sales_tax_payable_account',
+            'default_purchase_tax_deductible_account',
+            'default_tax_account',
             'default_cash_account',
             'default_bank_account',
             'bank_suspense_account',
@@ -248,70 +297,287 @@ class CompanySettingsService:
             recommendations=recommendations
         )
     
+    async def get_tax_accounts_configuration(self):
+        """Obtiene la configuración específica de las cuentas de impuestos"""
+        # Import here to avoid circular import
+        from app.api.v1.company_settings import TaxAccountsResponse
+        # Get active settings with tax account relations loaded
+        settings_result = await self.db.execute(
+            select(CompanySettings).options(
+                selectinload(CompanySettings.default_sales_tax_payable_account),
+                selectinload(CompanySettings.default_purchase_tax_deductible_account),
+                selectinload(CompanySettings.default_tax_account),
+                # Brazilian tax accounts
+                selectinload(CompanySettings.default_icms_payable_account),
+                selectinload(CompanySettings.default_icms_deductible_account),
+                selectinload(CompanySettings.default_pis_payable_account),
+                selectinload(CompanySettings.default_pis_deductible_account),
+                selectinload(CompanySettings.default_cofins_payable_account),
+                selectinload(CompanySettings.default_cofins_deductible_account),
+                selectinload(CompanySettings.default_ipi_payable_account),
+                selectinload(CompanySettings.default_ipi_deductible_account),
+                selectinload(CompanySettings.default_iss_payable_account),
+                selectinload(CompanySettings.default_csll_payable_account),
+                selectinload(CompanySettings.default_irpj_payable_account)
+            ).where(CompanySettings.is_active == True)
+        )
+        settings = settings_result.scalar_one_or_none()
+        
+        if not settings:
+            # Return empty configuration if no settings found
+            return TaxAccountsResponse(
+                default_sales_tax_payable_account_id=None,
+                default_sales_tax_payable_account_name=None,
+                default_purchase_tax_deductible_account_id=None,
+                default_purchase_tax_deductible_account_name=None,
+                default_tax_account_id=None,
+                default_tax_account_name=None,
+                # Brazilian tax accounts
+                default_icms_payable_account_id=None,
+                default_icms_payable_account_name=None,
+                default_icms_deductible_account_id=None,
+                default_icms_deductible_account_name=None,
+                default_pis_payable_account_id=None,
+                default_pis_payable_account_name=None,
+                default_pis_deductible_account_id=None,
+                default_pis_deductible_account_name=None,
+                default_cofins_payable_account_id=None,
+                default_cofins_payable_account_name=None,
+                default_cofins_deductible_account_id=None,
+                default_cofins_deductible_account_name=None,
+                default_ipi_payable_account_id=None,
+                default_ipi_payable_account_name=None,
+                default_ipi_deductible_account_id=None,
+                default_ipi_deductible_account_name=None,
+                default_iss_payable_account_id=None,
+                default_iss_payable_account_name=None,
+                default_csll_payable_account_id=None,
+                default_csll_payable_account_name=None,
+                default_irpj_payable_account_id=None,
+                default_irpj_payable_account_name=None,
+                is_configured=False
+            )
+        
+        # Check if at least one tax account is configured
+        is_configured = any([
+            settings.default_sales_tax_payable_account_id,
+            settings.default_purchase_tax_deductible_account_id,
+            settings.default_tax_account_id,
+            settings.default_icms_payable_account_id,
+            settings.default_icms_deductible_account_id,
+            settings.default_pis_payable_account_id,
+            settings.default_pis_deductible_account_id,
+            settings.default_cofins_payable_account_id,
+            settings.default_cofins_deductible_account_id,
+            settings.default_ipi_payable_account_id,
+            settings.default_ipi_deductible_account_id,
+            settings.default_iss_payable_account_id,
+            settings.default_csll_payable_account_id,
+            settings.default_irpj_payable_account_id
+        ])
+        
+        return TaxAccountsResponse(
+            default_sales_tax_payable_account_id=settings.default_sales_tax_payable_account_id,
+            default_sales_tax_payable_account_name=settings.default_sales_tax_payable_account.name if settings.default_sales_tax_payable_account else None,
+            default_purchase_tax_deductible_account_id=settings.default_purchase_tax_deductible_account_id,
+            default_purchase_tax_deductible_account_name=settings.default_purchase_tax_deductible_account.name if settings.default_purchase_tax_deductible_account else None,
+            default_tax_account_id=settings.default_tax_account_id,
+            default_tax_account_name=settings.default_tax_account.name if settings.default_tax_account else None,
+            # Brazilian tax accounts
+            default_icms_payable_account_id=settings.default_icms_payable_account_id,
+            default_icms_payable_account_name=settings.default_icms_payable_account.name if settings.default_icms_payable_account else None,
+            default_icms_deductible_account_id=settings.default_icms_deductible_account_id,
+            default_icms_deductible_account_name=settings.default_icms_deductible_account.name if settings.default_icms_deductible_account else None,
+            default_pis_payable_account_id=settings.default_pis_payable_account_id,
+            default_pis_payable_account_name=settings.default_pis_payable_account.name if settings.default_pis_payable_account else None,
+            default_pis_deductible_account_id=settings.default_pis_deductible_account_id,
+            default_pis_deductible_account_name=settings.default_pis_deductible_account.name if settings.default_pis_deductible_account else None,
+            default_cofins_payable_account_id=settings.default_cofins_payable_account_id,
+            default_cofins_payable_account_name=settings.default_cofins_payable_account.name if settings.default_cofins_payable_account else None,
+            default_cofins_deductible_account_id=settings.default_cofins_deductible_account_id,
+            default_cofins_deductible_account_name=settings.default_cofins_deductible_account.name if settings.default_cofins_deductible_account else None,
+            default_ipi_payable_account_id=settings.default_ipi_payable_account_id,
+            default_ipi_payable_account_name=settings.default_ipi_payable_account.name if settings.default_ipi_payable_account else None,
+            default_ipi_deductible_account_id=settings.default_ipi_deductible_account_id,
+            default_ipi_deductible_account_name=settings.default_ipi_deductible_account.name if settings.default_ipi_deductible_account else None,
+            default_iss_payable_account_id=settings.default_iss_payable_account_id,
+            default_iss_payable_account_name=settings.default_iss_payable_account.name if settings.default_iss_payable_account else None,
+            default_csll_payable_account_id=settings.default_csll_payable_account_id,
+            default_csll_payable_account_name=settings.default_csll_payable_account.name if settings.default_csll_payable_account else None,
+            default_irpj_payable_account_id=settings.default_irpj_payable_account_id,
+            default_irpj_payable_account_name=settings.default_irpj_payable_account.name if settings.default_irpj_payable_account else None,
+            is_configured=is_configured
+        )
+
+    async def update_tax_accounts_configuration(self, tax_data):
+        """Actualiza la configuración específica de las cuentas de impuestos"""
+        # Import here to avoid circular import
+        from app.api.v1.company_settings import TaxAccountsResponse
+        
+        # Get active settings
+        settings_result = await self.db.execute(
+            select(CompanySettings).where(CompanySettings.is_active == True)
+        )
+        settings = settings_result.scalar_one_or_none()
+        
+        if not settings:
+            raise NotFoundError("No se encontró configuración de empresa")
+        
+        # Update only the provided fields
+        update_data = tax_data.model_dump(exclude_unset=True)
+        
+        for field, value in update_data.items():
+            if hasattr(settings, field):
+                setattr(settings, field, value)
+        
+        try:
+            await self.db.commit()
+            
+            # Reload the settings to get the updated configuration
+            return await self.get_tax_accounts_configuration()
+            
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"Error updating tax accounts configuration: {e}")
+            raise BusinessRuleError(f"Error updating tax accounts configuration: {str(e)}")
+
     # ========================
     # MÉTODOS PRIVADOS
     # ========================
     
     def _build_settings_response(self, settings: CompanySettings) -> CompanySettingsResponse:
         """Construye la respuesta con información de las cuentas"""
-        return CompanySettingsResponse(
-            id=settings.id,
-            company_name=settings.company_name,
-            tax_id=getattr(settings, 'tax_id', ''),
-            currency_code=getattr(settings, 'currency_code', 'COP'),
+        try:
+            logger.info("SERVICE: Iniciando construcción de respuesta de configuración")
             
-            # IDs de cuentas
-            default_customer_receivable_account_id=settings.default_customer_receivable_account_id,
-            default_supplier_payable_account_id=settings.default_supplier_payable_account_id,
-            default_sales_income_account_id=getattr(settings, 'default_sales_income_account_id', None),
-            default_purchase_expense_account_id=getattr(settings, 'default_purchase_expense_account_id', None),
-            default_cash_account_id=settings.default_cash_account_id,
-            default_bank_account_id=settings.default_bank_account_id,
-            bank_suspense_account_id=settings.bank_suspense_account_id,
-            internal_transfer_account_id=settings.internal_transfer_account_id,
-            deferred_expense_account_id=settings.deferred_expense_account_id,
-            deferred_expense_journal_id=getattr(settings, 'deferred_expense_journal_id', None),
-            deferred_expense_months=getattr(settings, 'deferred_expense_months', 12),
-            deferred_revenue_account_id=settings.deferred_revenue_account_id,
-            deferred_revenue_journal_id=getattr(settings, 'deferred_revenue_journal_id', None),
-            deferred_revenue_months=getattr(settings, 'deferred_revenue_months', 12),
-            invoice_line_discount_same_account=getattr(settings, 'invoice_line_discount_same_account', True),
-            early_payment_discount_gain_account_id=settings.early_payment_discount_gain_account_id,
-            early_payment_discount_loss_account_id=settings.early_payment_discount_loss_account_id,
-            validate_invoice_on_posting=getattr(settings, 'validate_invoice_on_posting', True),
-            deferred_generation_method=getattr(settings, 'deferred_generation_method', 'on_invoice_validation'),
-            is_active=settings.is_active,
-            notes=getattr(settings, 'notes', ''),
+            # Build response with safe attribute access
+            response = CompanySettingsResponse(
+                id=settings.id,
+                company_name=settings.company_name,
+                tax_id=getattr(settings, 'tax_id', ''),
+                currency_code=getattr(settings, 'currency_code', 'COP'),
+                
+                # IDs de cuentas
+                default_customer_receivable_account_id=settings.default_customer_receivable_account_id,
+                default_supplier_payable_account_id=settings.default_supplier_payable_account_id,
+                default_sales_income_account_id=getattr(settings, 'default_sales_income_account_id', None),
+                default_purchase_expense_account_id=getattr(settings, 'default_purchase_expense_account_id', None),
+                default_sales_tax_payable_account_id=getattr(settings, 'default_sales_tax_payable_account_id', None),
+                default_purchase_tax_deductible_account_id=getattr(settings, 'default_purchase_tax_deductible_account_id', None),
+                default_tax_account_id=getattr(settings, 'default_tax_account_id', None),
+                
+                # Brazilian tax accounts IDs
+                default_icms_payable_account_id=getattr(settings, 'default_icms_payable_account_id', None),
+                default_icms_deductible_account_id=getattr(settings, 'default_icms_deductible_account_id', None),
+                default_pis_payable_account_id=getattr(settings, 'default_pis_payable_account_id', None),
+                default_pis_deductible_account_id=getattr(settings, 'default_pis_deductible_account_id', None),
+                default_cofins_payable_account_id=getattr(settings, 'default_cofins_payable_account_id', None),
+                default_cofins_deductible_account_id=getattr(settings, 'default_cofins_deductible_account_id', None),
+                default_ipi_payable_account_id=getattr(settings, 'default_ipi_payable_account_id', None),
+                default_ipi_deductible_account_id=getattr(settings, 'default_ipi_deductible_account_id', None),
+                default_iss_payable_account_id=getattr(settings, 'default_iss_payable_account_id', None),
+                default_csll_payable_account_id=getattr(settings, 'default_csll_payable_account_id', None),
+                default_irpj_payable_account_id=getattr(settings, 'default_irpj_payable_account_id', None),
+                
+                # Other accounts IDs
+                default_cash_account_id=settings.default_cash_account_id,
+                default_bank_account_id=settings.default_bank_account_id,
+                bank_suspense_account_id=settings.bank_suspense_account_id,
+                internal_transfer_account_id=settings.internal_transfer_account_id,
+                deferred_expense_account_id=settings.deferred_expense_account_id,
+                deferred_expense_journal_id=getattr(settings, 'deferred_expense_journal_id', None),
+                deferred_expense_months=getattr(settings, 'deferred_expense_months', 12),
+                deferred_revenue_account_id=settings.deferred_revenue_account_id,
+                deferred_revenue_journal_id=getattr(settings, 'deferred_revenue_journal_id', None),
+                deferred_revenue_months=getattr(settings, 'deferred_revenue_months', 12),
+                invoice_line_discount_same_account=getattr(settings, 'invoice_line_discount_same_account', True),
+                early_payment_discount_gain_account_id=settings.early_payment_discount_gain_account_id,
+                early_payment_discount_loss_account_id=settings.early_payment_discount_loss_account_id,
+                validate_invoice_on_posting=getattr(settings, 'validate_invoice_on_posting', True),
+                deferred_generation_method=getattr(settings, 'deferred_generation_method', 'on_invoice_validation'),
+                is_active=settings.is_active,
+                notes=getattr(settings, 'notes', ''),
+                
+                # Nombres de cuentas
+                default_customer_receivable_account_name=settings.default_customer_receivable_account.name if settings.default_customer_receivable_account else None,
+                default_supplier_payable_account_name=settings.default_supplier_payable_account.name if settings.default_supplier_payable_account else None,
+                default_sales_income_account_name=getattr(settings.default_sales_income_account, 'name', None) if getattr(settings, 'default_sales_income_account', None) else None,
+                default_purchase_expense_account_name=getattr(settings.default_purchase_expense_account, 'name', None) if getattr(settings, 'default_purchase_expense_account', None) else None,
+                default_sales_tax_payable_account_name=getattr(settings.default_sales_tax_payable_account, 'name', None) if getattr(settings, 'default_sales_tax_payable_account', None) else None,
+                default_purchase_tax_deductible_account_name=getattr(settings.default_purchase_tax_deductible_account, 'name', None) if getattr(settings, 'default_purchase_tax_deductible_account', None) else None,
+                default_tax_account_name=getattr(settings.default_tax_account, 'name', None) if getattr(settings, 'default_tax_account', None) else None,
+                
+                # Brazilian tax accounts names
+                default_icms_payable_account_name=getattr(settings.default_icms_payable_account, 'name', None) if getattr(settings, 'default_icms_payable_account', None) else None,
+                default_icms_deductible_account_name=getattr(settings.default_icms_deductible_account, 'name', None) if getattr(settings, 'default_icms_deductible_account', None) else None,
+                default_pis_payable_account_name=getattr(settings.default_pis_payable_account, 'name', None) if getattr(settings, 'default_pis_payable_account', None) else None,
+                default_pis_deductible_account_name=getattr(settings.default_pis_deductible_account, 'name', None) if getattr(settings, 'default_pis_deductible_account', None) else None,
+                default_cofins_payable_account_name=getattr(settings.default_cofins_payable_account, 'name', None) if getattr(settings, 'default_cofins_payable_account', None) else None,
+                default_cofins_deductible_account_name=getattr(settings.default_cofins_deductible_account, 'name', None) if getattr(settings, 'default_cofins_deductible_account', None) else None,
+                default_ipi_payable_account_name=getattr(settings.default_ipi_payable_account, 'name', None) if getattr(settings, 'default_ipi_payable_account', None) else None,
+                default_ipi_deductible_account_name=getattr(settings.default_ipi_deductible_account, 'name', None) if getattr(settings, 'default_ipi_deductible_account', None) else None,
+                default_iss_payable_account_name=getattr(settings.default_iss_payable_account, 'name', None) if getattr(settings, 'default_iss_payable_account', None) else None,
+                default_csll_payable_account_name=getattr(settings.default_csll_payable_account, 'name', None) if getattr(settings, 'default_csll_payable_account', None) else None,
+                default_irpj_payable_account_name=getattr(settings.default_irpj_payable_account, 'name', None) if getattr(settings, 'default_irpj_payable_account', None) else None,
+                
+                # Other account names
+                default_cash_account_name=settings.default_cash_account.name if settings.default_cash_account else None,
+                default_bank_account_name=settings.default_bank_account.name if settings.default_bank_account else None,
+                bank_suspense_account_name=settings.bank_suspense_account.name if settings.bank_suspense_account else None,
+                internal_transfer_account_name=settings.internal_transfer_account.name if settings.internal_transfer_account else None,
+                deferred_expense_account_name=settings.deferred_expense_account.name if settings.deferred_expense_account else None,
+                deferred_revenue_account_name=settings.deferred_revenue_account.name if settings.deferred_revenue_account else None,
+                early_payment_discount_gain_account_name=settings.early_payment_discount_gain_account.name if settings.early_payment_discount_gain_account else None,
+                early_payment_discount_loss_account_name=settings.early_payment_discount_loss_account.name if settings.early_payment_discount_loss_account else None,
+                
+                # Flags de configuración
+                has_customer_receivable_configured=bool(settings.default_customer_receivable_account_id),
+                has_supplier_payable_configured=bool(settings.default_supplier_payable_account_id),
+                has_sales_income_configured=bool(getattr(settings, 'default_sales_income_account_id', None)),
+                has_purchase_expense_configured=bool(getattr(settings, 'default_purchase_expense_account_id', None)),
+                has_deferred_accounts_configured=bool(settings.deferred_expense_account_id or settings.deferred_revenue_account_id),
+                has_tax_accounts_configured=bool(getattr(settings, 'default_sales_tax_payable_account_id', None) or getattr(settings, 'default_purchase_tax_deductible_account_id', None) or getattr(settings, 'default_tax_account_id', None)),
+                has_brazilian_tax_accounts_configured=bool(
+                    getattr(settings, 'default_icms_payable_account_id', None) or
+                    getattr(settings, 'default_icms_deductible_account_id', None) or
+                    getattr(settings, 'default_pis_payable_account_id', None) or
+                    getattr(settings, 'default_pis_deductible_account_id', None) or
+                    getattr(settings, 'default_cofins_payable_account_id', None) or
+                    getattr(settings, 'default_cofins_deductible_account_id', None) or
+                    getattr(settings, 'default_ipi_payable_account_id', None) or
+                    getattr(settings, 'default_ipi_deductible_account_id', None) or
+                    getattr(settings, 'default_iss_payable_account_id', None) or
+                    getattr(settings, 'default_csll_payable_account_id', None) or
+                    getattr(settings, 'default_irpj_payable_account_id', None)
+                )
+            )
             
-            # Nombres de cuentas
-            default_customer_receivable_account_name=settings.default_customer_receivable_account.name if settings.default_customer_receivable_account else None,
-            default_supplier_payable_account_name=settings.default_supplier_payable_account.name if settings.default_supplier_payable_account else None,
-            default_sales_income_account_name=getattr(settings.default_sales_income_account, 'name', None) if getattr(settings, 'default_sales_income_account', None) else None,
-            default_purchase_expense_account_name=getattr(settings.default_purchase_expense_account, 'name', None) if getattr(settings, 'default_purchase_expense_account', None) else None,
-            default_cash_account_name=settings.default_cash_account.name if settings.default_cash_account else None,
-            default_bank_account_name=settings.default_bank_account.name if settings.default_bank_account else None,
-            bank_suspense_account_name=settings.bank_suspense_account.name if settings.bank_suspense_account else None,
-            internal_transfer_account_name=settings.internal_transfer_account.name if settings.internal_transfer_account else None,
-            deferred_expense_account_name=settings.deferred_expense_account.name if settings.deferred_expense_account else None,
-            deferred_revenue_account_name=settings.deferred_revenue_account.name if settings.deferred_revenue_account else None,
-            early_payment_discount_gain_account_name=settings.early_payment_discount_gain_account.name if settings.early_payment_discount_gain_account else None,
-            early_payment_discount_loss_account_name=settings.early_payment_discount_loss_account.name if settings.early_payment_discount_loss_account else None,
+            logger.info("SERVICE: Respuesta construida exitosamente")
+            return response
             
-            # Flags de configuración
-            has_customer_receivable_configured=bool(settings.default_customer_receivable_account_id),
-            has_supplier_payable_configured=bool(settings.default_supplier_payable_account_id),
-            has_sales_income_configured=bool(getattr(settings, 'default_sales_income_account_id', None)),
-            has_purchase_expense_configured=bool(getattr(settings, 'default_purchase_expense_account_id', None)),
-            has_deferred_accounts_configured=bool(settings.deferred_expense_account_id or settings.deferred_revenue_account_id)
-        )
-    
+        except Exception as e:
+            logger.error(f"SERVICE: Error en _build_settings_response: {e}")
+            logger.exception("SERVICE: Traceback completo:")
+            raise
+
     async def _validate_account_references(self, settings_data) -> None:
-        """Valida que las cuentas referenciadas existan y sean activas"""
         account_fields = [
-            'default_customer_receivable_account_id',
-            'default_supplier_payable_account_id',
-            'default_sales_income_account_id',
-            'default_purchase_expense_account_id',
+            'default_sales_tax_payable_account_id',
+            'default_purchase_tax_deductible_account_id',
+            'default_tax_account_id',
+            # Brazilian tax accounts
+            'default_icms_payable_account_id',
+            'default_icms_deductible_account_id',
+            'default_pis_payable_account_id',
+            'default_pis_deductible_account_id',
+            'default_cofins_payable_account_id',
+            'default_cofins_deductible_account_id',
+            'default_ipi_payable_account_id',
+            'default_ipi_deductible_account_id',
+            'default_iss_payable_account_id',
+            'default_csll_payable_account_id',
+            'default_irpj_payable_account_id',
+            # Other accounts
             'default_cash_account_id',
             'default_bank_account_id',
             'bank_suspense_account_id',

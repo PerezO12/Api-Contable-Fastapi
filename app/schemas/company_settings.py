@@ -20,6 +20,24 @@ class CompanySettingsBase(BaseModel):
     default_sales_income_account_id: Optional[UUID] = Field(None, description="Cuenta de ingresos por ventas por defecto")
     default_purchase_expense_account_id: Optional[UUID] = Field(None, description="Cuenta de gastos por compras por defecto")
     
+    # Cuentas de impuestos
+    default_sales_tax_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para impuestos por pagar sobre ventas")
+    default_purchase_tax_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para impuestos deducibles sobre compras")
+    default_tax_account_id: Optional[UUID] = Field(None, description="Cuenta genérica para impuestos (fallback)")
+    
+    # Impuestos brasileños específicos
+    default_icms_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para ICMS por pagar")
+    default_icms_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para ICMS deducible")
+    default_pis_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para PIS por pagar")
+    default_pis_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para PIS deducible")
+    default_cofins_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para COFINS por pagar")
+    default_cofins_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para COFINS deducible")
+    default_ipi_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para IPI por pagar")
+    default_ipi_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para IPI deducible")
+    default_iss_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para ISS por pagar")
+    default_csll_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para CSLL por pagar")
+    default_irpj_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para IRPJ por pagar")
+    
     # Cuentas básicas de tesorería
     default_cash_account_id: Optional[UUID] = Field(None, description="Cuenta de efectivo por defecto")
     default_bank_account_id: Optional[UUID] = Field(None, description="Cuenta bancaria por defecto")
@@ -67,6 +85,24 @@ class CompanySettingsUpdate(BaseModel):
     # Cuentas por defecto para ingresos y gastos
     default_sales_income_account_id: Optional[UUID] = Field(None, description="Cuenta de ingresos por ventas por defecto")
     default_purchase_expense_account_id: Optional[UUID] = Field(None, description="Cuenta de gastos por compras por defecto")
+    
+    # Cuentas de impuestos
+    default_sales_tax_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para impuestos por pagar sobre ventas")
+    default_purchase_tax_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para impuestos deducibles sobre compras")
+    default_tax_account_id: Optional[UUID] = Field(None, description="Cuenta genérica para impuestos (fallback)")
+    
+    # Impuestos brasileños específicos
+    default_icms_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para ICMS por pagar")
+    default_icms_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para ICMS deducible")
+    default_pis_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para PIS por pagar")
+    default_pis_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para PIS deducible")
+    default_cofins_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para COFINS por pagar")
+    default_cofins_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para COFINS deducible")
+    default_ipi_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para IPI por pagar")
+    default_ipi_deductible_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para IPI deducible")
+    default_iss_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para ISS por pagar")
+    default_csll_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para CSLL por pagar")
+    default_irpj_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por defecto para IRPJ por pagar")
     
     # Cuentas básicas de tesorería
     default_cash_account_id: Optional[UUID] = Field(None, description="Cuenta de efectivo por defecto")
@@ -125,12 +161,32 @@ class CompanySettingsResponse(CompanySettingsBase):
     early_payment_discount_gain_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de ganancia por descuento")
     early_payment_discount_loss_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de pérdida por descuento")
     
+    # Nombres de cuentas de impuestos
+    default_sales_tax_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de impuestos por pagar sobre ventas")
+    default_purchase_tax_deductible_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de impuestos deducibles sobre compras")
+    default_tax_account_name: Optional[str] = Field(None, description="Nombre de la cuenta genérica de impuestos")
+    
+    # Nombres de cuentas de impuestos brasileños específicos
+    default_icms_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de ICMS por pagar")
+    default_icms_deductible_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de ICMS deducible")
+    default_pis_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de PIS por pagar")
+    default_pis_deductible_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de PIS deducible")
+    default_cofins_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de COFINS por pagar")
+    default_cofins_deductible_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de COFINS deducible")
+    default_ipi_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de IPI por pagar")
+    default_ipi_deductible_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de IPI deducible")
+    default_iss_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de ISS por pagar")
+    default_csll_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de CSLL por pagar")
+    default_irpj_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de IRPJ por pagar")
+    
     # Flags de configuración
     has_customer_receivable_configured: bool = Field(..., description="Tiene cuenta por cobrar configurada")
     has_supplier_payable_configured: bool = Field(..., description="Tiene cuenta por pagar configurada")
     has_sales_income_configured: bool = Field(..., description="Tiene cuenta de ingresos por ventas configurada")
     has_purchase_expense_configured: bool = Field(..., description="Tiene cuenta de gastos por compras configurada")
     has_deferred_accounts_configured: bool = Field(..., description="Tiene cuentas diferidas configuradas")
+    has_tax_accounts_configured: bool = Field(..., description="Tiene cuentas de impuestos configuradas")
+    has_brazilian_tax_accounts_configured: bool = Field(..., description="Tiene cuentas de impuestos brasileños configuradas")
     
     class Config:
         from_attributes = True
