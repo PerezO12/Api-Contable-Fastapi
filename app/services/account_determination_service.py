@@ -13,17 +13,27 @@ from app.models.third_party import ThirdParty
 from app.models.product import Product
 from app.models.account import Account, AccountType
 from app.models.tax import Tax, TaxType
+from app.models.company_settings import CompanySettings
 from app.utils.exceptions import BusinessRuleError, NotFoundError
 
 
 class AccountDeterminationService:
     """
     Servicio para determinación automática de cuentas contables en facturas
-    Sigue el patrón de Odoo para resolver cuentas según jerarquía
+    Utiliza las configuraciones de empresa por defecto del sistema
     """
     
     def __init__(self, db: Session):
         self.db = db
+        self._company_settings = None
+    
+    def get_company_settings(self) -> Optional[CompanySettings]:
+        """Obtiene la configuración activa de la empresa (cache)"""
+        if self._company_settings is None:
+            self._company_settings = self.db.query(CompanySettings).filter(
+                CompanySettings.is_active == True
+            ).first()
+        return self._company_settings
     
     def determine_accounts_for_invoice(self, invoice: Invoice) -> Dict[str, Dict]:
         """
@@ -154,14 +164,14 @@ class AccountDeterminationService:
                         }
         
         # 3. Cuenta de categoría del producto (TODO: implementar si es necesario)
-          # 4. Cuenta por defecto del tipo
+          # 4. Cuenta por defecto del tipo - usar configuraciones del sistema
         if invoice_type in [InvoiceType.CUSTOMER_INVOICE, InvoiceType.CREDIT_NOTE, InvoiceType.DEBIT_NOTE]:
-            # Buscar cuenta de ingresos (4135 - Ventas)
-            account = self._get_default_account_by_pattern(['4135', '4100'], AccountType.INCOME)
+            # Buscar cuenta de ingresos por defecto configurada en el sistema
+            account = self._get_default_sales_income_account()
             account_description = "ingresos por ventas"
         else:  # SUPPLIER_INVOICE
-            # Buscar cuenta de gastos (5135 - Compras)
-            account = self._get_default_account_by_pattern(['5135', '5100'], AccountType.EXPENSE)
+            # Buscar cuenta de gastos por defecto configurada en el sistema
+            account = self._get_default_purchase_expense_account()
             account_description = "gastos por compras"
         
         if not account:
@@ -180,48 +190,50 @@ class AccountDeterminationService:
     def _get_tax_accounts(self, invoice: Invoice) -> List[Dict[str, Union[str, uuid.UUID, Decimal]]]:
         """
         Obtener cuentas de impuestos
-        Para facturas de venta: usar cuentas de ingresos (4.x.x.xx)
-        Para facturas de compra: usar cuentas de pasivo (2.1.x.xx)
+        Para facturas de venta: usar cuentas de pasivo (impuestos por pagar)
+        Para facturas de compra: usar cuentas de activo (impuestos por cobrar) o pasivo (impuestos por pagar)
         """
         tax_accounts = []
         
         if invoice.tax_amount and invoice.tax_amount > 0:
             # Determinar patrón de cuenta según tipo de factura
             if invoice.invoice_type in [InvoiceType.CUSTOMER_INVOICE, InvoiceType.CREDIT_NOTE, InvoiceType.DEBIT_NOTE]:
-                # Impuestos sobre ventas: cuentas de ingresos
-                account_patterns = {
-                    'ICMS': ['4.1.1.01'],  # ICMS sobre Vendas
-                    'PIS': ['4.1.1.03'],   # PIS sobre Vendas
-                    'COFINS': ['4.1.1.04'] # COFINS sobre Vendas
-                }
-                account_type = AccountType.INCOME
-            else:  # SUPPLIER_INVOICE
-                # Impuestos por pagar: cuentas de pasivo
-                account_patterns = {
-                    'ICMS': ['2.1.4.01'],  # ICMS por Pagar
-                    'PIS': ['2.1.4.03'],   # PIS por Pagar
-                    'COFINS': ['2.1.4.04'] # COFINS por Pagar
-                }
+                # Impuestos sobre ventas: cuentas de pasivo (impuestos por pagar)
+                # Patrones más generales para impuestos por pagar
+                patterns = ['2408', '2405', '2400', '24', '2105', '2100', '21']
                 account_type = AccountType.LIABILITY
+                description = "impuestos por pagar"
+            else:  # SUPPLIER_INVOICE
+                # Impuestos sobre compras: cuentas de activo (impuestos por cobrar/deducibles)
+                # Patrones para impuestos deducibles
+                patterns = ['1365', '1360', '1300', '13', '2408', '2405', '2400', '24']
+                account_type = None  # Permitir cualquier tipo
+                description = "impuestos deducibles"
             
-            # Buscar cuenta para cada tipo de impuesto
-            for tax_name, patterns in account_patterns.items():
-                account = None
-                for pattern in patterns:
+            # Buscar cuenta usando patrones generales
+            account = self._get_default_account_by_pattern(patterns, account_type)
+            
+            if not account:
+                # Si no encuentra cuenta específica, usar cuenta de IVA general
+                iva_patterns = ['IVA', 'IVA_POR_PAGAR', 'IVA_DEDUCIBLE', 'IMPUESTO']
+                for pattern in iva_patterns:
                     account = self.db.query(Account).filter(
-                        Account.code.like(f"{pattern}%"),
+                        Account.name.ilike(f"%{pattern}%"),
                         Account.is_active == True,
-                        Account.account_type == account_type
+                        Account.allows_movements == True
                     ).first()
                     if account:
                         break
-                
-                if not account:
-                    raise BusinessRuleError(
-                        f"No se encontró cuenta contable para {tax_name}. "
-                        f"Configure una cuenta de tipo {account_type.value} con código que comience con {patterns[0]}"
-                    )
-                
+            
+            if not account:
+                # Como último recurso, usar una cuenta de pasivo genérica
+                account = self.db.query(Account).filter(
+                    Account.account_type == AccountType.LIABILITY,
+                    Account.is_active == True,
+                    Account.allows_movements == True
+                ).order_by(Account.code).first()
+            
+            if account:
                 tax_accounts.append({
                     'account_id': account.id,
                     'account_code': account.code,
@@ -229,6 +241,11 @@ class AccountDeterminationService:
                     'tax_amount': invoice.tax_amount,
                     'source': 'default_tax_account'
                 })
+            else:
+                raise BusinessRuleError(
+                    f"No se encontró cuenta contable para {description}. "
+                    f"Configure una cuenta apropiada en el plan contable."
+                )
         
         return tax_accounts
     
@@ -287,16 +304,31 @@ class AccountDeterminationService:
     
     def _get_default_account_by_pattern(self, code_patterns: List[str], account_type: Optional[AccountType]) -> Optional[Account]:
         """
-        Busca una cuenta por patrones de código y tipo
+        Busca una cuenta por patrones de código y tipo con lógica mejorada
         """
-        query = self.db.query(Account).filter(Account.is_active == True, Account.allows_movements == True)
+        query = self.db.query(Account).filter(
+            Account.is_active == True, 
+            Account.allows_movements == True
+        )
         
         if account_type:
             query = query.filter(Account.account_type == account_type)
         
         # Buscar por patrones de código en orden de prioridad
         for pattern in code_patterns:
+            # Primero buscar coincidencia exacta
+            account = query.filter(Account.code == pattern).first()
+            if account:
+                return account
+            
+            # Luego buscar que comience con el patrón
             account = query.filter(Account.code.like(f"{pattern}%")).first()
+            if account:
+                return account
+        
+        # Si no encuentra nada con patrones específicos, buscar la primera cuenta del tipo
+        if account_type:
+            account = query.filter(Account.account_type == account_type).order_by(Account.code).first()
             if account:
                 return account
         
@@ -441,3 +473,105 @@ class AccountDeterminationService:
                 })
         
         return lines
+    
+    def _get_default_sales_income_account(self) -> Optional[Account]:
+        """Obtiene la cuenta por defecto para ingresos por ventas del sistema"""
+        # 1. Primero intentar obtener de la configuración de empresa
+        settings = self.get_company_settings()
+        if settings and settings.default_sales_income_account_id:
+            account = self.db.query(Account).filter(
+                Account.id == settings.default_sales_income_account_id,
+                Account.is_active == True,
+                Account.allows_movements == True
+            ).first()
+            
+            if account:
+                return account
+        
+        # 2. Si no está configurado, buscar usando patrones comunes
+        # Patrones típicos para ingresos por ventas en diferentes países
+        patterns = ['411', '4100', '4110', '4111', '4135', '41100', '41110']
+        
+        account = self._get_default_account_by_pattern(patterns, AccountType.INCOME)
+        if account:
+            return account
+        
+        # 3. Como último recurso, buscar la primera cuenta de ingresos activa
+        account = self.db.query(Account).filter(
+            Account.account_type == AccountType.INCOME,
+            Account.is_active == True,
+            Account.allows_movements == True
+        ).order_by(Account.code).first()
+        
+        return account
+    
+    def _get_default_purchase_expense_account(self) -> Optional[Account]:
+        """Obtiene la cuenta por defecto para gastos por compras del sistema"""
+        # 1. Primero intentar obtener de la configuración de empresa
+        settings = self.get_company_settings()
+        if settings and settings.default_purchase_expense_account_id:
+            account = self.db.query(Account).filter(
+                Account.id == settings.default_purchase_expense_account_id,
+                Account.is_active == True,
+                Account.allows_movements == True
+            ).first()
+            
+            if account:
+                return account
+        
+        # 2. Si no está configurado, buscar usando patrones comunes
+        # Patrones típicos para gastos por compras en diferentes países
+        patterns = ['511', '5100', '5110', '5111', '51100', '51110']
+        
+        account = self._get_default_account_by_pattern(patterns, AccountType.EXPENSE)
+        if account:
+            return account
+        
+        # 3. Como último recurso, buscar la primera cuenta de gastos activa
+        account = self.db.query(Account).filter(
+            Account.account_type == AccountType.EXPENSE,
+            Account.is_active == True,
+            Account.allows_movements == True
+        ).order_by(Account.code).first()
+        
+        return account
+    
+    def _get_default_customer_receivable_account(self) -> Optional[Account]:
+        """Obtiene la cuenta por defecto para clientes por cobrar"""
+        settings = self.get_company_settings()
+        if settings and settings.default_customer_receivable_account_id:
+            account = self.db.query(Account).filter(
+                Account.id == settings.default_customer_receivable_account_id,
+                Account.is_active == True
+            ).first()
+            if account:
+                return account
+        
+        # Fallback: buscar primera cuenta de activo corriente para clientes
+        account = self.db.query(Account).filter(
+            Account.account_type == AccountType.ASSET,
+            Account.is_active == True,
+            Account.allows_movements == True
+        ).order_by(Account.code).first()
+        
+        return account
+    
+    def _get_default_supplier_payable_account(self) -> Optional[Account]:
+        """Obtiene la cuenta por defecto para proveedores por pagar"""
+        settings = self.get_company_settings()
+        if settings and settings.default_supplier_payable_account_id:
+            account = self.db.query(Account).filter(
+                Account.id == settings.default_supplier_payable_account_id,
+                Account.is_active == True
+            ).first()
+            if account:
+                return account
+        
+        # Fallback: buscar primera cuenta de pasivo corriente para proveedores
+        account = self.db.query(Account).filter(
+            Account.account_type == AccountType.LIABILITY,
+            Account.is_active == True,
+            Account.allows_movements == True
+        ).order_by(Account.code).first()
+        
+        return account

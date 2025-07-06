@@ -275,13 +275,109 @@ class InvoiceService:
     def cancel_invoice(self, invoice_id: uuid.UUID, cancelled_by_id: uuid.UUID, reason: Optional[str] = None) -> InvoiceResponse:
         """
         Cancelar factura: POSTED → CANCELLED
-        Flujo similar a Odoo:
-        1. Marca el journal entry original como CANCELLED (sin eliminarlo)
-        2. Deshace conciliaciones si las hay
-        3. Marca la factura como CANCELLED
-        4. NO crea asientos de reversión adicionales
+        Nuevo flujo con asientos de reversión explícitos para mejor auditoría:
+        1. Valida que la factura puede ser cancelada
+        2. Crea asiento de reversión explícito con líneas invertidas
+        3. Mantiene el asiento original para auditoría 
+        4. Marca la factura como CANCELLED
+        5. Actualiza saldos de cuentas automáticamente
+        
+        Args:
+            invoice_id: ID de la factura a cancelar
+            cancelled_by_id: ID del usuario que realiza la cancelación
+            reason: Razón de la cancelación (opcional)
+            
+        Returns:
+            InvoiceResponse: Factura cancelada
+            
+        Raises:
+            NotFoundError: Si la factura no existe
+            BusinessRuleError: Si la factura no puede ser cancelada
         """
         try:
+            logger.info(f"🚫 [CANCEL] Starting cancellation process for invoice {invoice_id}")
+            
+            # 1. Obtener y validar la factura
+            invoice = self.db.query(Invoice).options(
+                joinedload(Invoice.third_party),
+                joinedload(Invoice.journal_entry)
+            ).filter(Invoice.id == invoice_id).first()
+            
+            if not invoice:
+                raise NotFoundError(f"Invoice with id {invoice_id} not found")
+            
+            logger.info(f"🧾 [CANCEL] Processing invoice {invoice.number} (status: {invoice.status})")
+            
+            # Validar que se puede cancelar
+            if invoice.status != InvoiceStatus.POSTED:
+                raise BusinessRuleError(f"Invoice cannot be cancelled in current status: {invoice.status}. Only POSTED invoices can be cancelled")
+            
+            # Validar que no hay pagos aplicados (implementar cuando exista el módulo de pagos)
+            if hasattr(invoice, 'paid_amount') and invoice.paid_amount > 0:
+                raise BusinessRuleError(f"Cannot cancel invoice {invoice.number} with payments applied. Paid amount: {invoice.paid_amount}")
+            
+            # 2. Crear asiento de reversión explícito
+            reversal_entry = None
+            if invoice.journal_entry_id:
+                logger.info(f"📝 [CANCEL] Creating reversal journal entry for invoice {invoice.number}")
+                reversal_entry = self._create_reversal_journal_entry(invoice, cancelled_by_id, reason)
+                logger.info(f"✅ [CANCEL] Reversal journal entry {reversal_entry.number} created successfully")
+            else:
+                logger.warning(f"⚠️ [CANCEL] Invoice {invoice.number} has no journal entry to reverse")
+            
+            # 3. Actualizar estado de la factura
+            invoice.status = InvoiceStatus.CANCELLED
+            invoice.cancelled_by_id = cancelled_by_id
+            invoice.cancelled_at = datetime.utcnow()
+            invoice.updated_at = datetime.utcnow()
+            
+            # Agregar nota sobre la cancelación con referencia al asiento de reversión
+            cancellation_note = f"[CANCELLED] {reason or 'No reason provided'}"
+            if reversal_entry:
+                cancellation_note += f" - Reversal entry: {reversal_entry.number}"
+            
+            if invoice.notes:
+                invoice.notes += f"\n{cancellation_note}"
+            else:
+                invoice.notes = cancellation_note
+            
+            self.db.commit()
+            
+            logger.info(f"🎉 [CANCEL] Invoice {invoice.number} cancelled successfully with reversal entry audit trail")
+            return InvoiceResponse.from_orm(invoice)
+            
+        except Exception as e:
+            logger.error(f"💥 [CANCEL] Error cancelling invoice {invoice_id}: {str(e)}")
+            self.db.rollback()
+            raise
+
+    def cancel_invoice_legacy(self, invoice_id: uuid.UUID, cancelled_by_id: uuid.UUID, reason: Optional[str] = None) -> InvoiceResponse:
+        """
+        Cancelar factura usando el método legacy (Odoo-style)
+        POSTED → CANCELLED sin asientos de reversión explícitos
+        
+        Este método:
+        1. Marca el journal entry original como CANCELLED
+        2. Actualiza saldos directamente
+        3. NO crea asientos de reversión
+        4. Menos rastro de auditoría pero más simple
+        
+        Use este método cuando:
+        - Quiera seguir el patrón exacto de Odoo
+        - Prefiera menos registros en la base de datos
+        - La auditoría detallada no sea crítica
+        
+        Args:
+            invoice_id: ID de la factura a cancelar
+            cancelled_by_id: ID del usuario que cancela
+            reason: Razón de la cancelación
+            
+        Returns:
+            InvoiceResponse: Factura cancelada
+        """
+        try:
+            logger.info(f"🚫 [CANCEL_LEGACY] Starting legacy cancellation for invoice {invoice_id}")
+            
             # 1. Obtener y validar la factura
             invoice = self.db.query(Invoice).filter(Invoice.id == invoice_id).first()
             if not invoice:
@@ -320,14 +416,13 @@ class InvoiceService:
                     for line in journal_lines:
                         if line.account:
                             # Revertir saldos usando los mismos montos pero con signo contrario
-                            # Si antes era débito ahora es crédito y viceversa
                             line.account.balance -= (line.debit_amount or 0) - (line.credit_amount or 0)
                             line.account.debit_balance -= (line.debit_amount or 0)
                             line.account.credit_balance -= (line.credit_amount or 0)
                             line.account.updated_at = datetime.utcnow()
                             self.db.add(line.account)
                     
-                    logger.info(f"Journal entry {original_entry.number} marked as cancelled for invoice {invoice.number}")
+                    logger.info(f"📝 [CANCEL_LEGACY] Journal entry {original_entry.number} marked as cancelled")
             
             # 3. Actualizar estado de la factura
             invoice.status = InvoiceStatus.CANCELLED
@@ -337,16 +432,55 @@ class InvoiceService:
             
             # Agregar nota sobre la cancelación
             if reason:
-                invoice.notes = (invoice.notes or "") + f"\n[CANCELLED] {reason}"
+                invoice.notes = (invoice.notes or "") + f"\n[CANCELLED - LEGACY] {reason}"
             
             self.db.commit()
             
-            logger.info(f"Invoice {invoice.number} cancelled following Odoo pattern")
-            return InvoiceResponse.from_orm(invoice)            
+            logger.info(f"✅ [CANCEL_LEGACY] Invoice {invoice.number} cancelled using legacy method")
+            return InvoiceResponse.from_orm(invoice)
+            
         except Exception as e:
-            logger.error(f"Error cancelling invoice {invoice_id}: {str(e)}")
+            logger.error(f"💥 [CANCEL_LEGACY] Error in legacy cancellation: {str(e)}")
             self.db.rollback()
             raise
+
+    # =================================================================
+    # DOCUMENTACIÓN: COMPARACIÓN DE MÉTODOS DE CANCELACIÓN
+    # =================================================================
+    """
+    MÉTODO MODERNO (cancel_invoice) vs MÉTODO LEGACY (cancel_invoice_legacy)
+    
+    🆕 MÉTODO MODERNO (Recomendado):
+    ✅ Ventajas:
+    - Rastro de auditoría completo con asientos de reversión explícitos
+    - Cada movimiento contable queda registrado individualmente
+    - Facilita reconciliaciones y análisis históricos
+    - Cumple con estándares de auditoría más estrictos
+    - Permite análisis de patrones de cancelación
+    - Mejor para reportes financieros detallados
+    
+    ⚠️ Desventajas:
+    - Genera más registros en la base de datos
+    - Ligeramente más complejo de implementar
+    - Requiere más espacio de almacenamiento
+    
+    📜 MÉTODO LEGACY (Odoo-style):
+    ✅ Ventajas:
+    - Más simple y directo
+    - Menos registros en base de datos
+    - Compatibilidad con sistemas existentes
+    - Procesamiento más rápido
+    
+    ⚠️ Desventajas:
+    - Menos rastro de auditoría detallado
+    - Más difícil rastrear el historial de cambios
+    - Puede no cumplir con algunos estándares de auditoría
+    - Análisis histórico más limitado
+    
+    💡 RECOMENDACIÓN:
+    - Use el método MODERNO para entornos que requieren auditoría estricta
+    - Use el método LEGACY para sistemas simples o compatibilidad con Odoo
+    """
 
     def reset_to_draft(self, invoice_id: uuid.UUID, reset_by_id: uuid.UUID, reason: Optional[str] = None) -> InvoiceResponse:
         """
@@ -973,78 +1107,131 @@ class InvoiceService:
 
     def _create_reversal_journal_entry(self, invoice: Invoice, created_by_id: uuid.UUID, reason: Optional[str] = None) -> JournalEntry:
         """
-        Crear asiento de reversión para cancelación de factura
+        Crear asiento de reversión explícito para cancelación de factura
         
-        DEPRECATED: Este método ya no se usa en el flujo principal de cancelación de facturas.
-        El nuevo flujo sigue el patrón de Odoo: marca el journal entry original como CANCELLED
-        en lugar de crear asientos de reversión.
+        Este método implementa un enfoque de auditoría mejorado:
+        1. Mantiene el asiento original intacto para auditoría
+        2. Crea un nuevo asiento de reversión con líneas invertidas
+        3. Actualiza automáticamente los saldos de las cuentas
+        4. Proporciona rastro de auditoría completo
         
-        Se mantiene por compatibilidad pero puede ser removido en futuras versiones.
+        Args:
+            invoice: Factura a cancelar
+            created_by_id: ID del usuario que crea la reversión
+            reason: Razón de la cancelación
+            
+        Returns:
+            JournalEntry: Asiento de reversión creado
+            
+        Raises:
+            ValidationError: Si no se encuentra el asiento original
+            BusinessRuleError: Si hay errores en la creación
         """
-        original_entry = self.db.query(JournalEntry).filter(
-            JournalEntry.id == invoice.journal_entry_id
-        ).first()
+        try:
+            logger.info(f"📝 [REVERSAL] Creating reversal journal entry for invoice {invoice.number}")
+            
+            # 1. Validar y obtener el asiento original
+            original_entry = self.db.query(JournalEntry).options(
+                joinedload(JournalEntry.lines)
+            ).filter(JournalEntry.id == invoice.journal_entry_id).first()
+            
+            if not original_entry:
+                raise ValidationError(f"Original journal entry not found for invoice {invoice.number}")
+            
+            if original_entry.status != JournalEntryStatus.POSTED:
+                raise BusinessRuleError(f"Cannot reverse journal entry {original_entry.number} with status {original_entry.status}")
+            
+            logger.info(f"📋 [REVERSAL] Original entry {original_entry.number} found with {len(original_entry.lines)} lines")
+            
+            # 2. Generar número para el asiento de reversión
+            reversal_number = self._generate_reversal_entry_number(original_entry.number)
+            logger.info(f"🆔 [REVERSAL] Generated reversal number: {reversal_number}")
+            
+            # 3. Crear asiento de reversión
+            reversal_entry = JournalEntry(
+                number=reversal_number,
+                entry_type=JournalEntryType.REVERSAL,
+                status=JournalEntryStatus.POSTED,
+                entry_date=datetime.now(timezone.utc),
+                description=f"Reversal of {original_entry.number} - {reason or 'Invoice cancellation'}",
+                reference=f"REV-{invoice.number}",
+                transaction_origin=TransactionOrigin.ADJUSTMENT,
+                journal_id=invoice.journal_id,
+                created_by_id=created_by_id,
+                notes=f"Automatic reversal due to invoice cancellation. Original entry: {original_entry.number}"
+            )
+            
+            self.db.add(reversal_entry)
+            self.db.flush()
+            
+            logger.info(f"✅ [REVERSAL] Reversal entry {reversal_number} created successfully")
+            
+            # 4. Crear líneas de reversión (invertir débitos y créditos)
+            reversal_lines = []
+            for line_num, orig_line in enumerate(original_entry.lines, 1):
+                reversal_line = JournalEntryLine(
+                    journal_entry_id=reversal_entry.id,
+                    account_id=orig_line.account_id,
+                    description=f"Reversal: {orig_line.description[:200] if orig_line.description else 'No description'}",  # Limitar longitud
+                    debit_amount=orig_line.credit_amount or Decimal('0'),   # Invertir
+                    credit_amount=orig_line.debit_amount or Decimal('0'),   # Invertir
+                    third_party_id=orig_line.third_party_id,
+                    cost_center_id=orig_line.cost_center_id,
+                    line_number=line_num
+                )
+                self.db.add(reversal_line)
+                reversal_lines.append(reversal_line)
+                
+                logger.debug(f"📝 [REVERSAL] Line {line_num}: Account {orig_line.account_id} - "
+                           f"Original D:{orig_line.debit_amount}/C:{orig_line.credit_amount} → "
+                           f"Reversal D:{reversal_line.debit_amount}/C:{reversal_line.credit_amount}")
+            
+            self.db.flush()
+            
+            # 5. Calcular totales del asiento de reversión
+            reversal_entry.calculate_totals()
+            logger.info(f"📊 [REVERSAL] Totals calculated - Debit: {reversal_entry.total_debit}, Credit: {reversal_entry.total_credit}")
+            
+            # 6. Actualizar saldos de las cuentas
+            updated_accounts = set()
+            for line in reversal_lines:
+                if line.account_id not in updated_accounts:
+                    account = self.db.query(Account).filter(Account.id == line.account_id).first()
+                    if account:
+                        # Actualizar saldos usando los montos de la reversión
+                        account.balance += (line.debit_amount or Decimal('0')) - (line.credit_amount or Decimal('0'))
+                        account.debit_balance += (line.debit_amount or Decimal('0'))
+                        account.credit_balance += (line.credit_amount or Decimal('0'))
+                        account.updated_at = datetime.utcnow()
+                        
+                        updated_accounts.add(line.account_id)
+                        logger.debug(f"💰 [REVERSAL] Updated account {account.code} balance: {account.balance}")
+            
+            # 7. Marcar el asiento original como revertido (para referencia)
+            original_entry.notes = (original_entry.notes or "") + f"\n[REVERSED] by {reversal_number} on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            logger.info(f"🎉 [REVERSAL] Reversal process completed successfully for invoice {invoice.number}")
+            logger.info(f"📈 [REVERSAL] Updated {len(updated_accounts)} account balances")
+            
+            return reversal_entry
+            
+        except Exception as e:
+            logger.error(f"💥 [REVERSAL] Error creating reversal entry for invoice {invoice.number}: {str(e)}")
+            raise BusinessRuleError(f"Failed to create reversal journal entry: {str(e)}")
+    
+    def _generate_reversal_entry_number(self, original_number: str) -> str:
+        """
+        Generar número único para asiento de reversión
         
-        if not original_entry:
-            raise ValidationError("Original journal entry not found")        # Generar número para el asiento de reversión usando el mismo diario
-        if invoice.journal_id:
-            journal = self.db.query(Journal).filter(Journal.id == invoice.journal_id).first()
-            if journal:
-                entry_number = self._generate_journal_entry_number_with_journal(journal)
-            else:
-                entry_number = self._generate_journal_entry_number()
-        else:
-            entry_number = self._generate_journal_entry_number()
-        
-        # Crear asiento de reversión
-        reversal_entry = JournalEntry(
-            number=entry_number,
-            entry_type=JournalEntryType.REVERSAL,
-            status=JournalEntryStatus.POSTED,
-            entry_date=datetime.now(timezone.utc),
-            description=f"Reversal of {original_entry.number} - {reason or 'Invoice cancellation'}",
-            reference=f"REV-{original_entry.number}",
-            transaction_origin=TransactionOrigin.ADJUSTMENT,
-            journal_id=invoice.journal_id,  # Usar el mismo diario
-            created_by_id=created_by_id
-        )
-        
-        self.db.add(reversal_entry)
-        self.db.flush()
-          # Crear líneas de reversión (invertir débitos y créditos)
-        original_lines = self.db.query(JournalEntryLine).filter(
-            JournalEntryLine.journal_entry_id == original_entry.id
-        ).all()
-        
-        line_counter = 1
-        for orig_line in original_lines:
-            reversal_line = JournalEntryLine(
-                journal_entry_id=reversal_entry.id,
-                account_id=orig_line.account_id,
-                description=f"Reversal: {orig_line.description}",
-                debit_amount=orig_line.credit_amount,  # Invertir
-                credit_amount=orig_line.debit_amount,  # Invertir
-                third_party_id=orig_line.third_party_id,
-                cost_center_id=orig_line.cost_center_id,
-                line_number=line_counter            )
-            self.db.add(reversal_line)
-            line_counter += 1
-          # CRÍTICO: Actualizar saldos de las cuentas ya que se creó con status POSTED
-        self.db.flush()  # Asegurar que las líneas estén persistidas
-        
-        # CRÍTICO: Calcular totales del journal entry de reversión
-        reversal_entry.calculate_totals()
-        
-        # Cargar las líneas con sus cuentas para actualizar saldos
-        reversal_lines = self.db.query(JournalEntryLine).filter(
-            JournalEntryLine.journal_entry_id == reversal_entry.id
-        ).all()
-        
-        for line in reversal_lines:
-            if line.account:
-                line.account.update_balance(line.debit_amount, line.credit_amount)
-        
-        return reversal_entry
+        Args:
+            original_number: Número del asiento original
+            
+        Returns:
+            str: Número único para la reversión
+        """
+        # Usar prefijo REV con timestamp para asegurar unicidad
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        return f"REV-{original_number}-{timestamp}"
     
     def _generate_journal_entry_number(self) -> str:
         """
@@ -1732,3 +1919,66 @@ class InvoiceService:
             "not_found_ids": [str(id) for id in not_found_ids],
             "can_proceed": len(valid_invoices) > 0
         }
+    
+    def get_cancellation_options(self, invoice_id: uuid.UUID) -> Dict[str, Any]:
+        """
+        Proporciona información sobre las opciones de cancelación disponibles
+        
+        Args:
+            invoice_id: ID de la factura
+            
+        Returns:
+            Dict con información sobre métodos de cancelación disponibles
+        """
+        try:
+            invoice = self.db.query(Invoice).filter(Invoice.id == invoice_id).first()
+            if not invoice:
+                raise NotFoundError(f"Invoice with id {invoice_id} not found")
+            
+            can_cancel = invoice.status == InvoiceStatus.POSTED
+            has_payments = hasattr(invoice, 'paid_amount') and invoice.paid_amount > 0
+            
+            return {
+                "invoice_id": str(invoice.id),
+                "invoice_number": invoice.number,
+                "current_status": invoice.status.value,
+                "can_cancel": can_cancel,
+                "has_payments": has_payments,
+                "cancellation_methods": {
+                    "modern": {
+                        "method_name": "cancel_invoice",
+                        "description": "Creates explicit reversal journal entries for full audit trail",
+                        "available": can_cancel and not has_payments,
+                        "recommended": True,
+                        "audit_level": "HIGH",
+                        "use_cases": [
+                            "Financial audits required",
+                            "Regulatory compliance",
+                            "Detailed reporting needs",
+                            "High-volume operations"
+                        ]
+                    },
+                    "legacy": {
+                        "method_name": "cancel_invoice_legacy",
+                        "description": "Odoo-style cancellation with direct balance updates",
+                        "available": can_cancel and not has_payments,
+                        "recommended": False,
+                        "audit_level": "MEDIUM",
+                        "use_cases": [
+                            "Odoo migration compatibility",
+                            "Simple systems",
+                            "Low storage requirements",
+                            "Quick processing needed"
+                        ]
+                    }
+                },
+                "blocking_conditions": [] if can_cancel and not has_payments else [
+                    f"Status must be POSTED (current: {invoice.status})" if not can_cancel else None,
+                    f"Invoice has payments applied: {invoice.paid_amount}" if has_payments else None
+                ],
+                "recommendation": "modern" if can_cancel and not has_payments else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting cancellation options for invoice {invoice_id}: {str(e)}")
+            raise

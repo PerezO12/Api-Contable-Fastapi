@@ -184,9 +184,21 @@ async def bulk_cancel_payments(
     Body format: {"payment_ids": ["uuid1", "uuid2", ...], "cancellation_reason": "reason"}
     """
     try:
+        logger.info(f"Bulk cancel request received from user {current_user.id}")
+        logger.info(f"Request payload: payment_ids count={len(request.payment_ids)}, reason='{request.cancellation_reason}'")
+        
         # Los UUIDs ya están validados por el esquema Pydantic
         payment_uuid_list = request.payment_ids
         cancellation_reason = request.cancellation_reason
+        
+        if not payment_uuid_list:
+            logger.warning("Empty payment_ids list received")
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Payment IDs list cannot be empty"
+            )
+        
+        logger.info(f"Processing bulk cancellation for {len(payment_uuid_list)} payments")
         
         service = PaymentFlowService(db)
         result = await service.bulk_cancel_payments(payment_uuid_list, current_user.id, cancellation_reason)
@@ -196,24 +208,65 @@ async def bulk_cancel_payments(
         successful = result.get("successful", 0)
         failed = result.get("failed", 0)
         
+        logger.info(f"Bulk cancellation results: {successful}/{total_payments} successful, {failed} failed")
+        
         # Si no se procesó ningún pago exitosamente, es un error crítico
         if total_payments > 0 and successful == 0:
             logger.warning(f"Bulk cancel operation failed completely: 0/{total_payments} payments cancelled")
+            
+            # Obtener detalles de los errores para proporcionar mejor información
+            error_details = []
+            user_validation_errors = 0
+            other_errors = 0
+            
+            for payment_id, result_data in result.get("results", {}).items():
+                if not result_data.get("success", False):
+                    error_msg = result_data.get('error', 'Unknown error')
+                    error_details.append(f"Payment {payment_id}: {error_msg}")
+                    
+                    # Detectar errores específicos para dar mejores mensajes
+                    if "User with ID" in error_msg and "not found" in error_msg:
+                        user_validation_errors += 1
+                    else:
+                        other_errors += 1
+            
+            # Mensaje específico según el tipo de error más común
+            if user_validation_errors > other_errors:
+                summary_msg = f"Authentication error: Invalid user session. Please log in again and try again."
+            else:
+                error_summary = "; ".join(error_details[:3])  # Mostrar solo los primeros 3 errores
+                if len(error_details) > 3:
+                    error_summary += f" (and {len(error_details) - 3} more errors)"
+                summary_msg = f"Unable to cancel payments. Errors: {error_summary}"
+            
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, 
-                detail=f"No se pudo cancelar ningún pago. {failed} pagos fallaron."
+                detail=summary_msg
             )
         
         # Si más del 50% de los pagos fallaron, loggear warning
         if total_payments > 0 and (failed / total_payments) > 0.5:
             logger.warning(f"Bulk cancel operation had significant failures: {successful}/{total_payments} payments cancelled")
         
+        logger.info(f"Bulk cancellation completed successfully")
         return result
         
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except ValidationError as e:
+        logger.error(f"Validation error in bulk cancel: {str(e)}")
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
     except BusinessRuleError as e:
+        logger.error(f"Business rule error in bulk cancel: {str(e)}")
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error in bulk cancel: {str(e)}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
+        )
 
 
 @router.post("/bulk/delete", response_model=dict)

@@ -492,31 +492,37 @@ class NFeValidationService:
         
         # Determinar padrão de contas baseado no tipo de NFe
         if nfe_type == "saida":
-            # NFe de saída (vendas): usar contas de receita
-            tax_account_codes = {
-                'icms_account_id': "4.1.1.01",  # ICMS sobre Vendas
-                'ipi_account_id': "4.1.1.02",   # IPI sobre Vendas
-                'pis_account_id': "4.1.1.03",   # PIS sobre Vendas
-                'cofins_account_id': "4.1.1.04" # COFINS sobre Vendas
+            # NFe de saída (vendas): usar contas de receita ou passivo de impostos
+            tax_account_patterns = {
+                'icms_account_id': ["240801", "2408", "24", "411003"],  # ICMS por Pagar ou sobre Vendas
+                'ipi_account_id': ["240802", "2408", "24", "411004"],   # IPI por Pagar ou sobre Vendas  
+                'pis_account_id': ["240803", "2408", "24", "411005"],   # PIS por Pagar ou sobre Vendas
+                'cofins_account_id': ["240804", "2408", "24", "411006"] # COFINS por Pagar ou sobre Vendas
             }
         else:
-            # NFe de entrada (compras): usar contas de passivo
-            tax_account_codes = {
-                'icms_account_id': "2.1.4.01",  # ICMS por Pagar
-                'ipi_account_id': "2.1.4.02",   # IPI por Pagar
-                'pis_account_id': "2.1.4.03",   # PIS por Pagar
-                'cofins_account_id': "2.1.4.04" # COFINS por Pagar
+            # NFe de entrada (compras): usar contas de passivo ou ativo
+            tax_account_patterns = {
+                'icms_account_id': ["240801", "136501", "1365", "2408"],  # ICMS por Pagar ou Deducible
+                'ipi_account_id': ["240802", "136502", "1365", "2408"],   # IPI por Pagar ou Deducible
+                'pis_account_id': ["240803", "136503", "1365", "2408"],   # PIS por Pagar ou Deducible
+                'cofins_account_id': ["240804", "136504", "1365", "2408"] # COFINS por Pagar ou Deducible
             }
         
-        # Buscar cada conta de imposto
-        for account_key, account_code in tax_account_codes.items():
-            if account_code:
+        # Buscar cada conta de imposto usando padrões
+        for account_key, patterns in tax_account_patterns.items():
+            account = None
+            # Tentar cada padrão até encontrar uma conta
+            for pattern in patterns:
                 account = self.db.query(Account).filter(
-                    Account.code == account_code,
-                    Account.is_active == True
+                    Account.code.like(f'{pattern}%'),
+                    Account.is_active == True,
+                    Account.allows_movements == True
                 ).first()
-                tax_accounts[account_key] = account.id if account else None
-            else:
-                tax_accounts[account_key] = None
+                if account:
+                    break
+            
+            tax_accounts[account_key] = account.id if account else None
+        
+        return tax_accounts
         
         return tax_accounts

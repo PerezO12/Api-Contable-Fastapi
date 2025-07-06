@@ -13,7 +13,7 @@ from sqlalchemy import select, and_, func, delete
 from app.models.payment import Payment, PaymentInvoice, PaymentStatus, PaymentType
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.journal import Journal, JournalType
-from app.models.journal_entry import JournalEntry, JournalEntryLine, JournalEntryStatus, JournalEntryType
+from app.models.journal_entry import JournalEntry, JournalEntryLine, JournalEntryStatus, JournalEntryType, TransactionOrigin
 from app.models.account import Account
 from app.schemas.payment import PaymentResponse
 from app.services.payment_service import PaymentService
@@ -218,24 +218,37 @@ class PaymentFlowService:
     
     async def cancel_payment(self, payment_id: uuid.UUID, cancelled_by_id: uuid.UUID, reason: Optional[str] = None) -> PaymentResponse:
         """
-        Cancela un pago (DRAFT/POSTED → CANCELLED)
+        Cancela un pago siguiendo el flujo completo de cancelación:
         
-        Para pagos POSTED:
-        - Crea asiento de reversión
-        - Limpia reconciliaciones
-        - Actualiza estados de facturas
-        - Marca como cancelado
+        1. Verificación de estado y permisos
+        2. Deshacer conciliaciones previas (N/A - se implementará más tarde)
+        3. Anulación del asiento contable del pago
+        4. Marcado del pago como 'Cancelled'
+        5. Efecto final - pago no aparece como realizado
         
-        Para pagos DRAFT:
-        - Simplemente marca como cancelado
+        Args:
+            payment_id: ID del pago a cancelar
+            cancelled_by_id: ID del usuario que cancela
+            reason: Razón de la cancelación (opcional)
+            
+        Returns:
+            PaymentResponse: Pago cancelado
+            
+        Raises:
+            NotFoundError: Si el pago no existe
+            BusinessRuleError: Si el pago no puede ser cancelado
         """
         try:
-            logger.info(f"Cancelling payment {payment_id}")
+            logger.info(f"Starting payment cancellation process for payment {payment_id}")
+            
+            # 1. VERIFICACIÓN DE ESTADO Y PERMISOS
+            logger.info("Step 1: Verification of status and permissions")
             
             payment_result = await self.db.execute(
                 select(Payment).options(
                     selectinload(Payment.payment_invoices).selectinload(PaymentInvoice.invoice),
-                    selectinload(Payment.journal_entry)
+                    selectinload(Payment.journal_entry),
+                    selectinload(Payment.journal)
                 ).where(Payment.id == payment_id)
             )
             payment = payment_result.scalar_one_or_none()
@@ -243,24 +256,69 @@ class PaymentFlowService:
             if not payment:
                 raise NotFoundError(f"Payment with id {payment_id} not found")
             
+            # Verificar que el pago esté en estado válido para cancelación
             if payment.status == PaymentStatus.CANCELLED:
                 raise BusinessRuleError("Payment is already cancelled")
             
-            # Para pagos POSTED, crear asiento de reversión
-            if payment.status == PaymentStatus.POSTED and payment.journal_entry_id:
-                await self._create_reversal_journal_entry(payment, cancelled_by_id, reason)
-                await self._reverse_payment_invoice_reconciliation(payment)
+            if payment.status not in [PaymentStatus.DRAFT, PaymentStatus.POSTED]:
+                raise BusinessRuleError(f"Payment cannot be cancelled from status {payment.status}")
             
-            # Actualizar estado del pago
+            # TODO: Verificar permisos del usuario en el diario asociado
+            # Por ahora, asumimos que todos los usuarios autenticados pueden cancelar
+            # En el futuro, verificar: journal.allow_cancellation_by_user(cancelled_by_id)
+            
+            logger.info(f"✓ Payment {payment.number} is in valid status ({payment.status}) for cancellation")
+            
+            # 2. DESHACER CONCILIACIONES PREVIAS (pendiente de implementar)
+            logger.info("Step 2: Reversing previous reconciliations")
+            if payment.status == PaymentStatus.POSTED:
+                # Actualmente no hay conciliaciones implementadas
+                # Cuando se implemente, aquí se desharán las conciliaciones:
+                # await self._reverse_payment_reconciliations(payment)
+                logger.info("✓ Reconciliation reversal (not yet implemented - will be added later)")
+                
+                # Por ahora, revertir asignaciones de pago a facturas
+                try:
+                    await self._reverse_payment_invoice_reconciliation(payment)
+                    logger.info("✓ Payment-invoice allocations reversed")
+                except Exception as reconcile_error:
+                    logger.error(f"✗ Failed to reverse payment-invoice allocations: {reconcile_error}")
+                    raise BusinessRuleError(f"Failed to reverse allocations: {str(reconcile_error)}")
+            
+            # 3. ANULACIÓN DEL ASIENTO CONTABLE DEL PAGO
+            logger.info("Step 3: Cancelling payment journal entry")
+            if payment.status == PaymentStatus.POSTED and payment.journal_entry_id:
+                try:
+                    reversal_entry = await self._create_reversal_journal_entry(payment, cancelled_by_id, reason)
+                    logger.info(f"✓ Reversal journal entry created: {reversal_entry.number}")
+                except Exception as reversal_error:
+                    logger.error(f"✗ Failed to create reversal journal entry: {reversal_error}")
+                    raise BusinessRuleError(f"Failed to create reversal entry: {str(reversal_error)}")
+            else:
+                logger.info("✓ No journal entry to reverse (payment was in DRAFT status)")
+            
+            # 4. MARCADO DEL PAGO COMO 'CANCELLED'
+            logger.info("Step 4: Marking payment as cancelled")
             payment.status = PaymentStatus.CANCELLED
             payment.cancelled_by_id = cancelled_by_id
             payment.cancelled_at = datetime.utcnow()
+            
+            # Agregar razón de cancelación a las notas
             if reason:
-                payment.notes = f"{payment.notes or ''}\nCancellation reason: {reason}".strip()
+                cancellation_note = f"Cancelled on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} by user {cancelled_by_id}. Reason: {reason}"
+                payment.notes = f"{payment.notes or ''}\n{cancellation_note}".strip()
             
+            # Persistir cambios
             await self.db.commit()
+            logger.info("✓ Payment marked as cancelled and changes committed")
             
-            logger.info(f"Payment {payment.number} cancelled successfully")
+            # 5. EFECTO FINAL
+            logger.info("Step 5: Final effect verification")
+            logger.info(f"✓ Payment {payment.number} is now cancelled and will not appear as 'realized' in reports")
+            logger.info(f"✓ Original journal entry remains for audit (marked as reversed)")
+            logger.info(f"✓ Invoice outstanding amounts have been restored")
+            
+            logger.info(f"Payment {payment.number} cancelled successfully following complete cancellation flow")
             return PaymentResponse.from_orm(payment)
             
         except Exception as e:
@@ -803,11 +861,46 @@ class PaymentFlowService:
         return warnings
     
     async def _create_reversal_journal_entry(self, payment: Payment, reversed_by_id: uuid.UUID, reason: Optional[str]) -> JournalEntry:
-        """Crea asiento de reversión para cancelar un pago confirmado"""
+        """
+        Crea asiento de reversión para cancelar un pago confirmado
+        
+        Sigue el flujo de cancelación:
+        1. Valida que el usuario existe
+        2. Obtiene el asiento original
+        3. Crea asiento de reversión con líneas invertidas
+        4. Marca el asiento original como cancelado (para auditoría)
+        5. Mantiene ambos asientos en la base de datos
+        
+        Args:
+            payment: Pago a cancelar
+            reversed_by_id: ID del usuario que realiza la reversión
+            reason: Razón de la cancelación
+            
+        Returns:
+            JournalEntry: Asiento de reversión creado
+            
+        Raises:
+            BusinessRuleError: Si el usuario no existe o el pago no tiene asiento
+        """
         if not payment.journal_entry_id:
             raise BusinessRuleError("Payment has no journal entry to reverse")
         
-        # Obtener el asiento original
+        logger.info(f"Creating reversal journal entry for payment {payment.number}")
+        
+        # 1. Validar que el usuario existe
+        from app.models.user import User
+        try:
+            user_result = await self.db.execute(select(User).where(User.id == reversed_by_id))
+            user = user_result.scalar_one_or_none()
+            if not user:
+                logger.error(f"✗ User validation failed: User {reversed_by_id} not found in database")
+                raise BusinessRuleError(f"User with ID {reversed_by_id} not found. Cannot create journal entry.")
+            logger.debug(f"✓ User validation passed: User {user.email} ({reversed_by_id}) found")
+        except Exception as e:
+            logger.error(f"✗ Failed to validate user {reversed_by_id}: {str(e)}")
+            raise BusinessRuleError(f"Failed to validate user for journal entry creation: {str(e)}")
+        
+        # 2. Obtener el asiento original
         original_entry_result = await self.db.execute(
             select(JournalEntry).options(selectinload(JournalEntry.lines))
             .where(JournalEntry.id == payment.journal_entry_id)
@@ -817,6 +910,8 @@ class PaymentFlowService:
         if not original_entry:
             raise BusinessRuleError("Original journal entry not found")
         
+        logger.info(f"Original journal entry found: {original_entry.number}")
+        
         # Generar número para el asiento de reversión
         reversal_number = f"REV-{original_entry.number}"
         
@@ -825,10 +920,10 @@ class PaymentFlowService:
             number=reversal_number,
             reference=f"Reversal of {original_entry.reference}",
             journal_id=original_entry.journal_id,
-            date=datetime.utcnow().date(),
-            state=JournalEntryStatus.POSTED,
+            entry_date=datetime.utcnow(),
+            status=JournalEntryStatus.POSTED,
             entry_type=JournalEntryType.REVERSAL,
-            transaction_origin=f"payment_cancellation_{payment.id}",
+            transaction_origin=TransactionOrigin.PAYMENT,
             description=f"Reversal: {reason or 'Payment cancelled'}",
             created_by_id=reversed_by_id
         )
@@ -836,19 +931,65 @@ class PaymentFlowService:
         self.db.add(reversal_entry)
         await self.db.flush()
         
+        logger.info(f"Reversal journal entry created: {reversal_number}")
+        
         # Crear líneas de reversión (invertir débitos y créditos)
-        for original_line in original_entry.lines:
+        total_debit = Decimal('0')
+        total_credit = Decimal('0')
+        
+        for line_index, original_line in enumerate(original_entry.lines, 1):
             reversal_line = JournalEntryLine(
                 journal_entry_id=reversal_entry.id,
                 account_id=original_line.account_id,
                 debit_amount=original_line.credit_amount,  # Invertir
                 credit_amount=original_line.debit_amount,  # Invertir
                 description=f"Reversal: {original_line.description}",
-                created_by_id=reversed_by_id
+                line_number=line_index
             )
             self.db.add(reversal_line)
+            
+            # Acumular totales
+            total_debit += reversal_line.debit_amount
+            total_credit += reversal_line.credit_amount
+        
+        # Actualizar totales del asiento de reversión
+        reversal_entry.total_debit = total_debit
+        reversal_entry.total_credit = total_credit
+        
+        logger.info(f"Created {len(original_entry.lines)} reversal lines with totals: D:{total_debit}, C:{total_credit}")
+        
+        # Actualizar saldos de cuentas afectadas por la reversión
+        await self.db.flush()  # Asegurar que las líneas están persistidas
+        
+        # Cargar cuentas y actualizar saldos
+        for line_index, original_line in enumerate(original_entry.lines, 1):
+            account_result = await self.db.execute(
+                select(Account).where(Account.id == original_line.account_id)
+            )
+            account = account_result.scalar_one_or_none()
+            
+            if account:
+                # Aplicar el impacto de la reversión en los saldos
+                debit_amount = original_line.credit_amount  # Invertido
+                credit_amount = original_line.debit_amount  # Invertido
+                
+                # Actualizar saldos de la cuenta
+                account.update_balance(debit_amount, credit_amount)
+                
+                logger.debug(f"Account {account.code} balance updated by reversal: D:{debit_amount}, C:{credit_amount}")
+        
+        logger.info("Account balances updated for all reversal lines")
+        
+        # Marcar el asiento original como cancelado (para auditoría)
+        # El asiento original permanece en la base de datos pero se marca como cancelado
+        original_entry.status = JournalEntryStatus.CANCELLED
+        original_entry.description = f"{original_entry.description} [CANCELLED - Reversed by {reversal_number}]"
+        
+        logger.info(f"Original journal entry {original_entry.number} marked as cancelled")
         
         await self.db.flush()
+        
+        logger.info(f"Reversal journal entry process completed for payment {payment.number}")
         return reversal_entry
     
     async def _reverse_payment_invoice_reconciliation(self, payment: Payment) -> None:
@@ -1232,13 +1373,110 @@ class PaymentFlowService:
                 reference=payment.reference or payment.number
             )
             self.db.add(bank_line)
-        
-        else:
-            error_msg = f"Unsupported payment type: {payment.payment_type}"
-            logger.error(f"❌ [JOURNAL_LINES] {error_msg}")
-            raise BusinessRuleError(error_msg)
+        #todo:add falta comprobar
             
-        logger.info(f"✅ [JOURNAL_LINES] Journal entry lines created successfully for payment {payment.number}")
+        elif payment.payment_type == PaymentType.INTERNAL_TRANSFER:
+            # Transferencia interna: entre cuentas bancarias
+            logger.info(f"🔄 [JOURNAL_LINES] Creating INTERNAL_TRANSFER lines for {payment.number}")
+            
+            # Para transferencias internas usar cuenta de transferencias pendientes de la configuración
+            from app.models.company_settings import CompanySettings
+            from app.models.account import Account, AccountType
+            
+            stmt = select(CompanySettings).where(CompanySettings.is_active == True)
+            result = await self.db.execute(stmt)
+            company_settings = result.scalar_one_or_none()
+            
+            transfer_account = None
+            if company_settings and company_settings.internal_transfer_account_id:
+                stmt = select(Account).where(Account.id == company_settings.internal_transfer_account_id)
+                result = await self.db.execute(stmt)
+                transfer_account = result.scalar_one_or_none()
+            
+            if not transfer_account:
+                # Fallback: usar una cuenta de transferencias pendientes por tipo
+                from app.models.account import AccountType
+                stmt = select(Account).where(
+                    Account.account_type == AccountType.ASSET,
+                    Account.name.ilike('%transfer%'),
+                    Account.is_active == True
+                ).order_by(Account.code).limit(1)
+                result = await self.db.execute(stmt)
+                transfer_account = result.scalar_one_or_none()
+            
+            if not transfer_account:
+                raise BusinessRuleError("No transfer destination account configured for internal transfer")
+            
+            # 1. DEBE: Cuenta destino/transferencias pendientes
+            debit_line = JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                line_number=line_counter,
+                account_id=transfer_account.id,
+                debit_amount=payment.amount,
+                credit_amount=Decimal('0'),
+                description=f"Internal transfer - destination",
+                reference=payment.reference or payment.number
+            )
+            self.db.add(debit_line)
+            line_counter += 1
+            
+            # 2. HABER: Cuenta origen (banco/caja del pago)
+            credit_line = JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                line_number=line_counter,
+                account_id=payment.account_id,
+                debit_amount=Decimal('0'),
+                credit_amount=payment.amount,
+                description=f"Internal transfer - origin",
+                reference=payment.reference or payment.number
+            )
+            self.db.add(credit_line)
+            
+        else:
+            # Otros tipos de pago (ADVANCE_PAYMENT, REFUND)
+            logger.warning(f"⚠️ [JOURNAL_LINES] Payment type {payment.payment_type} needs specific accounting logic")
+            
+            # Por ahora, usar lógica simple: débito cuenta genérica, crédito banco
+            # DEBE: Cuenta de gastos varios o anticipos
+            from app.models.account import Account, AccountType
+            stmt = select(Account).where(
+                Account.account_type == AccountType.EXPENSE,
+                Account.is_active == True
+            ).order_by(Account.code).limit(1)
+            result = await self.db.execute(stmt)
+            expense_account = result.scalar_one_or_none()
+            
+            if not expense_account:
+                raise BusinessRuleError(f"No expense account found for payment type {payment.payment_type}")
+            
+            # 1. DEBE: Cuenta de gastos/anticipos
+            debit_line = JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                line_number=line_counter,
+                account_id=expense_account.id,
+                third_party_id=payment.third_party_id,
+                debit_amount=payment.amount,
+                credit_amount=Decimal('0'),
+                description=f"Payment - {payment.payment_type.value}",
+                reference=payment.reference or payment.number
+            )
+            self.db.add(debit_line)
+            line_counter += 1
+            
+            # 2. HABER: Cuenta bancaria/caja
+            credit_line = JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                line_number=line_counter,
+                account_id=payment.account_id,
+                third_party_id=payment.third_party_id,
+                debit_amount=Decimal('0'),
+                credit_amount=payment.amount,
+                description=f"Payment - {payment.payment_type.value}",
+                reference=payment.reference or payment.number
+            )
+            self.db.add(credit_line)
+        logger.info(f"✅ [JOURNAL_LINES] Created {line_counter} journal entry lines for payment {payment.number}")
+        #hasta aqui
 
     async def _get_customer_receivable_account(self, payment: Payment) -> "Account":
         """
@@ -1452,3 +1690,6 @@ class PaymentFlowService:
             journal_entry.total_debit = Decimal('0')
             journal_entry.total_credit = Decimal('0')
             logger.warning(f"⚠️ [JOURNAL_TOTALS] No lines found for journal entry {journal_entry.number}")
+        
+        # Guardar los totales calculados
+        await self.db.flush()

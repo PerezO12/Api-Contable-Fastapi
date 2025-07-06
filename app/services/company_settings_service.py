@@ -33,6 +33,8 @@ class CompanySettingsService:
             select(CompanySettings).options(
                 selectinload(CompanySettings.default_customer_receivable_account),
                 selectinload(CompanySettings.default_supplier_payable_account),
+                selectinload(CompanySettings.default_sales_income_account),
+                selectinload(CompanySettings.default_purchase_expense_account),
                 selectinload(CompanySettings.default_cash_account),
                 selectinload(CompanySettings.default_bank_account),
                 selectinload(CompanySettings.bank_suspense_account),
@@ -83,6 +85,8 @@ class CompanySettingsService:
         await self.db.refresh(settings, [
             'default_customer_receivable_account',
             'default_supplier_payable_account',
+            'default_sales_income_account',
+            'default_purchase_expense_account',
             'default_cash_account',
             'default_bank_account',
             'bank_suspense_account',
@@ -141,6 +145,8 @@ class CompanySettingsService:
         await self.db.refresh(settings, [
             'default_customer_receivable_account',
             'default_supplier_payable_account',
+            'default_sales_income_account',
+            'default_purchase_expense_account',
             'default_cash_account',
             'default_bank_account',
             'bank_suspense_account',
@@ -154,6 +160,8 @@ class CompanySettingsService:
         logger.info(f"Configuración después del refresh:")
         logger.info(f"  - default_customer_receivable_account_id: {settings.default_customer_receivable_account_id}")
         logger.info(f"  - default_supplier_payable_account_id: {settings.default_supplier_payable_account_id}")
+        logger.info(f"  - default_sales_income_account_id: {settings.default_sales_income_account_id}")
+        logger.info(f"  - default_purchase_expense_account_id: {settings.default_purchase_expense_account_id}")
         logger.info(f"  - bank_suspense_account_id: {settings.bank_suspense_account_id}")
         
         response = self._build_settings_response(settings)
@@ -255,6 +263,8 @@ class CompanySettingsService:
             # IDs de cuentas
             default_customer_receivable_account_id=settings.default_customer_receivable_account_id,
             default_supplier_payable_account_id=settings.default_supplier_payable_account_id,
+            default_sales_income_account_id=getattr(settings, 'default_sales_income_account_id', None),
+            default_purchase_expense_account_id=getattr(settings, 'default_purchase_expense_account_id', None),
             default_cash_account_id=settings.default_cash_account_id,
             default_bank_account_id=settings.default_bank_account_id,
             bank_suspense_account_id=settings.bank_suspense_account_id,
@@ -276,6 +286,8 @@ class CompanySettingsService:
             # Nombres de cuentas
             default_customer_receivable_account_name=settings.default_customer_receivable_account.name if settings.default_customer_receivable_account else None,
             default_supplier_payable_account_name=settings.default_supplier_payable_account.name if settings.default_supplier_payable_account else None,
+            default_sales_income_account_name=getattr(settings.default_sales_income_account, 'name', None) if getattr(settings, 'default_sales_income_account', None) else None,
+            default_purchase_expense_account_name=getattr(settings.default_purchase_expense_account, 'name', None) if getattr(settings, 'default_purchase_expense_account', None) else None,
             default_cash_account_name=settings.default_cash_account.name if settings.default_cash_account else None,
             default_bank_account_name=settings.default_bank_account.name if settings.default_bank_account else None,
             bank_suspense_account_name=settings.bank_suspense_account.name if settings.bank_suspense_account else None,
@@ -288,6 +300,8 @@ class CompanySettingsService:
             # Flags de configuración
             has_customer_receivable_configured=bool(settings.default_customer_receivable_account_id),
             has_supplier_payable_configured=bool(settings.default_supplier_payable_account_id),
+            has_sales_income_configured=bool(getattr(settings, 'default_sales_income_account_id', None)),
+            has_purchase_expense_configured=bool(getattr(settings, 'default_purchase_expense_account_id', None)),
             has_deferred_accounts_configured=bool(settings.deferred_expense_account_id or settings.deferred_revenue_account_id)
         )
     
@@ -296,6 +310,8 @@ class CompanySettingsService:
         account_fields = [
             'default_customer_receivable_account_id',
             'default_supplier_payable_account_id',
+            'default_sales_income_account_id',
+            'default_purchase_expense_account_id',
             'default_cash_account_id',
             'default_bank_account_id',
             'bank_suspense_account_id',

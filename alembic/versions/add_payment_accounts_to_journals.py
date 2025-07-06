@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'add_payment_accounts_to_journals'
-down_revision = None  # This should be set to the latest revision ID
+down_revision = 'a7a33b0d5323'  # This should be set to the latest revision ID
 branch_labels = None
 depends_on = None
 

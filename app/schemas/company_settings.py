@@ -16,6 +16,10 @@ class CompanySettingsBase(BaseModel):
     default_customer_receivable_account_id: Optional[UUID] = Field(None, description="Cuenta por cobrar por defecto para clientes")
     default_supplier_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por pagar por defecto para proveedores")
     
+    # Cuentas por defecto para ingresos y gastos
+    default_sales_income_account_id: Optional[UUID] = Field(None, description="Cuenta de ingresos por ventas por defecto")
+    default_purchase_expense_account_id: Optional[UUID] = Field(None, description="Cuenta de gastos por compras por defecto")
+    
     # Cuentas básicas de tesorería
     default_cash_account_id: Optional[UUID] = Field(None, description="Cuenta de efectivo por defecto")
     default_bank_account_id: Optional[UUID] = Field(None, description="Cuenta bancaria por defecto")
@@ -60,6 +64,10 @@ class CompanySettingsUpdate(BaseModel):
     default_customer_receivable_account_id: Optional[UUID] = Field(None, description="Cuenta por cobrar por defecto para clientes")
     default_supplier_payable_account_id: Optional[UUID] = Field(None, description="Cuenta por pagar por defecto para proveedores")
     
+    # Cuentas por defecto para ingresos y gastos
+    default_sales_income_account_id: Optional[UUID] = Field(None, description="Cuenta de ingresos por ventas por defecto")
+    default_purchase_expense_account_id: Optional[UUID] = Field(None, description="Cuenta de gastos por compras por defecto")
+    
     # Cuentas básicas de tesorería
     default_cash_account_id: Optional[UUID] = Field(None, description="Cuenta de efectivo por defecto")
     default_bank_account_id: Optional[UUID] = Field(None, description="Cuenta bancaria por defecto")
@@ -97,6 +105,10 @@ class CompanySettingsResponse(CompanySettingsBase):
     default_customer_receivable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta por cobrar por defecto")
     default_supplier_payable_account_name: Optional[str] = Field(None, description="Nombre de la cuenta por pagar por defecto")
     
+    # Nombres de cuentas de ingresos y gastos
+    default_sales_income_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de ingresos por ventas por defecto")
+    default_purchase_expense_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de gastos por compras por defecto")
+    
     # Nombres de cuentas de tesorería
     default_cash_account_name: Optional[str] = Field(None, description="Nombre de la cuenta de efectivo por defecto")
     default_bank_account_name: Optional[str] = Field(None, description="Nombre de la cuenta bancaria por defecto")
@@ -116,6 +128,8 @@ class CompanySettingsResponse(CompanySettingsBase):
     # Flags de configuración
     has_customer_receivable_configured: bool = Field(..., description="Tiene cuenta por cobrar configurada")
     has_supplier_payable_configured: bool = Field(..., description="Tiene cuenta por pagar configurada")
+    has_sales_income_configured: bool = Field(..., description="Tiene cuenta de ingresos por ventas configurada")
+    has_purchase_expense_configured: bool = Field(..., description="Tiene cuenta de gastos por compras configurada")
     has_deferred_accounts_configured: bool = Field(..., description="Tiene cuentas diferidas configuradas")
     
     class Config:
