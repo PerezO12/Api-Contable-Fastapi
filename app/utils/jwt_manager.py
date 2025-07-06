@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, Union
 
 from fastapi import HTTPException, status
-from app.config import settings
+from app.core.settings import settings
 
 
 class JWTManager:

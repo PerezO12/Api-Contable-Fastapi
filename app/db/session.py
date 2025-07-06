@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from typing import AsyncGenerator, Generator
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.models.base import Base
 
 # Sync engine for migrations and synchronous operations
@@ -12,7 +12,7 @@ engine = create_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
-    echo=settings.debug  # SQL logging when debug is enabled
+    echo=settings.DEBUG  # SQL logging when debug is enabled
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -22,7 +22,7 @@ async_engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
-    echo=settings.debug  # SQL logging when debug is enabled
+    echo=settings.DEBUG  # SQL logging when debug is enabled
 )
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,

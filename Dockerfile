@@ -21,6 +21,11 @@ COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 
+# Copiar archivos de configuración por ambiente
+COPY .env.production ./
+COPY .env.development ./
+COPY .env.testing ./
+
 # Variables de entorno por defecto
 ENV PYTHONPATH=/app
 ENV ENVIRONMENT=production
@@ -29,5 +34,9 @@ ENV DEBUG=false
 # Puerto de la aplicación
 EXPOSE 8000
 
+# Script de inicio que permite configuración dinámica
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 # Comando para iniciar la aplicación
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./docker-entrypoint.sh"]

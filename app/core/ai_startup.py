@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.services.translation import translation_service
-from app.services.hf_client import hf_client
+# from app.services.hf_client import hf_client  # Comentado temporalmente
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,8 @@ async def cleanup_ai_services():
     try:
         logger.info("🧹 Limpiando servicios de IA...")
         
-        # Cerrar cliente HTTP de Hugging Face
-        await hf_client.close()
+        # Cerrar cliente HTTP de Hugging Face (comentado temporalmente)
+        # await hf_client.close()
         
         logger.info("✅ Servicios de IA limpiados correctamente")
         

@@ -95,7 +95,7 @@ class AuthService:
     async def login_user(self, email: str, password: str) -> dict:
         """Autentica un usuario y retorna tokens JWT"""
         from app.utils.jwt_manager import create_token_pair
-        from app.core.config import settings
+        from app.core.settings import settings
         
         user = await self.authenticate_user(email, password)
         
@@ -118,14 +118,14 @@ class AuthService:
         return {
             "access_token": token_data["access_token"],
             "token_type": token_data["token_type"],
-            "expires_in": settings.access_token_expire_minutes * 60,
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             "refresh_token": token_data["refresh_token"]
         }
     
     async def refresh_access_token(self, refresh_token: str) -> dict:
         """Renueva un token de acceso usando un refresh token"""
         from app.utils.jwt_manager import jwt_manager, create_token_pair
-        from app.core.config import settings
+        from app.core.settings import settings
         
         # Verificar el refresh token
         payload = jwt_manager.verify_refresh_token(refresh_token)
@@ -148,7 +148,7 @@ class AuthService:
         return {
             "access_token": token_data["access_token"],
             "token_type": token_data["token_type"],
-            "expires_in": settings.access_token_expire_minutes * 60,
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             "refresh_token": token_data["refresh_token"]
         }
     
@@ -558,7 +558,7 @@ class AuthService:
         Crea el usuario administrador por defecto si no existe ningún admin
         Esta función se ejecuta durante el startup de la aplicación
         """
-        from app.config import settings
+        from app.core.settings import settings
         
         # Verificar si ya existe algún usuario administrador
         result = await self.db.execute(

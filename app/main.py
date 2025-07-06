@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from sqlalchemy import select, text
 
-from app.config import settings
+from app.core.settings import settings
 from app.api.v1 import api_router
 from app.database import create_async_db_and_tables, AsyncSessionLocal
 from app.services.auth_service import AuthService

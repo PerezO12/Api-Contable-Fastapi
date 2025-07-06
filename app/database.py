@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from typing import AsyncGenerator, Generator
 
-from app.config import settings
+from app.core.settings import settings
 from app.models.base import Base
 
 # Crear URL asíncrona para PostgreSQL

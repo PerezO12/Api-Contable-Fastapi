@@ -1,3 +1,21 @@
+# Archivos de configuración sensibles
+.env
+.env.local
+.env.*.local
+
+# Variables de entorno para desarrollo local (contiene secrets)
+.env.development.local
+.env.production.local
+.env.testing.local
+
+# Logs sensibles
+*.log
+logs/
+
+# Backup de configuración
+*.backup
+config.backup
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

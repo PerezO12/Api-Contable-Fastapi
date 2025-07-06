@@ -1,4 +1,4 @@
-# Docker Compose para desarrollo de la API Contable con IA
+# Docker Compose para desarrollo de la API Contable
 version: '3.8'
 
 services:
@@ -6,56 +6,58 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_DB: contable_db
-      POSTGRES_USER: contable_user
-      POSTGRES_PASSWORD: contable_password
+      POSTGRES_DB: accounting_system_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_dev_password
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U contable_user -d contable_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d accounting_system_dev"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # API Backend con servicios de IA
+  # API Backend
   api:
     build: .
     ports:
       - "8000:8000"
     environment:
+      # Configuración de ambiente
+      ENVIRONMENT: development
+      
       # Base de datos
-      SQLALCHEMY_DATABASE_URI: "postgresql+asyncpg://contable_user:contable_password@postgres:5432/contable_db"
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: accounting_system_dev
+      DB_USER: postgres
+      DB_PASSWORD: postgres_dev_password
       
-      # Configuración de la API
+      # JWT para desarrollo
+      SECRET_KEY: "desarrollo-secret-key-no-usar-en-produccion"
+      
+      # Configuración para desarrollo
       DEBUG: "true"
-      ENVIRONMENT: "development"
+      BACKEND_CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173","http://localhost:8080"]'
       
-      # Token de Hugging Face (reemplazar con token real)
-      HUGGINGFACE_API_TOKEN: "hf_exampletoken123"
+      # Migraciones automáticas en desarrollo
+      RUN_MIGRATIONS: "true"
+      CREATE_ADMIN: "true"
       
-      # Configuración de CORS
-      BACKEND_CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
-      
-      # Configuración de seguridad
-      SECRET_KEY: "your-secret-key-here"
+      # Admin por defecto
+      DEFAULT_ADMIN_EMAIL: "admin@contable.local"
+      DEFAULT_ADMIN_PASSWORD: "DevAdmin123!"
       
     volumes:
       - ./app:/app/app:ro
       - ./alembic:/app/alembic:ro
+      - ./.env.development:/app/.env.development:ro
     depends_on:
       postgres:
         condition: service_healthy
-    command: >
-      sh -c "
-        echo 'Esperando a que PostgreSQL esté listo...' &&
-        sleep 10 &&
-        echo 'Ejecutando migraciones...' &&
-        alembic upgrade head &&
-        echo 'Iniciando servidor...' &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-      "
+    restart: unless-stopped
 
 volumes:
   postgres_data:

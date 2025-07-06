@@ -4,7 +4,7 @@ Servicio de OpenAI para el sistema contable
 import logging
 from typing import Optional, Dict, Any
 from openai import AsyncOpenAI
-from app.config import settings
+from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 
