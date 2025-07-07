@@ -10,7 +10,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from app.core.config import settings
+from app.core.settings import settings
 
 # Import base first
 from app.models.base import Base

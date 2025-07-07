@@ -608,8 +608,40 @@ class AuthService:
     @classmethod
     async def ensure_default_admin_exists(cls, db: AsyncSession) -> Optional[User]:
         """
-        Método de clase para asegurar que existe un administrador por defecto
-        Para uso durante el startup de la aplicación
+        Asegura que exista un usuario administrador por defecto
+        Retorna el usuario admin si fue creado, None si ya existía
         """
+        from app.core.settings import settings
+        
+        # Verificar si ya existe un usuario admin
+        result = await db.execute(
+            select(User).where(User.email == settings.DEFAULT_ADMIN_EMAIL)
+        )
+        existing_admin = result.scalar_one_or_none()
+        
+        if existing_admin:
+            return None  # Ya existe
+        
+        # Crear el usuario administrador por defecto
         auth_service = cls(db)
-        return await auth_service.create_default_admin_user()
+        hashed_password = auth_service._hash_password(settings.DEFAULT_ADMIN_PASSWORD)
+        
+        admin_user = User(
+            email=settings.DEFAULT_ADMIN_EMAIL,
+            hashed_password=hashed_password,
+            full_name="Administrador del Sistema",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
+            force_password_change=False,  # No forzar cambio en el admin por defecto
+            password_changed_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
+        )
+        
+        db.add(admin_user)
+        await db.commit()
+        await db.refresh(admin_user)
+        
+        return admin_user

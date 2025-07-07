@@ -10,6 +10,9 @@ from app.models.payment_terms import PaymentTerms, PaymentSchedule
 from app.models.product import Product, ProductType, ProductStatus, MeasurementUnit, TaxCategory
 from app.models.tax import Tax, TaxType, TaxScope
 
+# Importar modelos de monedas y tipos de cambio
+from app.models.currency import Currency, ExchangeRate
+
 from app.models.audit import (
     AuditLog, AuditAction, AuditLogLevel, ChangeTracking,
     SystemConfiguration, CompanyInfo, NumberSequence
@@ -51,6 +54,9 @@ __all__ = [
     "ProductStatus",
     "MeasurementUnit",   
     "TaxCategory",
+    # Modelos de monedas y tipos de cambio
+    "Currency",
+    "ExchangeRate",
     "AuditLog",
     "AuditAction",
     "AuditLogLevel",

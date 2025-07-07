@@ -602,7 +602,7 @@ ON report_audit_log(report_type, created_at);
 ```python
 # cache_config.py
 import redis
-from app.core.config import settings
+from app.core.settings import settings
 
 class ReportCache:
     def __init__(self):

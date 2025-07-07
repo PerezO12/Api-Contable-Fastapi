@@ -95,6 +95,22 @@ async def lifespan(app: FastAPI):
                 else:
                     print("ℹ️ Todas las cuentas de impuestos ya existen")
                 
+                # Initialize default currencies
+                try:
+                    from app.utils.currency_init import initialize_currencies
+                    await initialize_currencies()
+                    print("✅ Monedas por defecto inicializadas")
+                except Exception as currency_error:
+                    print(f"⚠️ Error inicializando monedas por defecto: {currency_error}")
+                
+                # Import all world currencies if enabled
+                try:
+                    from scripts.data_import.import_world_currencies import run_currency_import
+                    await run_currency_import()
+                    print("✅ Importación de monedas mundiales completada")
+                except Exception as import_error:
+                    print(f"⚠️ Error importando monedas mundiales: {import_error}")
+                
             except Exception as admin_error:
                 print(f"⚠️ Error al crear usuario administrador o cuentas: {admin_error}")
     except Exception as db_error:

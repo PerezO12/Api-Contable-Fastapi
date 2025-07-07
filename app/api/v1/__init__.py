@@ -9,6 +9,7 @@ from app.api.v1 import (
     products, journals, generic_import, import_templates, chat, company_settings
 )
 from app.api import payment_terms, payments, invoices, bank_extracts, bank_reconciliation, nfe, account_determination
+from app.routers import currency
 
 api_router = APIRouter()
 
@@ -35,6 +36,9 @@ api_router.include_router(third_parties.router, prefix="/third-parties", tags=["
 
 # Company settings routes
 api_router.include_router(company_settings.router, prefix="/company-settings", tags=["company-settings"])
+
+# Currency and exchange rate routes
+api_router.include_router(currency.router, prefix="/currencies", tags=["currencies"])
 
 # Product routes
 api_router.include_router(products.router, prefix="/products", tags=["products"])

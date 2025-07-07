@@ -54,7 +54,7 @@ venv.bak/
 
 # AI model cache directories
 .cache/
-models/
+
 transformers_cache/
 huggingface_hub/
 
@@ -83,15 +83,6 @@ coverage.xml
 *.mo
 *.pot
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
 
 # Scrapy stuff:
 .scrapy

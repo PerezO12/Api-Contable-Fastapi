@@ -15,6 +15,7 @@ from app.schemas.company_settings import (
     DefaultAccountsInfo, AccountSuggestion
 )
 from app.utils.exceptions import NotFoundError, BusinessRuleError
+from app.services.currency_change_service import CurrencyChangeService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -170,6 +171,10 @@ class CompanySettingsService:
         # Validar cuentas referenciadas
         await self._validate_account_references(settings_data)
         
+        # Validar cambio de moneda si aplica
+        if hasattr(settings_data, 'currency_code') and settings_data.currency_code:
+            await self._validate_currency_change(settings, settings_data.currency_code, updated_by_id)
+        
         # Actualizar campos
         update_data = settings_data.model_dump(exclude_unset=True)
         logger.info(f"Campos a actualizar: {update_data}")
@@ -187,7 +192,7 @@ class CompanySettingsService:
         await self.db.commit()
         logger.info("Commit realizado - cambios persistidos")
         
-        # Reload with relations
+        # Reload with all relations needed for response building
         await self.db.refresh(settings, [
             'default_customer_receivable_account',
             'default_supplier_payable_account',
@@ -196,6 +201,19 @@ class CompanySettingsService:
             'default_sales_tax_payable_account',
             'default_purchase_tax_deductible_account',
             'default_tax_account',
+            # Brazilian tax accounts
+            'default_icms_payable_account',
+            'default_icms_deductible_account',
+            'default_pis_payable_account',
+            'default_pis_deductible_account',
+            'default_cofins_payable_account',
+            'default_cofins_deductible_account',
+            'default_ipi_payable_account',
+            'default_ipi_deductible_account',
+            'default_iss_payable_account',
+            'default_csll_payable_account',
+            'default_irpj_payable_account',
+            # Other accounts
             'default_cash_account',
             'default_bank_account',
             'bank_suspense_account',
@@ -445,6 +463,15 @@ class CompanySettingsService:
     # MÉTODOS PRIVADOS
     # ========================
     
+    def _safe_get_account_name(self, settings: CompanySettings, account_attr: str) -> Optional[str]:
+        """Safely get the name of an account relationship"""
+        try:
+            account = getattr(settings, account_attr, None)
+            return account.name if account else None
+        except Exception as e:
+            logger.warning(f"Could not get name for account relationship {account_attr}: {e}")
+            return None
+
     def _build_settings_response(self, settings: CompanySettings) -> CompanySettingsResponse:
         """Construye la respuesta con información de las cuentas"""
         try:
@@ -498,37 +525,37 @@ class CompanySettingsService:
                 is_active=settings.is_active,
                 notes=getattr(settings, 'notes', ''),
                 
-                # Nombres de cuentas
-                default_customer_receivable_account_name=settings.default_customer_receivable_account.name if settings.default_customer_receivable_account else None,
-                default_supplier_payable_account_name=settings.default_supplier_payable_account.name if settings.default_supplier_payable_account else None,
-                default_sales_income_account_name=getattr(settings.default_sales_income_account, 'name', None) if getattr(settings, 'default_sales_income_account', None) else None,
-                default_purchase_expense_account_name=getattr(settings.default_purchase_expense_account, 'name', None) if getattr(settings, 'default_purchase_expense_account', None) else None,
-                default_sales_tax_payable_account_name=getattr(settings.default_sales_tax_payable_account, 'name', None) if getattr(settings, 'default_sales_tax_payable_account', None) else None,
-                default_purchase_tax_deductible_account_name=getattr(settings.default_purchase_tax_deductible_account, 'name', None) if getattr(settings, 'default_purchase_tax_deductible_account', None) else None,
-                default_tax_account_name=getattr(settings.default_tax_account, 'name', None) if getattr(settings, 'default_tax_account', None) else None,
+                # Nombres de cuentas - using safe access
+                default_customer_receivable_account_name=self._safe_get_account_name(settings, 'default_customer_receivable_account'),
+                default_supplier_payable_account_name=self._safe_get_account_name(settings, 'default_supplier_payable_account'),
+                default_sales_income_account_name=self._safe_get_account_name(settings, 'default_sales_income_account'),
+                default_purchase_expense_account_name=self._safe_get_account_name(settings, 'default_purchase_expense_account'),
+                default_sales_tax_payable_account_name=self._safe_get_account_name(settings, 'default_sales_tax_payable_account'),
+                default_purchase_tax_deductible_account_name=self._safe_get_account_name(settings, 'default_purchase_tax_deductible_account'),
+                default_tax_account_name=self._safe_get_account_name(settings, 'default_tax_account'),
                 
-                # Brazilian tax accounts names
-                default_icms_payable_account_name=getattr(settings.default_icms_payable_account, 'name', None) if getattr(settings, 'default_icms_payable_account', None) else None,
-                default_icms_deductible_account_name=getattr(settings.default_icms_deductible_account, 'name', None) if getattr(settings, 'default_icms_deductible_account', None) else None,
-                default_pis_payable_account_name=getattr(settings.default_pis_payable_account, 'name', None) if getattr(settings, 'default_pis_payable_account', None) else None,
-                default_pis_deductible_account_name=getattr(settings.default_pis_deductible_account, 'name', None) if getattr(settings, 'default_pis_deductible_account', None) else None,
-                default_cofins_payable_account_name=getattr(settings.default_cofins_payable_account, 'name', None) if getattr(settings, 'default_cofins_payable_account', None) else None,
-                default_cofins_deductible_account_name=getattr(settings.default_cofins_deductible_account, 'name', None) if getattr(settings, 'default_cofins_deductible_account', None) else None,
-                default_ipi_payable_account_name=getattr(settings.default_ipi_payable_account, 'name', None) if getattr(settings, 'default_ipi_payable_account', None) else None,
-                default_ipi_deductible_account_name=getattr(settings.default_ipi_deductible_account, 'name', None) if getattr(settings, 'default_ipi_deductible_account', None) else None,
-                default_iss_payable_account_name=getattr(settings.default_iss_payable_account, 'name', None) if getattr(settings, 'default_iss_payable_account', None) else None,
-                default_csll_payable_account_name=getattr(settings.default_csll_payable_account, 'name', None) if getattr(settings, 'default_csll_payable_account', None) else None,
-                default_irpj_payable_account_name=getattr(settings.default_irpj_payable_account, 'name', None) if getattr(settings, 'default_irpj_payable_account', None) else None,
+                # Brazilian tax accounts names - using safe access
+                default_icms_payable_account_name=self._safe_get_account_name(settings, 'default_icms_payable_account'),
+                default_icms_deductible_account_name=self._safe_get_account_name(settings, 'default_icms_deductible_account'),
+                default_pis_payable_account_name=self._safe_get_account_name(settings, 'default_pis_payable_account'),
+                default_pis_deductible_account_name=self._safe_get_account_name(settings, 'default_pis_deductible_account'),
+                default_cofins_payable_account_name=self._safe_get_account_name(settings, 'default_cofins_payable_account'),
+                default_cofins_deductible_account_name=self._safe_get_account_name(settings, 'default_cofins_deductible_account'),
+                default_ipi_payable_account_name=self._safe_get_account_name(settings, 'default_ipi_payable_account'),
+                default_ipi_deductible_account_name=self._safe_get_account_name(settings, 'default_ipi_deductible_account'),
+                default_iss_payable_account_name=self._safe_get_account_name(settings, 'default_iss_payable_account'),
+                default_csll_payable_account_name=self._safe_get_account_name(settings, 'default_csll_payable_account'),
+                default_irpj_payable_account_name=self._safe_get_account_name(settings, 'default_irpj_payable_account'),
                 
-                # Other account names
-                default_cash_account_name=settings.default_cash_account.name if settings.default_cash_account else None,
-                default_bank_account_name=settings.default_bank_account.name if settings.default_bank_account else None,
-                bank_suspense_account_name=settings.bank_suspense_account.name if settings.bank_suspense_account else None,
-                internal_transfer_account_name=settings.internal_transfer_account.name if settings.internal_transfer_account else None,
-                deferred_expense_account_name=settings.deferred_expense_account.name if settings.deferred_expense_account else None,
-                deferred_revenue_account_name=settings.deferred_revenue_account.name if settings.deferred_revenue_account else None,
-                early_payment_discount_gain_account_name=settings.early_payment_discount_gain_account.name if settings.early_payment_discount_gain_account else None,
-                early_payment_discount_loss_account_name=settings.early_payment_discount_loss_account.name if settings.early_payment_discount_loss_account else None,
+                # Other account names - using safe access
+                default_cash_account_name=self._safe_get_account_name(settings, 'default_cash_account'),
+                default_bank_account_name=self._safe_get_account_name(settings, 'default_bank_account'),
+                bank_suspense_account_name=self._safe_get_account_name(settings, 'bank_suspense_account'),
+                internal_transfer_account_name=self._safe_get_account_name(settings, 'internal_transfer_account'),
+                deferred_expense_account_name=self._safe_get_account_name(settings, 'deferred_expense_account'),
+                deferred_revenue_account_name=self._safe_get_account_name(settings, 'deferred_revenue_account'),
+                early_payment_discount_gain_account_name=self._safe_get_account_name(settings, 'early_payment_discount_gain_account'),
+                early_payment_discount_loss_account_name=self._safe_get_account_name(settings, 'early_payment_discount_loss_account'),
                 
                 # Flags de configuración
                 has_customer_receivable_configured=bool(settings.default_customer_receivable_account_id),
@@ -604,6 +631,45 @@ class CompanySettingsService:
                 if not account:
                     raise BusinessRuleError(f"Account with ID {account_id} not found or inactive for field {field}")
     
+    async def _validate_currency_change(self, settings: CompanySettings, new_currency_code: str, updated_by_id: uuid.UUID) -> None:
+        """Valida y procesa el cambio de moneda base de la empresa"""
+        # Solo validar si la moneda realmente está cambiando
+        if settings.currency_code == new_currency_code:
+            return
+        
+        logger.info(f"Iniciando validación de cambio de moneda de {settings.currency_code} a {new_currency_code}")
+        
+        # Crear instancia del servicio de cambio de moneda
+        currency_service = CurrencyChangeService(self.db)
+        
+        # Validar el cambio de moneda
+        validation_result = await currency_service.validate_currency_change(
+            current_currency=settings.currency_code,
+            new_currency=new_currency_code
+        )
+        
+        # Si hay errores críticos, lanzar excepción
+        if validation_result.errors:
+            error_msg = "Errores en validación de cambio de moneda: " + "; ".join(validation_result.errors)
+            logger.error(error_msg)
+            raise BusinessRuleError(error_msg)
+        
+        # Si hay advertencias, registrarlas
+        if validation_result.warnings:
+            for warning in validation_result.warnings:
+                logger.warning(f"Advertencia en cambio de moneda: {warning}")
+        
+        # Ejecutar el cambio de moneda (crear asientos de ajuste)
+        from datetime import date
+        await currency_service.execute_currency_change(
+            new_currency=new_currency_code,
+            effective_date=date.today(),
+            user_id=updated_by_id,
+            force=False
+        )
+        
+        logger.info(f"Cambio de moneda completado exitosamente de {settings.currency_code} a {new_currency_code}")
+
     async def _get_available_receivable_accounts(self) -> List[Dict[str, Any]]:
         """Obtiene cuentas disponibles para usar como cuentas por cobrar"""
         accounts_result = await self.db.execute(

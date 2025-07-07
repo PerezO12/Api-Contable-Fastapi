@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.models.payment_terms import PaymentTerms
     from app.models.product import Product
     from app.models.journal import Journal
+    from app.models.currency import Currency, ExchangeRate
 
 
 class JournalEntryStatus(str, Enum):
@@ -305,13 +306,41 @@ class JournalEntryLine(Base):
                                                                   comment="Condiciones de pago aplicables a esta línea")
     
     # Orden de la línea en el asiento
-    line_number: Mapped[int] = mapped_column(Integer, nullable=False)    # Relationships
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # === CAMPOS MULTI-CURRENCY ===
+    # Moneda de la transacción original (si es diferente a la moneda base)
+    currency_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("currencies.id"), 
+        nullable=True,
+        comment="Moneda de la transacción original (si es diferente a la moneda base)"
+    )
+    
+    # Importe en la moneda original
+    amount_currency: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=15, scale=2), 
+        nullable=True,
+        comment="Importe en la moneda original de la transacción"
+    )
+    
+    # Referencia al tipo de cambio utilizado
+    exchange_rate_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("exchange_rates.id"), 
+        nullable=True,
+        comment="Tipo de cambio utilizado para la conversión"
+    )
+
+    # Relationships
     journal_entry: Mapped["JournalEntry"] = relationship("JournalEntry", back_populates="lines")
     account: Mapped["Account"] = relationship("Account")
     third_party: Mapped[Optional["ThirdParty"]] = relationship("ThirdParty", lazy="select")
     cost_center: Mapped[Optional["CostCenter"]] = relationship("CostCenter", lazy="select")
     payment_terms: Mapped[Optional["PaymentTerms"]] = relationship("PaymentTerms", lazy="select")
     product: Mapped[Optional["Product"]] = relationship("Product", back_populates="journal_entry_lines", lazy="select")
+    
+    # Multi-currency relationships
+    currency: Mapped[Optional["Currency"]] = relationship("Currency", back_populates="journal_entry_lines", lazy="select")
+    exchange_rate: Mapped[Optional["ExchangeRate"]] = relationship("ExchangeRate", back_populates="journal_entry_lines", lazy="select")
     def __repr__(self) -> str:
         return f"<JournalEntryLine(account='{self.account.code}', debit={self.debit_amount}, credit={self.credit_amount})>"
 
@@ -653,3 +682,64 @@ class JournalEntryLine(Base):
         errors.extend(product_errors)
         
         return errors
+    
+    # === PROPIEDADES MULTI-CURRENCY ===
+    
+    @property
+    def currency_code(self) -> Optional[str]:
+        """Retorna el código de la moneda original"""
+        return self.currency.code if self.currency else None
+    
+    @property
+    def currency_name(self) -> Optional[str]:
+        """Retorna el nombre de la moneda original"""
+        return self.currency.name if self.currency else None
+    
+    @property
+    def is_foreign_currency(self) -> bool:
+        """Verifica si esta línea usa una moneda extranjera"""
+        return self.currency_id is not None
+    
+    @property
+    def effective_amount_currency(self) -> Decimal:
+        """Retorna el importe en moneda original, o el importe base si no hay moneda extranjera"""
+        if self.amount_currency is not None:
+            return self.amount_currency
+        return self.amount
+    
+    @property
+    def exchange_rate_value(self) -> Optional[Decimal]:
+        """Retorna el valor del tipo de cambio utilizado"""
+        return self.exchange_rate.rate if self.exchange_rate else None
+    
+    @property
+    def exchange_rate_date(self) -> Optional[date]:
+        """Retorna la fecha del tipo de cambio utilizado"""
+        return self.exchange_rate.rate_date if self.exchange_rate else None
+    
+    def get_amount_in_base_currency(self) -> Decimal:
+        """
+        Retorna el importe convertido a moneda base.
+        Si ya está en moneda base, retorna debit_amount o credit_amount.
+        """
+        if not self.is_foreign_currency:
+            return self.amount
+        
+        # Si tiene moneda extranjera pero no tiene exchange_rate, error
+        if not self.exchange_rate:
+            raise ValueError(f"La línea tiene moneda extranjera ({self.currency_code}) pero no tiene tipo de cambio")
+        
+        # Convertir usando el tipo de cambio
+        return self.exchange_rate.convert_to_base(self.effective_amount_currency)
+    
+    def get_amount_in_currency(self, target_currency_code: str) -> Decimal:
+        """
+        Retorna el importe convertido a la moneda especificada.
+        Requiere lógica adicional de conversión entre monedas.
+        """
+        # Por ahora solo implementamos conversión desde/hacia moneda base
+        if target_currency_code == (self.currency_code or "BASE"):
+            return self.effective_amount_currency
+        
+        # TODO: Implementar conversión entre monedas extranjeras
+        raise NotImplementedError("Conversión entre monedas extranjeras no implementada aún")

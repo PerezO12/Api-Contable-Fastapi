@@ -91,7 +91,7 @@ def drop_db_and_tables():
     Base.metadata.drop_all(bind=engine)
 
 
-async def create_async_db_and_tables():
+async def create_async_db_and_tables() -> None:
     """Crea todas las tablas en la base de datos (versión asíncrona)"""
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
